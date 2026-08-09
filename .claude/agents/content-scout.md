@@ -1,4 +1,4 @@
-﻿---
+---
 name: content-scout
 description: 마케팅팀 조사원. 토망치랩(@ai_tomangchi.lab)용 AI 뉴스/툴 소재를 조사하고 카드 제안서를 작성한다. 소재 조사, 토픽 발굴, 카드 제안 요청 시 사용.
 tools: Read, Glob, Grep, Bash, WebSearch, WebFetch

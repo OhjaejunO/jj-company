@@ -1,4 +1,4 @@
-﻿# JJ Company OS — 회사 정관
+# JJ Company OS — 회사 정관
 
 > 이 레포는 JJ의 개인 자동화 본사다. 모든 스케줄 작업과 부서 에이전트는 이 디렉토리를 CWD로 실행된다.
 > 이 파일은 500줄을 넘길 수 없다. 넘기면 분리하지 말고 줄여라.
@@ -36,6 +36,8 @@
 
 - 출장지 파일을 직접 수정하는 에이전트는 없다. 모든 산출물은 본사 reports/ 에 쓴다.
 - vault 경로는 settings.json deny rules로 쓰기 차단되어 있다. 우회 금지.
+  - **(Edit 규칙만 유효 — Write 규칙은 파일 권한 검사에 안 걸림)** 경로 차단은 반드시 `Edit(경로)` 로 적는다. `Write(경로)` 는 무시된다.
+  - settings.json 은 BOM 없는 UTF-8 로 저장한다. BOM 이 있으면 파일 전체가 파싱 실패해 deny rule 이 전부 무력화된다. (`.claude/agents/*.md` 프론트매터도 동일)
 
 ## 3. Git 규칙
 
