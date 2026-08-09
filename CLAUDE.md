@@ -28,13 +28,15 @@
 
 | 대상 | 경로 | 권한 |
 |---|---|---|
-| 본사 | C:\Users\ojaej\jj-company | 읽기/쓰기 |
+| 작업장 | C:\Users\ojaej\orca\jj-company | 읽기/쓰기. JJ가 개발하는 곳. OJJ 브랜치에서 작업 |
+| 운영 서버 | C:\Users\ojaej\jj-company | 스케줄러 CWD. **main 전용 · 사람 직접 수정 금지** (git pull 로만 갱신) |
 | 세컨드브레인 | C:\Obsidian.JJ\JJ-Brain | **읽기 전용** |
 | 토망치랩 제작 | C:\토망치 | 읽기 전용 (제안만) |
 | 토망치랩 전달함 | OneDrive\토망치_전달함 | 읽기 전용 |
 | 블로그 | OhjaejunO.github.io 로컬 클론 | 읽기 전용 (초안은 reports/에) |
 
-- 출장지 파일을 직접 수정하는 에이전트는 없다. 모든 산출물은 본사 reports/ 에 쓴다.
+- 출장지 파일을 직접 수정하는 에이전트는 없다. 모든 산출물은 운영 서버 reports/ 에 쓴다.
+- 코드/정관 변경은 작업장에서만 한다. 운영 서버에서 직접 편집하면 다음 pull 에서 충돌로 스케줄이 멈춘다.
 - vault 경로는 settings.json deny rules로 쓰기 차단되어 있다. 우회 금지.
   - **(Edit 규칙만 유효 — Write 규칙은 파일 권한 검사에 안 걸림)** 경로 차단은 반드시 `Edit(경로)` 로 적는다. `Write(경로)` 는 무시된다.
   - settings.json 은 BOM 없는 UTF-8 로 저장한다. BOM 이 있으면 파일 전체가 파싱 실패해 deny rule 이 전부 무력화된다. (`.claude/agents/*.md` 프론트매터도 동일)
@@ -43,7 +45,7 @@
 
 - main 직접 커밋 금지. OJJ 브랜치에서 작업 → PR → `--assignee OhjaejunO --merge --admin`
 - 커밋 메시지: conventional prefix(영어) + 한국어 설명. 100바이트 이내.
-- 스케줄 작업의 리포트 커밋 prefix: `report:`
+- 리포트(reports/)는 로컬 전용 — 민감 정보 포함 가능성으로 커밋 금지 (.gitignore 유지).
 - logs/ 는 커밋하지 않는다 (.gitignore).
 
 ## 4. 스케줄링 규약
@@ -55,12 +57,13 @@
 - 실행 결과 마지막 줄에 `STATUS: OK` 또는 `STATUS: FAIL <사유>`.
 - A/B등급만 스케줄 가능. C등급 스케줄 등록 금지.
 - lock 파일 `logs\<작업명>.lock` 존재 시 즉시 종료.
+- 모든 스케줄 작업은 실행 시작 시 `git pull origin main` 으로 운영 서버를 최신 main과 동기화한 뒤 진행한다. pull 실패 시 즉시 `STATUS: FAIL git-sync` 로 종료.
 
 ### 등록된 스케줄 (현황판)
 
 | 작업 | 에이전트 | 주기 | 상태 |
 |---|---|---|---|
-| morning-vault-health | ops-auditor | 평일 07:30 | 준비 중 |
+| morning-vault-health | ops-auditor | 평일 07:30 | 가동 |
 | tomangchi-scout | content-scout | 미정 | 대기 |
 | job-scout-daily | job-scout | 미정 | 대기 |
 
