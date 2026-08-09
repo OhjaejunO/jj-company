@@ -1,4 +1,4 @@
-﻿---
+---
 name: job-scout
 description: 영업팀 발굴원. AX 엔지니어/AI 엔지니어링 채용 공고를 웹에서 발굴하고 적합도를 평가해 요약한다. 채용 공고 조사, 지원 대상 발굴 요청 시 사용.
 tools: Read, Glob, Grep, WebSearch, WebFetch

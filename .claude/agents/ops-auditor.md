@@ -1,4 +1,4 @@
-﻿---
+---
 name: ops-auditor
 description: 운영팀 감사관. JJ-Brain vault 건강 상태를 read-only로 감사하고 아침 리포트를 작성한다. vault 점검, 백업 검증, 링크 무결성 확인 요청 시 사용.
 tools: Read, Glob, Grep, Bash
