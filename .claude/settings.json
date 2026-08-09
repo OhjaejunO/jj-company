@@ -1,0 +1,15 @@
+﻿{
+  "permissions": {
+    "deny": [
+      "Write(C:\\Obsidian.JJ\\JJ-Brain\\**)",
+      "Edit(C:\\Obsidian.JJ\\JJ-Brain\\**)",
+      "Write(C:\\토망치\\**)",
+      "Edit(C:\\토망치\\**)",
+      "Write(C:\\Users\\ojaej\\OneDrive\\토망치_전달함\\**)",
+      "Edit(C:\\Users\\ojaej\\OneDrive\\토망치_전달함\\**)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(rm -rf*)"
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+﻿logs/
+*.lock
+.env
+
+departments/sales/applied.md
+reports/*.md
+
+departments/sales/applied.md
+reports/*.md
