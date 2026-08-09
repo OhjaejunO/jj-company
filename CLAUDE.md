@@ -30,7 +30,7 @@
 |---|---|---|
 | 작업장 | C:\Users\ojaej\orca\jj-company | 읽기/쓰기. JJ가 개발하는 곳. OJJ 브랜치에서 작업 |
 | 운영 서버 | C:\Users\ojaej\jj-company | 스케줄러 CWD. **main 전용 · 사람 직접 수정 금지** (git pull 로만 갱신) |
-| 세컨드브레인 | C:\Obsidian.JJ\JJ-Brain | **읽기 전용** |
+| 세컨드브레인 | C:\Obsidian.JJ\JJ-Brain | **읽기 전용** — 읽기는 해당 스케줄 스크립트의 `--add-dir` 로만 부여 (전역 허용 금지) |
 | 토망치랩 제작 | C:\토망치 | 읽기 전용 (제안만) |
 | 토망치랩 전달함 | OneDrive\토망치_전달함 | 읽기 전용 |
 | 블로그 | OhjaejunO.github.io 로컬 클론 | 읽기 전용 (초안은 reports/에) |
