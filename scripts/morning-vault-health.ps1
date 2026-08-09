@@ -14,6 +14,11 @@ $Hq         = 'C:\Users\ojaej\jj-company'
 $Claude     = 'C:\Users\ojaej\.local\bin\claude.exe'
 $PromptFile = Join-Path $Hq 'scripts\prompts\morning-vault-health.md'
 
+# Read access to the vault is granted per-run via --add-dir (least privilege).
+# Do NOT move this into settings.json additionalDirectories: that would grant
+# every session read access. The Edit() deny rule keeps writes blocked either way.
+$VaultPath  = 'C:\Obsidian.JJ\JJ-Brain'
+
 $Stamp    = Get-Date -Format 'yyyyMMdd'
 $IsoDate  = Get-Date -Format 'yyyy-MM-dd'
 $LogDir   = Join-Path $Hq 'logs\scheduled'
@@ -63,8 +68,8 @@ try {
     }
     $prompt = (Get-Content -LiteralPath $PromptFile -Raw -Encoding UTF8).Replace('{{DATE}}', $IsoDate)
 
-    Write-Log 'claude -p (ops-auditor) start'
-    $out        = & $Claude -p $prompt --permission-mode acceptEdits 2>&1
+    Write-Log ('claude -p (ops-auditor) start, --add-dir ' + $VaultPath)
+    $out        = & $Claude -p $prompt --permission-mode acceptEdits --add-dir $VaultPath 2>&1
     $claudeCode = $LASTEXITCODE
     foreach ($l in $out) { Write-Log ('  cc| ' + $l) }
     Write-Log ('claude exit code ' + $claudeCode)

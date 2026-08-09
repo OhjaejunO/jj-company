@@ -18,7 +18,7 @@ JJ-Brain vault: C:\Obsidian.JJ\JJ-Brain (departments/ops/config.md 참조)
 5. 백업 검증: config.md에 백업 경로 있으면 최신 백업 시각 vs vault 최종 수정 시각 비교
 
 ## 리포트 규칙
-- CLAUDE.md 5절 형식, 등급 A, reports/<yyyy-MM-dd>_vault-health.md 저장
+- CLAUDE.md 5절 형식, 등급 A, reports/<yyyy-MM-dd>_morning-vault-health.md 저장 (정관 4절 `<작업명>` 규약)
 - 결론 3줄 먼저. 문제는 🔴/🟡/⚪ 분류
 - 전날 리포트 있으면 증감 비교 한 줄
 - 직접 고치지 않는다. "JJ가 할 일" 목록으로만
