@@ -31,11 +31,14 @@
 | 작업장 | C:\Users\ojaej\orca\jj-company | 읽기/쓰기. JJ가 개발하는 곳. OJJ 브랜치에서 작업 |
 | 운영 서버 | C:\Users\ojaej\jj-company | 스케줄러 CWD. **main 전용 · 사람 직접 수정 금지** (git pull 로만 갱신) |
 | 세컨드브레인 | C:\Obsidian.JJ\JJ-Brain | **읽기 전용** — 읽기는 해당 스케줄 스크립트의 `--add-dir` 로만 부여 (전역 허용 금지) |
-| 토망치랩 제작 | C:\토망치 | 읽기 전용 (제안만) |
+| 토망치랩 작업 폴더 | C:\Users\ojaej\orca\tomangchi-lab.github.io\workshop | 읽기 전용 — **단, `workshop\스캔로그\` 는 content-scout 쓰기 허용** (아래 예외 조항) |
+| 토망치랩 제작 (구) | C:\토망치 | 읽기 전용 (제안만) |
 | 토망치랩 전달함 | OneDrive\토망치_전달함 | 읽기 전용 |
 | 블로그 | OhjaejunO.github.io 로컬 클론 | 읽기 전용 (초안은 reports/에) |
 
 - 출장지 파일을 직접 수정하는 에이전트는 없다. 모든 산출물은 운영 서버 reports/ 에 쓴다.
+- **출장지 쓰기 예외 1건 (content-scout 한정)**: `...\tomangchi-lab.github.io\workshop\스캔로그\` 에만 쓴다. 토망치랩 SKILL.md §5.5-3-1 아침 스캔 로그가 그 폴더 정본이라 우회 산출이 불가능하기 때문이다. 조건 — ① 해당 스케줄 스크립트의 `--add-dir` 로만 부여(전역 허용 금지) ② 기존 내용 수정·삭제 금지, 맨 아래 append 만 ③ 그 외 workshop 하위 폴더와 다른 출장지 쓰기는 계속 금지.
+- **등급 경계 (content-scout)**: 토망치랩 SKILL.md §5.5의 1~3-1단계(수집·검증·판정·스캔로그·제안)까지만 자동화한다. 컨펌·캡처·카드 제작·발행은 사람이 한다. SKILL.md 는 에이전트가 수정하지 않는다 (개정은 토망치랩 트랙에서 JJ가 진행).
 - 코드/정관 변경은 작업장에서만 한다. 운영 서버에서 직접 편집하면 다음 pull 에서 충돌로 스케줄이 멈춘다.
 - vault 경로는 settings.json deny rules로 쓰기 차단되어 있다. 우회 금지.
   - **(Edit 규칙만 유효 — Write 규칙은 파일 권한 검사에 안 걸림)** 경로 차단은 반드시 `Edit(경로)` 로 적는다. `Write(경로)` 는 무시된다.
@@ -64,7 +67,7 @@
 | 작업 | 에이전트 | 주기 | 상태 |
 |---|---|---|---|
 | morning-vault-health | ops-auditor | 평일 07:30 | 가동 |
-| tomangchi-scout | content-scout | 미정 | 대기 |
+| tomangchi-scout | content-scout | 매일 08:00 | 가동 |
 | job-scout-daily | job-scout | 미정 | 대기 |
 
 ## 5. 리포트 형식
