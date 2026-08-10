@@ -6,9 +6,13 @@
 # violations, source/claim mismatches, and overreach. The verdict is APPENDED to
 # the report - the body is never edited. codex itself runs read-only.
 #
-# Auth: codex is signed in with a ChatGPT account (~/.codex/auth.json,
-# auth_mode=chatgpt). OPENAI_API_KEY is not set and is not required. If an API
-# key is registered later, codex picks it up without changing this script.
+# Auth: split by design. codex ignores OPENAI_API_KEY when ~/.codex holds ChatGPT
+# tokens (verified: an intentionally invalid key still succeeded), so the audit
+# gets its OWN config dir via CODEX_HOME. ~/.codex-jjcompany is logged in with the
+# API key; ~/.codex keeps JJ's interactive ChatGPT auth untouched.
+#
+# CODEX_HOME is set on THIS PROCESS ONLY - it never leaks to the parent shell or
+# to JJ's interactive sessions. Do not move it to a user-scope variable.
 #
 # ASCII-only on purpose: Windows PowerShell 5.1 decodes BOM-less .ps1 files as
 # the system ANSI codepage. All Korean text lives in scripts\prompts\*.md and is
@@ -26,6 +30,7 @@ $Task      = 'cross-verify'
 $Hq        = 'C:\Users\ojaej\jj-company'
 $Codex     = 'C:\Users\ojaej\AppData\Roaming\npm\codex.cmd'
 $Model     = 'codex default'
+$CodexHome = 'C:\Users\ojaej\.codex-jjcompany'
 
 $PromptFile  = Join-Path $Hq 'scripts\prompts\cross-verify.md'
 $SectionFile = Join-Path $Hq 'scripts\prompts\cross-verify.section.md'
@@ -114,6 +119,16 @@ if (-not (Test-Path -LiteralPath $Codex)) {
     Write-Log 'STATUS: FAIL codex-not-found'
     exit 1
 }
+if (-not (Test-Path -LiteralPath (Join-Path $CodexHome 'auth.json'))) {
+    Write-Log ('audit codex home not logged in: ' + $CodexHome)
+    Append-Section -Body ('codex-home-not-authenticated: ' + $CodexHome) -Failed $true
+    Write-Log 'STATUS: FAIL codex-home-not-authenticated'
+    exit 1
+}
+
+# Process-scoped only. The audit runs on the API key; JJ's ~/.codex is untouched.
+$env:CODEX_HOME = $CodexHome
+Write-Log ('CODEX_HOME=' + $CodexHome)
 
 $prompt = (Get-Content -LiteralPath $PromptFile -Raw -Encoding UTF8).
     Replace('{{RULES}}',  $Rules).
@@ -145,11 +160,13 @@ $code = $null
 # process never launches. Invoke it directly and pipe the prompt on stdin, with
 # a background job supplying the timeout.
 $job = Start-Job -ScriptBlock {
-    param($codex, $codexArgs, $promptPath, $stdoutPath, $stderrPath)
+    param($codex, $codexArgs, $promptPath, $stdoutPath, $stderrPath, $codexHome)
+    # Set explicitly rather than relying on the job process inheriting it.
+    $env:CODEX_HOME = $codexHome
     $text = Get-Content -LiteralPath $promptPath -Raw -Encoding UTF8
     $text | & $codex @codexArgs 1> $stdoutPath 2> $stderrPath
     $LASTEXITCODE
-} -ArgumentList $Codex, $codexArgs, $promptPath, $stdoutPath, $stderrPath
+} -ArgumentList $Codex, $codexArgs, $promptPath, $stdoutPath, $stderrPath, $CodexHome
 
 if (Wait-Job $job -Timeout $TimeoutSec) {
     $code = Receive-Job $job
