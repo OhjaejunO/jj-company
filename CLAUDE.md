@@ -78,7 +78,7 @@
 |---|---|---|---|
 | morning-vault-health | ops-auditor | 평일 07:30 | 가동 |
 | tomangchi-scout | content-scout | 매일 08:00 | 가동 |
-| job-scout-daily | job-scout | 매일 08:30 | 가동 |
+| job-scout | job-scout | 매일 08:30 | 가동 |
 
 ## 5. 리포트 형식
 
