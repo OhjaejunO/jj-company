@@ -102,6 +102,10 @@ try {
         'WebSearch',
         'WebFetch',
         'Bash(*python.exe *manage.py*)',
+        # cwd does not survive between Bash calls, so a split "cd" then "python"
+        # runs Django from the operations server and drops an empty db.sqlite3
+        # there. content-ops commands must stay chained on one line.
+        'Bash(cd * && *python.exe *manage.py*)',
         'Bash(dir*)',
         'Bash(type*)',
         'Bash(cd*)'

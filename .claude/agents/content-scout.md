@@ -63,11 +63,11 @@ model: sonnet
 
 1. **후보 수집** — SKILL.md §5.5-1 검색 순서. 3축(소식·기회·두드려봄) 동시 수집.
 2. **스캔로그 작성 (append)** — 아래 규칙대로 `workshop\스캔로그\<yyyy-MM-dd>.md` 에 기록.
-3. **중복 판정** — content-ops 에서 실행:
+3. **중복 판정** — content-ops 명령은 **반드시 `cd <content-ops 경로> && python.exe manage.py ...` 체인 한 줄로 실행한다. 분리 호출 금지:**
    ```
-   cd C:\Users\ojaej\orca\content-ops
-   ./venv/Scripts/python.exe manage.py scan_check --from-log <yyyy-MM-dd>
+   cd C:\Users\ojaej\orca\content-ops && ./venv/Scripts/python.exe manage.py scan_check --from-log <yyyy-MM-dd>
    ```
+   Bash 호출 사이에 cwd 가 리셋되므로, `cd` 와 python 실행을 나누면 Django 가 엉뚱한 위치(운영 서버 루트)에 빈 `db.sqlite3` 를 만든다. 실제로 발생한 사고다.
    `SCAN_LOG_DIR` 환경변수는 스케줄 스크립트가 설정한다. 직접 실행 시엔 후보를 인자로 넘겨도 된다.
 4. **판정 결과를 스캔로그에 추가 기록** — 유사도·1위 Topic·도구 라벨·사람(에이전트) 판정을 표로.
 5. **리포트 작성**.
