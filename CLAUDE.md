@@ -69,6 +69,7 @@
 - stdout/stderr를 `logs\scheduled\<작업명>_<yyyyMMdd>.log` 로 리다이렉트.
 - 리포트는 `reports\<yyyy-MM-dd>_<작업명>.md`.
 - 실행 결과 마지막 줄에 `STATUS: OK` 또는 `STATUS: FAIL <사유>`.
+  - **예외**: 교차검증(codex) 섹션은 `STATUS` 줄 **뒤에 append** 된다. STATUS 판정은 감리 섹션을 제외한 본문의 마지막 `^STATUS:` 줄을 기준으로 한다. (스케줄 스크립트의 판정 로직이 이미 파일의 마지막 `^STATUS:` 줄을 읽으므로 감리 섹션이 뒤에 붙어도 판정은 정상 동작한다 — 실증 완료)
 - A/B등급만 스케줄 가능. C등급 스케줄 등록 금지.
 - lock 파일 `logs\<작업명>.lock` 존재 시 즉시 종료.
 - 모든 스케줄 작업은 실행 시작 시 `git pull origin main` 으로 운영 서버를 최신 main과 동기화한 뒤 진행한다. pull 실패 시 즉시 `STATUS: FAIL git-sync` 로 종료.
