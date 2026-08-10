@@ -102,6 +102,18 @@ try {
     }
 
     Write-Log ('report: ' + $Report)
+
+    # Cross-verification is an add-on: a codex failure must never fail the scout
+    # itself. cross-verify.ps1 writes its own "not performed" note into the report.
+    $verify = Join-Path $Hq 'scripts\cross-verify.ps1'
+    if (Test-Path -LiteralPath $verify) {
+        Write-Log 'cross-verify start'
+        & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $verify -Report $Report | Out-Null
+        Write-Log ('cross-verify exit code ' + $LASTEXITCODE + ' (does not affect this run)')
+    } else {
+        Write-Log ('cross-verify script missing: ' + $verify)
+    }
+
     Write-Log 'STATUS: OK'
     exit 0
 }

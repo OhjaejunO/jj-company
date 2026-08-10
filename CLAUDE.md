@@ -20,6 +20,7 @@
 | 마케팅팀 | content-scout | B | 토망치랩 소재 조사 → 카드 제안 |
 | 영업팀 | job-scout | B | AX/AI 엔지니어 채용 공고 발굴 → 요약 |
 | 개발팀 | implementer / verifier (글로벌 상속) | B | 구현/검증 분리, adversarial cross-validation |
+| 감리 | 교차검증 codex | A | 타모델 감리. 리포트 vs 에이전트 정의 대조 — read-only, 본문 미수정 append 전용 |
 
 - 개발팀 에이전트는 글로벌 정의를 상속한다. 이 레포에 중복 정의하지 않는다.
 - 부서별 상세 규약은 departments/<부서>/ 에 둔다. 에이전트는 자기 부서 규약을 먼저 읽고 시작한다.
