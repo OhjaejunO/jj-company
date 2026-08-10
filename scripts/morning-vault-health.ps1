@@ -86,8 +86,17 @@ try {
         exit 1
     }
 
-    if (($out | Out-String) -notmatch 'STATUS:\s*OK') {
-        Write-Log 'agent did not report STATUS: OK'
+    # The report file is the artifact of record (charter section 5), so the verdict
+    # is read from its trailing STATUS line. Agent stdout is a conversational summary
+    # and does not reliably carry the STATUS line.
+    $reportStatus = (Select-String -LiteralPath $Report -Pattern '^STATUS:' | Select-Object -Last 1).Line
+    if ($null -eq $reportStatus) {
+        Write-Log ('no STATUS line in report: ' + $Report)
+        Write-Log 'STATUS: FAIL report-status-missing'
+        exit 1
+    }
+    Write-Log ('report status line: ' + $reportStatus)
+    if ($reportStatus -notmatch 'STATUS:\s*OK') {
         Write-Log 'STATUS: FAIL agent-status-not-ok'
         exit 1
     }
