@@ -95,8 +95,21 @@ try {
 
     $prompt = (Get-Content -LiteralPath $PromptFile -Raw -Encoding UTF8).Replace('{{DATE}}', $IsoDate).Replace('{{WEEKDAY}}', $Weekday)
 
-    Write-Log 'claude -p (content-scout) start'
+    # Headless sessions cannot answer permission prompts, so the tools this job
+    # actually needs are granted explicitly and narrowly. Deny rules in
+    # settings.json still win over allow, so vault / tomangchi write blocks hold.
+    $AllowedTools = @(
+        'WebSearch',
+        'WebFetch',
+        'Bash(*python.exe *manage.py*)',
+        'Bash(dir*)',
+        'Bash(type*)',
+        'Bash(cd*)'
+    )
+
+    Write-Log ('claude -p (content-scout) start, allowed-tools: ' + ($AllowedTools -join ' '))
     $out = & $Claude -p $prompt --permission-mode acceptEdits `
+        --allowed-tools @AllowedTools `
         --add-dir $SkillDir --add-dir $ContentOps --add-dir $ScanLogDir 2>&1
     $claudeCode = $LASTEXITCODE
     foreach ($l in $out) { Write-Log ('  cc| ' + $l) }
