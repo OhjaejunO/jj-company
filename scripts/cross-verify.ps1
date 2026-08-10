@@ -139,25 +139,38 @@ $codexArgs = @(
 
 Write-Log ('codex exec start (timeout ' + $TimeoutSec + 's)')
 $failure = $null
-try {
-    $proc = Start-Process -FilePath $Codex -ArgumentList $codexArgs -NoNewWindow -PassThru `
-        -RedirectStandardInput $promptPath -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
-    if (-not $proc.WaitForExit($TimeoutSec * 1000)) {
-        try { $proc.Kill() } catch { }
-        $failure = 'codex-timeout (' + $TimeoutSec + 's)'
-    } elseif ($proc.ExitCode -ne 0) {
-        $failure = 'codex-exit-' + $proc.ExitCode
-    }
-} catch {
-    $failure = 'codex-launch-error: ' + $_.Exception.Message
-}
+$code = $null
 
+# codex is a .cmd shim; Start-Process -PassThru returns $null for it, so the
+# process never launches. Invoke it directly and pipe the prompt on stdin, with
+# a background job supplying the timeout.
+$job = Start-Job -ScriptBlock {
+    param($codex, $codexArgs, $promptPath, $stdoutPath, $stderrPath)
+    $text = Get-Content -LiteralPath $promptPath -Raw -Encoding UTF8
+    $text | & $codex @codexArgs 1> $stdoutPath 2> $stderrPath
+    $LASTEXITCODE
+} -ArgumentList $Codex, $codexArgs, $promptPath, $stdoutPath, $stderrPath
+
+if (Wait-Job $job -Timeout $TimeoutSec) {
+    $code = Receive-Job $job
+    Write-Log ('codex exit code ' + $code)
+} else {
+    Stop-Job $job
+    $failure = 'codex-timeout (' + $TimeoutSec + 's)'
+}
+Remove-Job $job -Force -ErrorAction SilentlyContinue
+
+# The answer file is the artifact of record. codex prints a non-fatal
+# models-manager warning on startup and its exit code has proven unreliable
+# through the shim, so a written answer is what counts as success.
 $answer = ''
 if (-not $failure) {
     if (Test-Path -LiteralPath $answerPath) {
         $answer = (Get-Content -LiteralPath $answerPath -Raw -Encoding UTF8)
     }
-    if (-not $answer -or -not $answer.Trim()) { $failure = 'codex-empty-answer' }
+    if (-not $answer -or -not $answer.Trim()) {
+        $failure = if ($code) { 'codex-exit-' + $code } else { 'codex-empty-answer' }
+    }
 }
 
 if ($failure) {
