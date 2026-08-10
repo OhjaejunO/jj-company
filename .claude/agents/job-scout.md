@@ -11,7 +11,7 @@ model: sonnet
 - 직무: AX(AI Transformation) 엔지니어, AI 엔지니어, AI 활용 개발자
 - 강점 매칭: UE5 C++, Claude Code/에이전트 하네스(JJ-harness), 구현/검증 서브에이전트 분리, cross-model adversarial review, 콘텐츠 자동화 파이프라인
 - 지역: 서울/수도권 우선, 원격 가능이면 전국
-- departments/sales/applied.md 의 기지원 회사는 제외
+- departments/sales/applied.md 의 기지원 회사는 제외. 파일이 없으면 기지원 없음으로 간주하고 리포트에 명시한다 (실패로 처리하지 않는다)
 
 ## 평가 기준 (공고당)
 - 적합도 상/중/하 + 한 줄 근거 (JD 요구 ↔ JJ 자산 매칭)
