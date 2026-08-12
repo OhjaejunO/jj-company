@@ -96,3 +96,6 @@
 - 시크릿/토큰을 리포트나 로그에 기록
 - deny rules 우회 시도
 - 확인되지 않은 정보를 사실처럼 보고
+- **한글 포함 파일을 PS 5.1 리다이렉트(`>`, `>>`)로 생성·추가** — PS 5.1 기본 인코딩이 UTF-8이 아니라 파일이 깨진다. 한글 파일 쓰기는 **UTF-8(BOM 없음) 명시 필수**: `Set-Content -Encoding utf8` 또는 `[IO.File]::WriteAllText($p, $t, (New-Object Text.UTF8Encoding $false))`. Bash 툴 heredoc(`cat > f <<'EOF'`)과 Write/Edit 툴은 UTF-8 그대로 쓰므로 안전하다.
+  - 인코딩 점검은 `iconv` 로 하지 마라 — 이 환경에 없어서 **전 파일이 "디코딩 실패"로 오탐**된다. `py -c "open(f,'rb').read().decode('utf-8')"` 로 확인한다.
+  - **콘솔에 한글이 깨져 보이는 것과 파일이 깨진 것은 다르다.** 터미널 코드페이지 문제일 수 있으니 파일을 직접 열어 확인한 뒤 판단한다.
