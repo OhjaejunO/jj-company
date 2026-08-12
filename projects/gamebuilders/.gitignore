@@ -1,0 +1,3 @@
+# codex 세션 원본 로그는 크고 대부분 초기화 노이즈다.
+# 요약(day23_summary.md)만 커밋하고 원본은 로컬에 둔다.
+codex-logs/*_session.log
