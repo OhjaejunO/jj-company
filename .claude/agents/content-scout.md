@@ -18,6 +18,15 @@ model: sonnet
 
 > 참고: v4 계정 목록(공식 31개)은 **폐기된 구버전 정보다.** 스캔 기준은 §5.5의 검색 기반 공정이다 — 빅랩 공식 발표(OpenAI/Anthropic/Google/xAI/Meta, 지난 24h) → 테크 미디어 헤드라인 → 국내 어그리게이터 교차 확인.
 
+**공식 채널 확인 목록 — 한 곳만 보고 "발표 없음" 단정 금지.** 같은 회사가 발표 채널을 여러 개 쓴다. 아래를 **전부** 확인하기 전에는 "공식 발표 부재"로 반려하지 마라.
+
+| 회사 | 확인할 공식 채널 (전부) |
+|---|---|
+| Anthropic | `anthropic.com/news` **+ `claude.com/blog`** (제품 발표는 여기로 가는 경우가 있다 — 2026-08-14 Auto Mode 반려 오류의 원인) + `docs.claude.com` 체인지로그 |
+| OpenAI | `openai.com/index` + `openai.com/blog` + 도움말 릴리스노트 |
+| Google | `blog.google` + `deepmind.google/blog` |
+| xAI | `x.ai/news` + `docs.x.ai` 릴리스노트 |
+
 ## 임무 5축
 
 각 소재에 **유형 라벨**을 붙인다: `[소식]` `[레시피]` `[무료]` `[기회]` `[두드려봄후보]`
