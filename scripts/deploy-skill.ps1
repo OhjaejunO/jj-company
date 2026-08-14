@@ -112,13 +112,18 @@ if ($PSCmdlet.ShouldProcess($Live, 'deploy origin/main')) {
     #     read as empty.
     #   - not Set-Content -Encoding UTF8: PowerShell 5.1 writes a BOM there, and
     #     charter section 2 bans BOM for exactly the parse failures it causes.
+    # Every element is parenthesised on purpose. In PowerShell the comma operator
+    # binds TIGHTER than '+', so an unparenthesised list like
+    #     @('a: ' + $x, 'b: ' + $y)
+    # parses as  'a: ' + ($x, 'b: ') + $y  -> ONE joined string, not two elements.
+    # That is what produced the earlier single-line stamp.
     $stampLines = [string[]]@(
-        'revision: ' + $Full,
-        'short: ' + $Sha,
-        'committed: ' + $When,
-        'subject: ' + $Subj,
-        'deployed: ' + (Get-Date -Format 'yyyy-MM-ddTHH:mm:sszzz'),
-        'source: ' + $Repo + ' (origin/main)'
+        ('revision: ' + $Full),
+        ('short: ' + $Sha),
+        ('committed: ' + $When),
+        ('subject: ' + $Subj),
+        ('deployed: ' + (Get-Date -Format 'yyyy-MM-ddTHH:mm:sszzz')),
+        ('source: ' + $Repo + ' (origin/main)')
     )
     [IO.File]::WriteAllLines($Stamp.Replace($Live, $Staging), $stampLines,
                              (New-Object Text.UTF8Encoding $false))
