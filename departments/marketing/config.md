@@ -17,7 +17,28 @@ PYTHONIOENCODING=utf-8 ./venv/Scripts/python.exe -c "import sqlite3;c=sqlite3.co
 - `episodes_source` — 에피소드별 출처 URL
 - `status='canceled'` 는 발행되지 않은 것이므로 중복으로 보지 않되, 재제안 시 취소 사유를 확인한다
 
-소스 화이트리스트(X 계정): (추가 예정)
+소스 화이트리스트(X 계정): (추가 예정 — x.com 402 차단 지속으로 WebFetch 접근 불가)
+
+## 사용 중인 도구 — 제품 출시 감시 (2026-08-15 신설)
+
+**용도**: 우리가 실제로 쓰는 도구의 신기능·출시를 놓치지 않는다. 릴스 크레딧
+목록(§툴 공식 데모)과 **용도가 다르다** — 저쪽은 크레딧, 이쪽은 소재 발굴이다.
+같은 회사가 양쪽에 있어도 중복이 아니다.
+
+**접근 경로는 changelog/릴리스노트를 1차로 한다.** X 공식 계정이 원문이지만
+x.com 은 402 차단이 지속돼 스케줄 에이전트가 못 읽는다(8/10~8/14 로그).
+
+| 도구 | 감시 URL | 검증일 · 근거 |
+|---|---|---|
+| Higgsfield | `higgsfield.ai/creator-hub/changelog` | 2026-08-15 · WebFetch 로 Layers(8/11) 항목 본문 추출 성공 |
+| Claude | `anthropic.com/news` | 2026-08-12 · 스캔로그에 직접 열람 성공 기록 |
+| Claude Code | `docs.claude.com/en/release-notes/claude-code` | 2026-08-15 · HTTP 200. **본문 파싱 미검증** |
+| Cursor | `cursor.com/changelog` | 2026-08-15 · HTTP 200. **본문 파싱 미검증** |
+
+**주의**: 힉스필드는 §5.5-8 기회 축에 `filmmaker-grant` 로도 등재돼 있다.
+**그랜트 페이지만 보고 제품 출시를 놓친 사례가 있다**(2026-08-11 Layers 출시,
+8/12 스캔이 같은 도메인의 grant 페이지는 열었으나 미포착). 같은 도메인이라도
+두 축을 각각 확인한다.
 
 ## 벤치마크 채널 (반응 신호 관찰용 — 내용 재사용 금지)
 
