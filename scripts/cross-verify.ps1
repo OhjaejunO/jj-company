@@ -91,6 +91,17 @@ function Append-Section {
 }
 
 Write-Log ('=== ' + $Task + ' start (pid ' + $PID + ') ===')
+
+# Run provenance: which rulebook revision this run actually used.
+# 2026-08-15 diagnosis - the live skill used to be a symlink, so the answer
+# changed with whatever branch was checked out and nothing recorded it.
+$VerHelper = Join-Path $Hq 'scripts\skill-version.ps1'
+if (Test-Path -LiteralPath $VerHelper) {
+    . $VerHelper
+    foreach ($vl in (Get-SkillVersionLines)) { Write-Log $vl }
+} else {
+    Write-Log ('skill version helper missing: ' + $VerHelper)
+}
 Write-Log ('report: ' + $Report)
 
 if (-not (Test-Path -LiteralPath $Report)) {

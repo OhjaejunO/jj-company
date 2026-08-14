@@ -56,6 +56,17 @@ try {
     $lockTaken = $true
     Write-Log ('=== ' + $Task + ' start (pid ' + $PID + ', ' + $Weekday + ') ===')
 
+    # Run provenance: which rulebook revision this run actually used.
+    # 2026-08-15 diagnosis - the live skill used to be a symlink, so the answer
+    # changed with whatever branch was checked out and nothing recorded it.
+    $VerHelper = Join-Path $Hq 'scripts\skill-version.ps1'
+    if (Test-Path -LiteralPath $VerHelper) {
+        . $VerHelper
+        foreach ($vl in (Get-SkillVersionLines)) { Write-Log $vl }
+    } else {
+        Write-Log ('skill version helper missing: ' + $VerHelper)
+    }
+
     try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 
     # --- charter 4: sync the operations server to latest main before working ---
@@ -68,6 +79,26 @@ try {
     if ($pullCode -ne 0) {
         Write-Log ('git pull exit code ' + $pullCode)
         Write-Log 'STATUS: FAIL git-sync'
+        exit 1
+    }
+
+    # Same charter 4 step, second half (2026-08-15): the live rulebook is synced
+    # here too. The live skill folder is a plain copy of origin/main now, so
+    # nothing updates it unless we push it - a stale live folder is exactly the
+    # silent failure this structure was built to remove.
+    $Deploy = Join-Path $Hq 'scripts\deploy-skill.ps1'
+    if (-not (Test-Path -LiteralPath $Deploy)) {
+        Write-Log ('skill deploy script missing: ' + $Deploy)
+        Write-Log 'STATUS: FAIL skill-sync'
+        exit 1
+    }
+    Write-Log 'deploy-skill (live <- origin/main)'
+    $depOut  = & powershell -NoProfile -ExecutionPolicy Bypass -File $Deploy 2>&1
+    $depCode = $LASTEXITCODE
+    foreach ($l in $depOut) { Write-Log ('  skill| ' + $l) }
+    if ($depCode -ne 0) {
+        Write-Log ('deploy-skill exit code ' + $depCode)
+        Write-Log 'STATUS: FAIL skill-sync'
         exit 1
     }
 

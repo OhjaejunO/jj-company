@@ -71,7 +71,11 @@
   - **예외**: 교차검증(codex) 섹션은 `STATUS` 줄 **뒤에 append** 된다. STATUS 판정은 감리 섹션을 제외한 본문의 마지막 `^STATUS:` 줄을 기준으로 한다. (스케줄 스크립트의 판정 로직이 이미 파일의 마지막 `^STATUS:` 줄을 읽으므로 감리 섹션이 뒤에 붙어도 판정은 정상 동작한다 — 실증 완료)
 - A/B등급만 스케줄 가능. C등급 스케줄 등록 금지.
 - lock 파일 `logs\<작업명>.lock` 존재 시 즉시 종료.
-- 모든 스케줄 작업은 실행 시작 시 `git pull origin main` 으로 운영 서버를 최신 main과 동기화한 뒤 진행한다. pull 실패 시 즉시 `STATUS: FAIL git-sync` 로 종료.
+- 모든 스케줄 작업은 실행 시작 시 **두 가지를 최신 main과 동기화**한 뒤 진행한다. 어느 쪽이든 실패하면 즉시 종료한다.
+  1. **운영 서버** — `git pull origin main`. 실패 시 `STATUS: FAIL git-sync`.
+  2. **스킬 라이브 정본** — `scripts\deploy-skill.ps1` (라이브 ← `origin/main`). 실패 시 `STATUS: FAIL skill-sync`.
+  - `~\.claude\skills\tomangchi` 는 **레포로 향하는 링크가 아니라 `origin/main` 의 사본**이다 (2026-08-15 개편). 링크였을 때는 체크아웃된 브랜치가 곧 라이브 정본이라, 한 세션이 feature 브랜치에 두고 나오면 다른 세션·스케줄이 **미승인 규칙으로 조용히 돌았다.** 사본이므로 **아무도 밀어 넣지 않으면 갱신되지 않는다** — 그래서 동기화를 스케줄 선행 단계로 못박는다.
+  - 실행에 쓰인 리비전은 `scripts\skill-version.ps1` 이 로그에 남긴다. 근거는 라이브의 `.deployed` 스탬프이며 소스 레포 HEAD가 아니다.
 
 ### 등록된 스케줄 (현황판)
 
