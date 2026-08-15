@@ -57,9 +57,19 @@ try {
         exit 2
     }
 
-    # Grade A: read-only. No git pull here on purpose - this audit reads the
-    # working trees as they are. Pulling would hide drift that exists right now,
-    # which is the only thing this job is here to find.
+    # Grade A: read-only. Still no "git pull" - pulling would move a shared
+    # working tree, and this job must not change what other sessions are holding.
+    #
+    # The audit itself does run "git fetch" (remote-tracking refs only, working
+    # tree and HEAD untouched) because it compares the live folder against
+    # origin/main - that is what deploy-skill.ps1 ships, per charter section 4.
+    # It used to read the clone's working tree instead, which made a merely
+    # out-of-date clone look like drift: on 2026-08-15 it printed a red
+    # "cardcheck.py differs" minutes after that file was merged. A red alarm with
+    # the wrong cause sends the reader to fix the wrong thing.
+    #
+    # Clone state (branch, behind, dirty) is still reported - as yellow, under
+    # its own name, so it is never confused with drift.
     $out = & py $Script 2>&1
     $code = $LASTEXITCODE
     foreach ($line in $out) { Write-Log ([string]$line) }
