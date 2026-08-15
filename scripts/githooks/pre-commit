@@ -1,0 +1,62 @@
+#!/bin/sh
+# JJ Company OS - primary worktree commit guard (charter section 3)
+#
+# ASCII-only on purpose: hook output goes through whatever client invoked git
+# (Git Bash, PowerShell, an IDE). Korean here can arrive mangled in exactly the
+# moment the message matters. The reasoning lives in CLAUDE.md section 3.
+#
+# WHY
+#   HEAD is a shared resource. On 2026-08-15 a parallel session moved HEAD off
+#   the branch another session was on, and that session's commit landed on the
+#   wrong branch. Nothing errored. It was found by reading the reflog afterwards.
+#
+#   So the primary working tree is pinned to main and never receives commits.
+#   All work happens in linked worktrees, where HEAD is private to that worktree.
+#
+# WHAT IT DOES
+#   Refuses any commit made from the PRIMARY worktree. Linked worktrees pass.
+#   Detection: `git rev-parse --git-dir` returns a path under .git/worktrees/
+#   for a linked worktree, and plain `.git` for the primary one.
+#
+# INSTALL (per clone, once)
+#   git config core.hooksPath scripts/githooks
+#   Verify with: powershell -File scripts\check-repo-guard.ps1
+
+git_dir=$(git rev-parse --git-dir 2>/dev/null) || exit 0
+
+case "$git_dir" in
+    */worktrees/*)
+        exit 0
+        ;;
+esac
+
+branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')
+
+cat >&2 <<EOF
+
+  [repo-guard] commit refused: this is the PRIMARY worktree (branch: $branch)
+
+  Charter section 3: the primary tree stays on main and takes no commits.
+  Work in a linked worktree instead - HEAD there is private to that worktree,
+  so a parallel session cannot move it out from under you.
+
+      git worktree add ../.wt/<name> -b <branch> origin/main
+      cd ../.wt/<name>
+      ...work, commit, push, open PR...
+      git worktree remove ../.wt/<name>
+      git fetch origin
+
+  ALREADY HAVE UNCOMMITTED WORK HERE? Move it, do not redo it. The stash is
+  shared across worktrees, so this loses nothing:
+
+      git stash push -u -m "move to worktree"
+      git worktree add ../.wt/<name> -b <branch> origin/main
+      cd ../.wt/<name>
+      git stash pop
+
+  Reason this exists: 2026-08-15, twice. The second time happened while fixing
+  the first. A commit silently landed on another session's branch.
+
+EOF
+
+exit 1
