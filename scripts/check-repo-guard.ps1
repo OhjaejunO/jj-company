@@ -17,12 +17,17 @@
 #
 # USAGE
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\check-repo-guard.ps1
-#   ... -Fix     also sets core.hooksPath
+#   ... -Fix           also sets core.hooksPath
+#   ... -Repo <path>   check a specific clone (default: the clone this script
+#                      lives in, so the charter section 3 command needs no path)
 
 [CmdletBinding()]
 param(
-    [string]$Repo = 'C:\Users\ojaej\orca\jj-company',
-    [switch]$Fix
+    [string]$Repo,
+    [switch]$Fix,
+    # Internal. Set only on the nested run made by the targeting check below,
+    # so that run does not recurse into another targeting check.
+    [switch]$NoSelfTest
 )
 
 $ErrorActionPreference = 'Stop'
@@ -30,6 +35,44 @@ $problems = @()
 $notes = @()
 
 function Say([string]$m) { Write-Host ('[repo-guard] ' + $m) }
+
+# --- 0. resolve WHICH clone is being checked --------------------------------
+# 2026-08-15: $Repo defaulted to a hardcoded 'C:\Users\ojaej\orca\jj-company'.
+# Run inside the production clone it inspected the DEVELOPMENT clone instead and
+# printed STATUS: OK while production had no core.hooksPath at all. The guard
+# checker itself broke the charter section 0 rule it exists to enforce - a
+# detector that reports on something other than its subject is worse than none,
+# because the OK is read as proof.
+#
+# The default now follows the script. --git-common-dir returns the PRIMARY
+# tree's .git from anywhere inside a clone (primary tree or linked worktree), so
+# the documented `scripts\check-repo-guard.ps1 -Fix` installs into the clone it
+# was launched from, with no path to remember and none to get wrong.
+$RepoWasExplicit = $PSBoundParameters.ContainsKey('Repo')
+if (-not $RepoWasExplicit) {
+    $anchor = $PSScriptRoot
+    if (-not $anchor) { $anchor = (Get-Location).ProviderPath }
+
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $common = (& git -C $anchor rev-parse --path-format=absolute --git-common-dir 2>$null)
+    $rc = $LASTEXITCODE
+    $ErrorActionPreference = $prev
+
+    if ($rc -ne 0 -or [string]::IsNullOrWhiteSpace($common)) {
+        Say ('cannot resolve a clone from ' + $anchor)
+        Write-Host 'STATUS: FAIL repo-guard (no-repo)'
+        exit 1
+    }
+    $Repo = Split-Path -Parent ($common.Trim() -replace '/', '\')
+}
+
+# Always name the subject. This line is what would have exposed the 2026-08-15
+# bug on sight: the run said it allowed a worktree that the target clone does
+# not have. Print it before any check can throw, so even a crash says what it
+# was aimed at.
+$how = if ($RepoWasExplicit) { 'explicit -Repo' } else { 'resolved from script location' }
+Say ('target: ' + $Repo + '  (' + $how + ')')
 
 if (-not (Test-Path -LiteralPath $Repo)) { throw ('repo missing: ' + $Repo) }
 
@@ -83,9 +126,23 @@ foreach ($h in @('pre-commit', 'post-checkout')) {
 }
 
 # --- 3. primary worktree is on main ----------------------------------------
-$branch = (& git -C $Repo rev-parse --abbrev-ref HEAD).Trim()
-if ($branch -ne 'main') {
-    $problems += ("primary worktree is on '" + $branch + "', charter section 3 pins it to main")
+# A repo with no commits yet makes rev-parse fail. Under $ErrorActionPreference
+# 'Stop' that killed the script mid-run instead of reporting - charter section 0
+# calls that shape out by name. Report unknown as unknown and keep going.
+$prev = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+$branch = (& git -C $Repo rev-parse --abbrev-ref HEAD 2>$null)
+$branchRc = $LASTEXITCODE
+$ErrorActionPreference = $prev
+
+if ($branchRc -ne 0 -or [string]::IsNullOrWhiteSpace($branch)) {
+    $branch = '?'
+    $problems += 'cannot determine the branch of the primary worktree'
+} else {
+    $branch = $branch.Trim()
+    if ($branch -ne 'main') {
+        $problems += ("primary worktree is on '" + $branch + "', charter section 3 pins it to main")
+    }
 }
 
 # --- 4. REVERSE CHECK - the hook must REFUSE a commit here ------------------
@@ -207,6 +264,42 @@ finally {
     }
 }
 
+# --- 6. REVERSE CHECK (targeting) - another clone must give ITS OWN answer ---
+# The checks above all pass while reading the WRONG repo, which is exactly how
+# the 2026-08-15 bug survived: every run reported the same clone, so the answer
+# looked stable and therefore trustworthy. Charter section 0 says feed a
+# detector the input that MUST trip it. Here that input is a different repo.
+#
+# Aim a nested run at a throwaway repo that cannot possibly pass, then require
+# that the output (a) names that repo and (b) does not say OK. A hardcoded or
+# ignored target reproduces this run's verdict instead and fails both.
+# -Fix is deliberately NOT forwarded - fixing the probe would make it pass.
+if (-not $NoSelfTest) {
+    $probe = Join-Path ([System.IO.Path]::GetTempPath()) ('repo-guard-probe-' + [guid]::NewGuid().ToString('N'))
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        New-Item -ItemType Directory -Path $probe -Force | Out-Null
+        & git init -q $probe *>&1 | Out-Null
+
+        $out = (& powershell -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath `
+                    -Repo $probe -NoSelfTest *>&1 | Out-String)
+
+        if ($out -notmatch [regex]::Escape($probe)) {
+            $problems += ('TARGETING CHECK FAILED: a run aimed at ' + $probe +
+                          ' never named it - the -Repo target is being ignored')
+        } elseif ($out -match '(?m)^STATUS: OK') {
+            $problems += ('TARGETING CHECK FAILED: an unconfigured repo (' + $probe +
+                          ') reported STATUS: OK')
+        } else {
+            Say 'targeting check OK - a run aimed at another repo reports that repo, not this one'
+        }
+    } finally {
+        Remove-Item -LiteralPath $probe -Recurse -Force -ErrorAction SilentlyContinue
+        $ErrorActionPreference = $prev
+    }
+}
+
 # --- report -----------------------------------------------------------------
 foreach ($n in $notes) { Say ('NOTE: ' + $n) }
 
@@ -214,10 +307,12 @@ if ($problems.Count -gt 0) {
     Write-Host ''
     foreach ($p in $problems) { Write-Host ('  - ' + $p) }
     Write-Host ''
+    Write-Host ('  (repo: ' + $Repo + ')')
+    Write-Host ''
     Write-Host ('STATUS: FAIL repo-guard (' + $problems.Count + ')')
     exit 1
 }
 
-Say ('OK - hooksPath=' + $have + ', primary on ' + $branch)
+Say ('OK - repo=' + $Repo + ', hooksPath=' + $have + ', primary on ' + $branch)
 Write-Host 'STATUS: OK'
 exit 0
