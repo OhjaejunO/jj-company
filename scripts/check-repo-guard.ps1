@@ -129,7 +129,21 @@ $wt = @()
 foreach ($line in (& git -C $Repo worktree list --porcelain)) {
     if ($line -match '^worktree (.+)$') { $wt += $Matches[1] }
 }
-$linked = $wt | Where-Object { $_.TrimEnd('\', '/') -ne $Repo.TrimEnd('\', '/') } | Select-Object -First 1
+
+# git prints forward slashes ("C:/Users/...") while $Repo arrives with
+# backslashes. A raw string compare then fails to match the primary tree and it
+# gets tested as if it were a LINKED worktree - which reported a REVERSE CHECK
+# FAILURE against a perfectly good hook. 2026-08-15: seen on the first real run.
+# The same bug can invert: a linked tree mistaken for primary would be skipped
+# and the check would pass without ever testing the allow side.
+function ConvertTo-ComparablePath([string]$p) {
+    if ([string]::IsNullOrWhiteSpace($p)) { return '' }
+    try { $p = (Resolve-Path -LiteralPath $p -ErrorAction Stop).ProviderPath } catch { }
+    return ($p -replace '/', '\').TrimEnd('\').ToLowerInvariant()
+}
+
+$repoKey = ConvertTo-ComparablePath $Repo
+$linked = $wt | Where-Object { (ConvertTo-ComparablePath $_) -ne $repoKey } | Select-Object -First 1
 
 if ($linked -and (Test-Path -LiteralPath $linked) -and $hookHere) {
     $code2 = Invoke-Hook $hookPath $linked
