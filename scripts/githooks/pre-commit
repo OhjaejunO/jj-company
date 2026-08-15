@@ -54,8 +54,20 @@ cat >&2 <<EOF
       cd ../.wt/<name>
       git stash pop
 
+  CAUTION: gitignored files are NOT taken by "git stash -u". They stay behind
+  in this tree, and the move looks complete because git status is clean. List
+  them BEFORE you stash, and move them by hand afterwards:
+
+      git status --porcelain --ignored | grep '^!!'
+
+  Verify each copy (compare size and checksum) before deleting the original.
+  Do not reach for "git stash -a" instead - that also drags logs/, reports/
+  and .omc/ out of this tree.
+
   Reason this exists: 2026-08-15, twice. The second time happened while fixing
   the first. A commit silently landed on another session's branch.
+  The stash caveat is from the same day: a 1.1MB codex session log was ignored
+  by .gitignore, so "stash -u" left it behind while reporting success.
 
 EOF
 
