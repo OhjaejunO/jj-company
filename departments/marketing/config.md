@@ -30,10 +30,25 @@ x.com 은 402 차단이 지속돼 스케줄 에이전트가 못 읽는다(8/10~8
 
 | 도구 | 감시 URL | 검증일 · 근거 |
 |---|---|---|
+| OpenAI | `openai.com/news/rss.xml` | 2026-08-16 · **RSS 1,129건 파싱 성공.** 항목마다 `pubDate`·`title`·`link`·`description` 이 있다. 8/13 Ultrafast 발표가 요약까지 실려 있었다 |
+| OpenAI (API 한정) | `developers.openai.com/api/docs/changelog` | 2026-08-16 · 날짜별 항목 파싱 성공. API 등급·모델 변경은 뉴스보다 여기가 빠르고 자세하다 |
 | Higgsfield | `higgsfield.ai/creator-hub/changelog` | 2026-08-15 · WebFetch 로 Layers(8/11) 항목 본문 추출 성공 |
 | Claude | `anthropic.com/news` | 2026-08-12 · 스캔로그에 직접 열람 성공 기록 |
 | Claude Code | `docs.claude.com/en/release-notes/claude-code` | 2026-08-15 · HTTP 200. **본문 파싱 미검증** |
 | Cursor | `cursor.com/changelog` | 2026-08-15 · HTTP 200. **본문 파싱 미검증** |
+
+**차단은 도메인이 아니라 경로에 걸린다 (2026-08-16 신설).** OpenAI 는 기사 페이지
+(`openai.com/index/...`)가 봇을 막는다 — curl 403, 헤드리스 브라우저는 200 이지만
+본문이 `This page couldn't load` 다. 그런데 **같은 도메인의 뉴스 인덱스와 RSS 는
+열린다.** 울트라패스트 편에서 한 번 막히자 도메인 전체를 «접속 불가»로 적어 두고
+주장 다섯 개를 육안 대조로 남겨 뒀는데, 그중 넷은 열린 경로에 그대로 있었다.
+
+- **한 경로가 막히면 같은 도메인의 다른 경로를 먼저 두드린다.** RSS·changelog·
+  개발자 문서·뉴스 인덱스 순으로 본다. 도메인을 포기하는 것은 그다음이다.
+- **RSS 가 있으면 RSS 를 적는다.** HTML 인덱스는 JS 렌더라 파싱이 흔들리는데
+  피드는 `pubDate`·`title`·`link`·`description` 이 구조로 온다. 요약이 실려 있어
+  기사 본문을 못 열어도 대조가 되는 경우가 있다 — 실제로 그랬다(`초당 750 토큰`은
+  changelog 에도 가격 페이지에도 없고 이 피드에만 있었다).
 
 **주의**: 힉스필드는 §5.5-8 기회 축에 `filmmaker-grant` 로도 등재돼 있다.
 **그랜트 페이지만 보고 제품 출시를 놓친 사례가 있다**(2026-08-11 Layers 출시,
