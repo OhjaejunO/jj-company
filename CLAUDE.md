@@ -47,7 +47,7 @@
 
 | 대상 | 경로 | 권한 |
 |---|---|---|
-| 작업장 | C:\Users\ojaej\orca\jj-company | 읽기/쓰기. JJ가 개발하는 곳. OJJ 브랜치에서 작업 |
+| 작업장 | C:\Users\ojaej\orca\jj-company | 읽기/쓰기. JJ가 개발하는 곳. **본 트리는 main 고정 · 커밋 금지** — 작업은 worktree에서 (§3) |
 | 운영 서버 | C:\Users\ojaej\jj-company | 스케줄러 CWD. **main 전용 · 사람 직접 수정 금지** (git pull 로만 갱신) |
 | 세컨드브레인 | C:\Obsidian.JJ\JJ-Brain | **읽기 전용** — 읽기는 해당 스케줄 스크립트의 `--add-dir` 로만 부여 (전역 허용 금지) |
 | 토망치랩 작업 폴더 | C:\Users\ojaej\orca\tomangchi-lab.github.io\workshop | 읽기 전용 — **단, `workshop\스캔로그\` 는 content-scout 쓰기 허용** (아래 예외 조항) |
@@ -63,12 +63,16 @@
 
 ## 3. Git 규칙
 
-- main 직접 커밋 금지. OJJ 브랜치에서 작업 → PR → `--assignee OhjaejunO --merge --admin`
+- main 직접 커밋 금지. **worktree에서 작업 브랜치를 파고** → PR → `--assignee OhjaejunO --merge --admin`
+  - `OJJ` 상설 브랜치 방식은 **폐기(2026-08-15)**. 본 트리를 OJJ에 두고 쓰면 병렬 세션이 HEAD를 옮기는 순간 아래와 똑같은 사고가 난다 — 다른 레포에서 이미 두 번 겪은 그것이다. **예외를 두면 규칙이 둘이 되고, 둘이면 지켜지지 않는다.**
 - **여러 세션이 공유하는 레포는 `git worktree` 로만 분기한다.** 공유 작업 트리에서 `git checkout -b` 를 하지 않는다. 대상: `tomangchi-skill`, `tomangchi-lab.github.io`, `jj-company`, `content-ops`.
   - `content-ops` 추가 근거 — 2026-08-15 실제 발생. 한 세션이 미커밋 상태로 작업 중일 때 다른 세션이 `checkout -b` 를 했고, **그 미커밋 변경이 새 브랜치로 딸려가 남의 브랜치 이름으로 커밋됐다.** 되돌리는 과정에서 작업이 사라진 것처럼 보이기까지 했다(reflog 로 추적해 fast-forward 로 복구, 잃은 커밋은 없었다). 조항에 없었을 뿐 위험은 같았다.
   - 이유는 **HEAD 가 공유 자원**이기 때문이다. 한 세션이 브랜치를 옮기면 그 순간 다른 세션의 커밋이 엉뚱한 브랜치에 얹힌다 — 2026-08-15 실제 발생(병렬 세션의 v3.5.1 커밋이 의도한 브랜치가 아닌 곳으로 갈 뻔했다).
   - 작업이 끝나면 `git worktree remove` 로 정리하고 **`git fetch origin` 으로 원격을 당겨 둔다.** 로컬 `main` 이 뒤처진 채 남으면 다음 세션이 낡은 판본을 정본으로 읽는다.
   - **한쪽만 지켜서는 소용없다.** 두 세션이 같은 레포를 동시에 만진 것이 2026-08-15 사고의 원인이었고, **그 사고를 고치는 작업에서 같은 일이 재현됐다**(두 세션이 같은 목적의 스크립트를 동시에 신규 생성). 규율이 아니라 이 조항으로 막는다.
+  - **조항만으로는 또 규율이다 — 훅으로 막는다.** `scripts\githooks\pre-commit` 이 **본 트리에서의 커밋을 거부**하고 worktree는 통과시킨다. 판별은 `git rev-parse --git-dir` — 링크된 worktree는 `.git/worktrees/…` 를 돌려준다. `post-checkout` 은 본 트리가 main을 벗어나면 경고한다(git에 `pre-checkout` 훅이 없어 차단은 못 한다).
+  - **거부 메시지에 대안을 같이 준다.** 막기만 하고 길을 안 알려주면 세션이 우회로(`--no-verify`)를 찾는다. 훅 출력에 worktree 생성·정리 명령 전체를 넣어 뒀고, 어떤 클라이언트로 git을 부르든 읽히도록 **ASCII 전용**으로 쓴다.
+  - 훅은 `core.hooksPath` 가 가리켜야 돌아간다. **이 설정은 git이 옮겨주지 않는 클론별 설정이라, 없으면 가드가 조용히 사라진다.** 그래서 `scripts\check-repo-guard.ps1` 이 설정·훅 존재·본 트리 브랜치를 확인하고 **§0 역검증**까지 한다 — 본 트리에서 훅을 실제로 실행해 거부되는지, 링크된 worktree에서는 통과하는지 **양쪽**을 본다(한쪽만 보면 전부 거부하는 훅도 정상으로 보인다). 설치: `powershell -File scripts\check-repo-guard.ps1 -Fix`
 - 커밋 메시지: conventional prefix(영어) + 한국어 설명. 100바이트 이내.
 - 리포트(reports/)는 로컬 전용 — 민감 정보 포함 가능성으로 커밋 금지 (.gitignore 유지).
 - logs/ 는 커밋하지 않는다 (.gitignore).

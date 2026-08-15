@@ -1,0 +1,44 @@
+#!/bin/sh
+# JJ Company OS - primary worktree drift warning (charter section 3)
+#
+# ASCII-only on purpose (see pre-commit for why).
+#
+# WHY
+#   git has no pre-checkout hook, so a branch switch in the primary tree cannot
+#   be blocked outright. But it can be made LOUD. A silent switch is the whole
+#   problem: the live skill folder used to follow the checked-out branch, and a
+#   session that stepped onto a feature branch downgraded everyone else.
+#
+#   pre-commit stops the damage. This one stops the surprise.
+#
+# ARGS (git passes these)
+#   $1 previous HEAD, $2 new HEAD, $3 1 if branch checkout, 0 if file checkout
+
+[ "$3" = "1" ] || exit 0
+
+git_dir=$(git rev-parse --git-dir 2>/dev/null) || exit 0
+
+case "$git_dir" in
+    */worktrees/*)
+        exit 0
+        ;;
+esac
+
+branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')
+[ "$branch" = "main" ] && exit 0
+
+cat >&2 <<EOF
+
+  [repo-guard] WARNING: the PRIMARY worktree is now on '$branch', not main.
+
+  Charter section 3 pins this tree to main. Another session may be working in
+  this same tree right now - its next commit would land on '$branch'.
+
+      git checkout main          # put it back
+      git worktree add ../.wt/<name> -b $branch   # then work there instead
+
+  Commits from this tree are refused by the pre-commit hook regardless.
+
+EOF
+
+exit 0
