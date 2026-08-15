@@ -72,7 +72,7 @@
   - **한쪽만 지켜서는 소용없다.** 두 세션이 같은 레포를 동시에 만진 것이 2026-08-15 사고의 원인이었고, **그 사고를 고치는 작업에서 같은 일이 재현됐다**(두 세션이 같은 목적의 스크립트를 동시에 신규 생성). 규율이 아니라 이 조항으로 막는다.
   - **조항만으로는 또 규율이다 — 훅으로 막는다.** `scripts\githooks\pre-commit` 이 **본 트리에서의 커밋을 거부**하고 worktree는 통과시킨다. 판별은 `git rev-parse --git-dir` — 링크된 worktree는 `.git/worktrees/…` 를 돌려준다. `post-checkout` 은 본 트리가 main을 벗어나면 경고한다(git에 `pre-checkout` 훅이 없어 차단은 못 한다).
   - **거부 메시지에 대안을 같이 준다.** 막기만 하고 길을 안 알려주면 세션이 우회로(`--no-verify`)를 찾는다. 훅 출력에 worktree 생성·정리 명령 전체를 넣어 뒀고, 어떤 클라이언트로 git을 부르든 읽히도록 **ASCII 전용**으로 쓴다.
-  - 훅은 `core.hooksPath` 가 가리켜야 돌아간다. **이 설정은 git이 옮겨주지 않는 클론별 설정이라, 없으면 가드가 조용히 사라진다.** 그래서 `scripts\check-repo-guard.ps1` 이 설정·훅 존재·본 트리 브랜치를 확인하고 **§0 역검증**까지 한다 — 본 트리에서 훅을 실제로 실행해 거부되는지, 링크된 worktree에서는 통과하는지 **양쪽**을 본다(한쪽만 보면 전부 거부하는 훅도 정상으로 보인다). 설치: `powershell -File scripts\check-repo-guard.ps1 -Fix`
+  - 훅은 `core.hooksPath` 가 가리켜야 돌아간다. **이 설정은 git이 옮겨주지 않는 클론별 설정이라, 없으면 가드가 조용히 사라진다.** 그래서 `scripts\check-repo-guard.ps1` 이 설정·훅 존재·본 트리 브랜치를 확인하고 **§0 역검증**까지 한다 — 본 트리에서 훅을 실제로 실행해 거부되는지, 링크된 worktree에서는 통과하는지 **양쪽**을 본다(한쪽만 보면 전부 거부하는 훅도 정상으로 보인다). **링크 worktree가 없으면 검사기가 임시로 만들어 검증하고 지운다** — `미검증`으로 남기면 다음 사람이 STATUS 줄만 보고 통과로 읽는다. 설치: `powershell -File scripts\check-repo-guard.ps1 -Fix`
 - 커밋 메시지: conventional prefix(영어) + 한국어 설명. 100바이트 이내.
 - 리포트(reports/)는 로컬 전용 — 민감 정보 포함 가능성으로 커밋 금지 (.gitignore 유지).
 - logs/ 는 커밋하지 않는다 (.gitignore).
