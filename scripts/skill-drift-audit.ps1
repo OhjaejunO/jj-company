@@ -38,10 +38,18 @@ if (Test-Path -LiteralPath $LockFile) {
 }
 
 $lockTaken = $false
+$prevEnc = [Console]::OutputEncoding
 try {
     New-Item -ItemType File -Path $LockFile -Force | Out-Null
     $lockTaken = $true
     Write-Log ('=== ' + $Task + ' start ===')
+
+    # The audit prints Korean. PowerShell 5.1 decodes native command output with
+    # the console codepage (cp949 here), so the log came out as mush on the first
+    # real run. The log IS the evidence trail - if it is mangled we cannot diagnose.
+    # Charter section 6 flags this exact class of bug.
+    [Console]::OutputEncoding = [Text.Encoding]::UTF8
+    $env:PYTHONIOENCODING = 'utf-8'
 
     if (-not (Test-Path -LiteralPath $Script)) {
         Write-Log ('audit script missing: ' + $Script)
@@ -64,6 +72,7 @@ try {
     exit $code
 }
 finally {
+    [Console]::OutputEncoding = $prevEnc
     if ($lockTaken) { Remove-Item -LiteralPath $LockFile -Force -ErrorAction SilentlyContinue }
     Write-Log ('=== ' + $Task + ' end ===')
 }
