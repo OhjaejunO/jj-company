@@ -145,19 +145,65 @@ function ConvertTo-ComparablePath([string]$p) {
 $repoKey = ConvertTo-ComparablePath $Repo
 $linked = $wt | Where-Object { (ConvertTo-ComparablePath $_) -ne $repoKey } | Select-Object -First 1
 
-if ($linked -and (Test-Path -LiteralPath $linked) -and $hookHere) {
-    $code2 = Invoke-Hook $hookPath $linked
-    if ($code2 -ne 0) {
-        $problems += ('REVERSE CHECK FAILED: pre-commit also refused a LINKED worktree (' + $linked + ') - the guard blocks all work')
-    } else {
-        Say ('reverse check OK - hook allows the linked worktree: ' + $linked)
+# If no linked worktree happens to exist, MAKE one. Leaving this side as
+# UNVERIFIED is not neutral - the next reader skims the STATUS line and takes it
+# for a pass, so the allow side silently stops being checked. Creating and
+# removing the worktree inside this script keeps both directions running
+# regardless of what the repo looked like when it was called.
+$tempWt = $null
+$usedTemp = $false
+
+try {
+    if ($hookHere -and -not ($linked -and (Test-Path -LiteralPath $linked))) {
+        $tempWt = Join-Path ([System.IO.Path]::GetTempPath()) ('repo-guard-' + [guid]::NewGuid().ToString('N'))
+        # --detach: no branch is created, so nothing to clean up in refs and no
+        # chance of colliding with a name another session is using.
+        $prev = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        & git -C $Repo worktree add --detach $tempWt HEAD *>&1 | Out-Null
+        $addCode = $LASTEXITCODE
+        $ErrorActionPreference = $prev
+
+        if ($addCode -eq 0 -and (Test-Path -LiteralPath $tempWt)) {
+            $linked = $tempWt
+            $usedTemp = $true
+        } else {
+            $tempWt = $null
+            $problems += 'could not create a temporary worktree - allow side could not be verified'
+        }
     }
-} else {
-    # Charter section 0: report unverified as unverified. Do not claim a pass.
-    if (-not $hookHere) {
+
+    if ($hookHere -and $linked -and (Test-Path -LiteralPath $linked)) {
+        $code2 = Invoke-Hook $hookPath $linked
+        $label = if ($usedTemp) { 'temporary worktree' } else { 'linked worktree' }
+        if ($code2 -ne 0) {
+            $problems += ('REVERSE CHECK FAILED: pre-commit also refused a ' + $label + ' (' + $linked + ') - the guard blocks all work')
+        } else {
+            Say ('reverse check OK - hook allows the ' + $label + ': ' + $linked)
+        }
+    } elseif (-not $hookHere) {
+        # Charter section 0: report unverified as unverified. Do not claim a pass.
         $notes += 'linked-worktree side UNVERIFIED - hook file not present yet'
-    } else {
-        $notes += 'linked-worktree side UNVERIFIED - no linked worktree exists right now'
+    }
+}
+finally {
+    # Must run even when a check above threw. A leaked worktree would make the
+    # NEXT run pick it up as a real one, and a leaked temp dir is litter.
+    if ($tempWt) {
+        $prev = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        & git -C $Repo worktree remove --force $tempWt *>&1 | Out-Null
+        if (Test-Path -LiteralPath $tempWt) {
+            Remove-Item -LiteralPath $tempWt -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        & git -C $Repo worktree prune *>&1 | Out-Null
+        $ErrorActionPreference = $prev
+
+        if (Test-Path -LiteralPath $tempWt) {
+            $problems += ('temporary worktree left behind: ' + $tempWt)
+        } else {
+            Say 'temporary worktree cleaned up'
+        }
     }
 }
 
