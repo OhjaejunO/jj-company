@@ -100,6 +100,10 @@
 | morning-vault-health | ops-auditor | 평일 07:30 | 가동 |
 | tomangchi-scout | content-scout | 매일 08:00 | 가동 |
 | job-scout | job-scout | 매일 08:30 | 가동 |
+| skill-drift-audit | (에이전트 없음 — 결정적 비교) | 매일 07:00 | 가동 |
+
+- **skill-drift-audit 은 에이전트를 쓰지 않는다.** 두 폴더를 비교하고 사본의 자립 검증을 돌리는 결정적 작업이라 정답이 있다 — §0이 추측을 금하는 자리에 모델을 넣을 이유가 없다. `scripts\skill-drift-audit.ps1` 이 `skill_drift_audit.py` 를 직접 부른다.
+  - **이 작업은 한시적이다.** 브랜드 스크립트 정본이 하나로 합쳐지면(`docs\plan-brand-assets-move.md`) 비교 대상이 사라져 **함께 폐기한다.** 감사가 필요 없어지는 것이 그 이전 작업의 목적이다.
 
 ## 5. 리포트 형식
 
