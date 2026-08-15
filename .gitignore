@@ -1,9 +1,14 @@
-﻿logs/
+logs/
 *.lock
 .env
 
 departments/sales/applied.md
-reports/*.md
 
-departments/sales/applied.md
-reports/*.md
+# reports/ 는 로컬 전용이다 (정관 §3) — 민감 정보가 들어갈 수 있다.
+# 이전 패턴은 reports/*.md 여서 확장자 하나에만 걸려 있었다. 2026-08-15 점검에서
+# 운영 서버에 포트폴리오 초안 .pdf 와 빌드 .py 가 "커밋 가능한" 상태로 떠 있는 것을
+# 확인했다. 확장자로 막지 말고 전체를 막는다.
+# reports/ 대신 reports/* 를 쓰는 이유: 디렉토리 자체를 무시하면 git 이 그 안으로
+# 내려가지 않아 아래 부정 패턴이 무효가 된다.
+reports/*
+!reports/.gitkeep
