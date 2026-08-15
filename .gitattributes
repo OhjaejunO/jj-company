@@ -1,0 +1,2 @@
+# git hooks must keep LF. CRLF here yields "/bin/sh^M: bad interpreter" on Windows.
+scripts/githooks/* text eol=lf
