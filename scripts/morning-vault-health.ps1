@@ -113,6 +113,14 @@ try {
         Write-Log 'STATUS: FAIL audit-script-missing'
         exit 1
     }
+    # Python on Windows encodes stdout as the ANSI codepage (cp949 here), so Korean
+    # values arrived as mojibake that still decoded as valid UTF-8 - the file looked
+    # fine and only the values were unreadable (charter section 0, silent failure).
+    # Measured 2026-08-18: BACKUP_STATUS went from unreadable bytes to
+    # "BACKUP_STATUS=<Korean>" with this one variable set.
+    # Same pattern the content-ops query in departments\marketing\config.md uses.
+    $env:PYTHONIOENCODING = 'utf-8'
+
     Write-Log ('vault_audit.py -> ' + $VaultData)
     $auditOut  = & py $AuditPy 2>&1
     $auditCode = $LASTEXITCODE
@@ -150,6 +158,24 @@ try {
         Write-Log ('open pr data ok (' + (Get-Item -LiteralPath $PrData).Length + ' bytes)')
     }
 
+    # Operations-server freshness. The agent has no Bash, so git state must be
+    # collected here. Measured 2026-08-18: this tree sat 14 commits behind
+    # origin/main while scheduled jobs kept running against the stale copy.
+    $FreshData = Join-Path $DataDir ('freshness_' + $IsoDate + '.txt')
+    Write-Log ('freshness -> ' + $FreshData)
+    $null = & git fetch origin 2>&1
+    $behind = & git rev-list --count 'HEAD..origin/main' 2>&1
+    $fetchOk = $LASTEXITCODE
+    $localHead = & git rev-parse --short HEAD 2>&1
+    if ($fetchOk -ne 0 -or $behind -notmatch '^\d+$') {
+        Write-Log ('freshness check failed - recording as unavailable')
+        Set-Content -LiteralPath $FreshData -Value 'UNAVAILABLE' -Encoding UTF8
+    } else {
+        $lines = @(('BEHIND_COUNT=' + $behind), ('LOCAL_HEAD=' + $localHead))
+        Set-Content -LiteralPath $FreshData -Value $lines -Encoding UTF8
+        Write-Log ('freshness ok (behind ' + $behind + ', head ' + $localHead + ')')
+    }
+
     if (-not (Test-Path -LiteralPath $PromptFile)) {
         Write-Log ('prompt file missing: ' + $PromptFile)
         Write-Log 'STATUS: FAIL prompt-missing'
@@ -157,6 +183,7 @@ try {
     }
     $prompt = (Get-Content -LiteralPath $PromptFile -Raw -Encoding UTF8).Replace('{{DATE}}', $IsoDate)
     $prompt = $prompt.Replace('{{VAULT_DATA}}', $VaultData).Replace('{{PR_DATA}}', $PrData)
+    $prompt = $prompt.Replace('{{FRESH_DATA}}', $FreshData)
 
     Write-Log ('claude -p (ops-auditor) start, --add-dir ' + $VaultPath)
     $out        = & $Claude -p $prompt --permission-mode acceptEdits --add-dir $VaultPath 2>&1
