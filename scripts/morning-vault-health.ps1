@@ -92,12 +92,71 @@ try {
         exit 1
     }
 
+    # --- grade boundary (2026-08-18): collect data BEFORE the agent runs ---
+    #
+    # The auditor used to hold the Bash tool so it could run vault_audit.py itself.
+    # Bash also opens git and gh, and permissions in Claude Code are per-session,
+    # not per-agent - so a grade A agent inherited the project allowlist including
+    # Bash(gh pr *). Nothing in settings could scope that down.
+    #
+    # So the wrapper runs the data collection and the agent only reads the output.
+    # Bash is removed from its tools: the boundary is now tool absence, not a rule.
+    # See docs\ops-grade-boundary.md.
+    $DataDir  = Join-Path $Hq 'logs\audit-data'
+    New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
+    $VaultData = Join-Path $DataDir ('vault_' + $IsoDate + '.txt')
+    $PrData    = Join-Path $DataDir ('openprs_' + $IsoDate + '.txt')
+
+    $AuditPy = Join-Path $Hq 'scripts\vault_audit.py'
+    if (-not (Test-Path -LiteralPath $AuditPy)) {
+        Write-Log ('audit script missing: ' + $AuditPy)
+        Write-Log 'STATUS: FAIL audit-script-missing'
+        exit 1
+    }
+    Write-Log ('vault_audit.py -> ' + $VaultData)
+    $auditOut  = & py $AuditPy 2>&1
+    $auditCode = $LASTEXITCODE
+    # stdout carries KEY=value lines; stderr carries progress. Keep both, the agent
+    # needs the values and we need the progress when something goes wrong.
+    Set-Content -LiteralPath $VaultData -Value $auditOut -Encoding UTF8
+    if ($auditCode -ne 0) {
+        Write-Log ('vault_audit.py exit code ' + $auditCode)
+        Write-Log 'STATUS: FAIL vault-audit'
+        exit 1
+    }
+    # An empty or value-less file would let the agent report "no problems found"
+    # off nothing at all. Prove the file actually carries values before continuing.
+    $auditProbe = Select-String -LiteralPath $VaultData -Pattern '^BROKEN_LINKS_COUNT=' -Quiet
+    if (-not $auditProbe) {
+        Write-Log ('vault data has no BROKEN_LINKS_COUNT line: ' + $VaultData)
+        Write-Log 'STATUS: FAIL vault-audit-empty'
+        exit 1
+    }
+    Write-Log ('vault data ok (' + (Get-Item -LiteralPath $VaultData).Length + ' bytes)')
+
+    # Open PR list (charter: gh pr list is a read, so it stays inside grade A -
+    # but the agent no longer has Bash, so the wrapper produces it).
+    Write-Log ('gh pr list -> ' + $PrData)
+    $prOut  = & gh pr list --state open --json number,title,createdAt,mergeStateStatus 2>&1
+    $prCode = $LASTEXITCODE
+    if ($prCode -ne 0) {
+        # Not fatal: a vault report is still worth producing. Record the failure so
+        # the agent writes "unverified" instead of silently reporting zero open PRs.
+        Write-Log ('gh pr list exit code ' + $prCode + ' - recording as unavailable')
+        Set-Content -LiteralPath $PrData -Value 'UNAVAILABLE' -Encoding UTF8
+        foreach ($l in $prOut) { Write-Log ('  gh| ' + $l) }
+    } else {
+        Set-Content -LiteralPath $PrData -Value $prOut -Encoding UTF8
+        Write-Log ('open pr data ok (' + (Get-Item -LiteralPath $PrData).Length + ' bytes)')
+    }
+
     if (-not (Test-Path -LiteralPath $PromptFile)) {
         Write-Log ('prompt file missing: ' + $PromptFile)
         Write-Log 'STATUS: FAIL prompt-missing'
         exit 1
     }
     $prompt = (Get-Content -LiteralPath $PromptFile -Raw -Encoding UTF8).Replace('{{DATE}}', $IsoDate)
+    $prompt = $prompt.Replace('{{VAULT_DATA}}', $VaultData).Replace('{{PR_DATA}}', $PrData)
 
     Write-Log ('claude -p (ops-auditor) start, --add-dir ' + $VaultPath)
     $out        = & $Claude -p $prompt --permission-mode acceptEdits --add-dir $VaultPath 2>&1
