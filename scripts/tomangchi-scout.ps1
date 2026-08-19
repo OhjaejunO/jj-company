@@ -12,6 +12,14 @@
 $ErrorActionPreference = 'Continue'
 
 $Task       = 'tomangchi-scout'
+# Start stagger (2026-08-19). All four tasks are StartWhenAvailable, so after a
+# sleep/reboot they all fire in the same second and race on "git pull" in this
+# shared tree (see scripts\git-sync.ps1). Time triggers have no deterministic
+# delay in Task Scheduler, so the offset lives here: drift 0 / vault 2 /
+# scout 4 / job 6 minutes. Applied to every run, not only catch-up runs - the
+# scheduled times are 30 min apart so the shift is harmless there.
+$StartDelayMinutes = 4
+
 $Hq         = 'C:\Users\ojaej\jj-company'
 $Claude     = 'C:\Users\ojaej\.local\bin\claude.exe'
 $PromptFile = Join-Path $Hq 'scripts\prompts\tomangchi-scout.md'
@@ -55,6 +63,10 @@ try {
     New-Item -ItemType File -Path $LockFile -Force | Out-Null
     $lockTaken = $true
     Write-Log ('=== ' + $Task + ' start (pid ' + $PID + ', ' + $Weekday + ') ===')
+    if ($StartDelayMinutes -gt 0) {
+        Write-Log ('start stagger: sleeping ' + $StartDelayMinutes + ' min')
+        Start-Sleep -Seconds ($StartDelayMinutes * 60)
+    }
 
     # Run provenance: which rulebook revision this run actually used.
     # 2026-08-15 diagnosis - the live skill used to be a symlink, so the answer
@@ -72,12 +84,26 @@ try {
     # --- charter 4: sync the operations server to latest main before working ---
     Set-Location -LiteralPath $Hq
     Write-Log ('cwd: ' + (Get-Location).Path)
-    Write-Log 'git pull origin main'
-    $pullOut  = & git pull origin main 2>&1
-    $pullCode = $LASTEXITCODE
-    foreach ($l in $pullOut) { Write-Log ('  git| ' + $l) }
-    if ($pullCode -ne 0) {
-        Write-Log ('git pull exit code ' + $pullCode)
+    # Retry (2026-08-19): see scripts\git-sync.ps1 header - a wake-up stampede
+    # made three wrappers pull the same tree in the same second and two lost.
+    $SyncHelper = Join-Path $Hq 'scripts\git-sync.ps1'
+    if (-not (Test-Path -LiteralPath $SyncHelper)) {
+        Write-Log ('git sync helper missing: ' + $SyncHelper)
+        Write-Log 'STATUS: FAIL git-sync-helper-missing'
+        exit 1
+    }
+    . $SyncHelper
+    # Quote-safe prompt passing (2026-08-19): see scripts\native-arg.ps1 - PS 5.1
+    # cut the -p prompt at its first inner double quote and dropped the rest.
+    $ArgHelper = Join-Path $Hq 'scripts\native-arg.ps1'
+    if (-not (Test-Path -LiteralPath $ArgHelper)) {
+        Write-Log ('native arg helper missing: ' + $ArgHelper)
+        Write-Log 'STATUS: FAIL arg-helper-missing'
+        exit 1
+    }
+    . $ArgHelper
+    $pull = Invoke-GitPullRetry -Log ${function:Write-Log}
+    if (-not $pull.Ok) {
         Write-Log 'STATUS: FAIL git-sync'
         exit 1
     }
@@ -124,7 +150,45 @@ try {
     if ($existed) { $sizeBefore = (Get-Item -LiteralPath $ScanLog).Length }
     Write-Log ('scan log before: exists=' + $existed + ' bytes=' + $sizeBefore)
 
+    # --- source-list watch (2026-08-19): collect BEFORE the agent runs ---
+    # Step 1-1 of the agent (reels creator source list) needs yt-dlp; the
+    # scheduled allowlist never had it, so the step was silently skipped
+    # (2026-08-19 report had no source-list line at all, codex finding #2, and a
+    # 2026-08-17 upload on @spoop-v7v went unobserved). Same wrapper-first
+    # pattern as ops-auditor: the wrapper produces the data, the agent reads it.
+    # Non-fatal: a scan without the source file is still worth running, but the
+    # file then says UNAVAILABLE so the agent writes 'unverified', not 'none'.
+    $ScoutDataDir = Join-Path $Hq 'logs\scout-data'
+    New-Item -ItemType Directory -Force -Path $ScoutDataDir | Out-Null
+    $SourceData = Join-Path $ScoutDataDir ('sources_' + $IsoDate + '.txt')
+    $SourcePy   = Join-Path $Hq 'scripts\source_watch.py'
+    $env:PYTHONIOENCODING = 'utf-8'
+    Write-Log ('source_watch.py -> ' + $SourceData)
+    if (-not (Test-Path -LiteralPath $SourcePy)) {
+        Write-Log ('source watch script missing: ' + $SourcePy + ' - recording as unavailable')
+        Set-Content -LiteralPath $SourceData -Value 'UNAVAILABLE script-missing' -Encoding UTF8
+    } else {
+        $srcOut  = & py $SourcePy 2>&1
+        $srcCode = $LASTEXITCODE
+        if ($srcCode -ne 0) {
+            Write-Log ('source_watch.py exit code ' + $srcCode + ' - recording as unavailable')
+            foreach ($l in $srcOut) { Write-Log ('  src| ' + $l) }
+            Set-Content -LiteralPath $SourceData -Value ('UNAVAILABLE exit ' + $srcCode) -Encoding UTF8
+        } else {
+            Set-Content -LiteralPath $SourceData -Value $srcOut -Encoding UTF8
+            # Prove the file carries per-source verdicts, not just a header (charter 0).
+            $okCount = @(Select-String -LiteralPath $SourceData -Pattern '^STATUS=OK').Count
+            $allCount = @(Select-String -LiteralPath $SourceData -Pattern '^STATUS=').Count
+            Write-Log ('source data ok (' + (Get-Item -LiteralPath $SourceData).Length + ' bytes, ' + $allCount + ' sources, ' + $okCount + ' probed OK)')
+            if ($allCount -eq 0) {
+                Write-Log 'source data has no STATUS lines - recording as unavailable'
+                Set-Content -LiteralPath $SourceData -Value 'UNAVAILABLE no-status-lines' -Encoding UTF8
+            }
+        }
+    }
+
     $prompt = (Get-Content -LiteralPath $PromptFile -Raw -Encoding UTF8).Replace('{{DATE}}', $IsoDate).Replace('{{WEEKDAY}}', $Weekday)
+    $prompt = $prompt.Replace('{{SOURCE_DATA}}', $SourceData)
 
     # Headless sessions cannot answer permission prompts, so the tools this job
     # actually needs are granted explicitly and narrowly. Deny rules in
@@ -143,7 +207,7 @@ try {
     )
 
     Write-Log ('claude -p (content-scout) start, allowed-tools: ' + ($AllowedTools -join ' '))
-    $out = & $Claude -p $prompt --permission-mode acceptEdits `
+    $out = & $Claude -p (ConvertTo-NativeArg $prompt) --permission-mode acceptEdits `
         --allowed-tools @AllowedTools `
         --add-dir $SkillDir --add-dir $ContentOps --add-dir $ScanLogDir 2>&1
     $claudeCode = $LASTEXITCODE

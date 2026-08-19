@@ -10,6 +10,14 @@
 $ErrorActionPreference = 'Continue'
 
 $Task       = 'job-scout'
+# Start stagger (2026-08-19). All four tasks are StartWhenAvailable, so after a
+# sleep/reboot they all fire in the same second and race on "git pull" in this
+# shared tree (see scripts\git-sync.ps1). Time triggers have no deterministic
+# delay in Task Scheduler, so the offset lives here: drift 0 / vault 2 /
+# scout 4 / job 6 minutes. Applied to every run, not only catch-up runs - the
+# scheduled times are 30 min apart so the shift is harmless there.
+$StartDelayMinutes = 6
+
 $Hq         = 'C:\Users\ojaej\jj-company'
 $Claude     = 'C:\Users\ojaej\.local\bin\claude.exe'
 $PromptFile = Join-Path $Hq 'scripts\prompts\job-scout.md'
@@ -40,6 +48,10 @@ try {
     New-Item -ItemType File -Path $LockFile -Force | Out-Null
     $lockTaken = $true
     Write-Log ('=== ' + $Task + ' start (pid ' + $PID + ') ===')
+    if ($StartDelayMinutes -gt 0) {
+        Write-Log ('start stagger: sleeping ' + $StartDelayMinutes + ' min')
+        Start-Sleep -Seconds ($StartDelayMinutes * 60)
+    }
 
     # Run provenance: which rulebook revision this run actually used.
     # 2026-08-15 diagnosis - the live skill used to be a symlink, so the answer
@@ -57,12 +69,26 @@ try {
     # --- charter 4: sync the operations server to latest main before working ---
     Set-Location -LiteralPath $Hq
     Write-Log ('cwd: ' + (Get-Location).Path)
-    Write-Log 'git pull origin main'
-    $pullOut  = & git pull origin main 2>&1
-    $pullCode = $LASTEXITCODE
-    foreach ($l in $pullOut) { Write-Log ('  git| ' + $l) }
-    if ($pullCode -ne 0) {
-        Write-Log ('git pull exit code ' + $pullCode)
+    # Retry (2026-08-19): see scripts\git-sync.ps1 header - a wake-up stampede
+    # made three wrappers pull the same tree in the same second and two lost.
+    $SyncHelper = Join-Path $Hq 'scripts\git-sync.ps1'
+    if (-not (Test-Path -LiteralPath $SyncHelper)) {
+        Write-Log ('git sync helper missing: ' + $SyncHelper)
+        Write-Log 'STATUS: FAIL git-sync-helper-missing'
+        exit 1
+    }
+    . $SyncHelper
+    # Quote-safe prompt passing (2026-08-19): see scripts\native-arg.ps1 - PS 5.1
+    # cut the -p prompt at its first inner double quote and dropped the rest.
+    $ArgHelper = Join-Path $Hq 'scripts\native-arg.ps1'
+    if (-not (Test-Path -LiteralPath $ArgHelper)) {
+        Write-Log ('native arg helper missing: ' + $ArgHelper)
+        Write-Log 'STATUS: FAIL arg-helper-missing'
+        exit 1
+    }
+    . $ArgHelper
+    $pull = Invoke-GitPullRetry -Log ${function:Write-Log}
+    if (-not $pull.Ok) {
         Write-Log 'STATUS: FAIL git-sync'
         exit 1
     }
@@ -99,7 +125,7 @@ try {
     $AllowedTools = @('WebSearch', 'WebFetch')
 
     Write-Log ('claude -p (job-scout) start, allowed-tools: ' + ($AllowedTools -join ' '))
-    $out = & $Claude -p $prompt --permission-mode acceptEdits `
+    $out = & $Claude -p (ConvertTo-NativeArg $prompt) --permission-mode acceptEdits `
         --allowed-tools @AllowedTools 2>&1
     $claudeCode = $LASTEXITCODE
     foreach ($l in $out) { Write-Log ('  cc| ' + $l) }

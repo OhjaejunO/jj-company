@@ -11,6 +11,8 @@ content-scout 서브에이전트로 토망치랩 아침 스캔을 1회 실행하
 - 스캔로그 폴더: `C:\Users\ojaej\orca\tomangchi-lab.github.io\workshop\스캔로그`
 - content-ops: `C:\Users\ojaej\orca\content-ops`
 - 환경변수 `SCAN_LOG_DIR` 는 이미 설정돼 있다 (scan_check --from-log 용)
+- 릴스 원작자 소스 목록 조회 결과: `{{SOURCE_DATA}}` — **래퍼가 이미 만들었다. 네가 yt-dlp 를 돌리지 않는다** (2026-08-19 개편).
+  실행 순서 1-1 은 이 파일을 Read 해서 한다. `STATUS=OK` 소스는 목록의 최신 게시물(발행일|조회수|길이|제목|URL)이고, `STATUS=FAIL` 은 조회 실패(«확인 불가 + 사유»), `STATUS=UNSUPPORTED` 는 래퍼가 못 보는 플랫폼(WebFetch 로 시도하거나 «미확인»). 파일이 없거나 `UNAVAILABLE` 이면 «확인 불가»로 적고 «신작 없음»으로 적지 마라.
 
 ## 실행 순서 (에이전트 정의의 고정 순서)
 1. 스캔로그 폴더에서 **가장 최근 로그 날짜**를 확인해 조사 범위를 정한다 (그 날짜 이후 ~ 현재). 고정 날짜 범위 금지.
