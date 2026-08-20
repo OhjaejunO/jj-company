@@ -30,8 +30,21 @@ $LockFile = Join-Path $Hq ('logs\' + $Task + '.lock')
 
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
+# Shared writer (2026-08-20): Add-Content dies with an IOException when any
+# reader holds the log open (a `tail -f` did exactly that and every line after
+# the stagger was dropped silently). scripts\logging.ps1 opens with
+# FileShare.ReadWrite, retries, and spills to <log>.overflow + stderr rather
+# than losing the line. Fallback stays inline so logging works even if the
+# helper is missing.
+$LogHelper = Join-Path $Hq 'scripts\logging.ps1'
+if (Test-Path -LiteralPath $LogHelper) { . $LogHelper }
+
 function Write-Log {
     param([string]$Message)
+    if (Get-Command Write-LogLine -ErrorAction SilentlyContinue) {
+        [void](Write-LogLine -Path $LogFile -Message $Message)
+        return
+    }
     $line = '[' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '] ' + $Message
     Add-Content -LiteralPath $LogFile -Value $line -Encoding UTF8
 }
