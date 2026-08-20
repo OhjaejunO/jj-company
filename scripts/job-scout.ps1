@@ -43,15 +43,34 @@ if (Test-Path -LiteralPath $LockFile) {
     exit 2
 }
 
+Write-Log ('=== ' + $Task + ' start (pid ' + $PID + ') ===')
+
+# Stagger BEFORE the lock (2026-08-21). On 8/20 all three wrappers died during
+# this sleep and left their locks behind, which would have blocked the next
+# morning outright (the gate above exits 2 on a stale lock). The finally block
+# cannot cover that case: no PowerShell cleanup runs when the process is killed
+# from outside. Holding no lock while we only sleep removes the failure mode.
+if ($StartDelayMinutes -gt 0) {
+    Write-Log ('start stagger: sleeping ' + $StartDelayMinutes + ' min')
+    Start-Sleep -Seconds ($StartDelayMinutes * 60)
+    # First mark after the sleep. 8/20 could not be traced past the stagger line
+    # because nothing was written until the git step - this line makes "did it
+    # come back from the sleep at all" answerable from the log alone.
+    Write-Log ('stagger complete: resuming after ' + $StartDelayMinutes + ' min')
+}
+
+# Re-check: another run may have taken the lock while this one slept.
+if (Test-Path -LiteralPath $LockFile) {
+    Write-Log ('lock file present after stagger: ' + $LockFile + ' -- aborting')
+    Write-Log 'STATUS: FAIL lock-exists'
+    exit 2
+}
+
 $lockTaken = $false
 try {
     New-Item -ItemType File -Path $LockFile -Force | Out-Null
     $lockTaken = $true
-    Write-Log ('=== ' + $Task + ' start (pid ' + $PID + ') ===')
-    if ($StartDelayMinutes -gt 0) {
-        Write-Log ('start stagger: sleeping ' + $StartDelayMinutes + ' min')
-        Start-Sleep -Seconds ($StartDelayMinutes * 60)
-    }
+    Write-Log ('lock acquired: ' + $LockFile)
 
     # Run provenance: which rulebook revision this run actually used.
     # 2026-08-15 diagnosis - the live skill used to be a symlink, so the answer
