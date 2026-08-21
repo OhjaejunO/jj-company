@@ -34,7 +34,22 @@
 - **원인**: `03:39:39` 절전 진입 → `11:36:36` 복귀(System 로그 Kernel-Power id=42 / Power-Troubleshooter id=1). 네 작업 모두 `WakeToRun=False` 라 **기상하지 않는다.** 이벤트 `id=114` 4건이 «예정대로 시작할 수 없음 → StartWhenAvailable 로 지금 시작»을 명시한다.
 - **S4U 전환(08-20)으로는 안 풀린다.** S4U 는 «로그온 안 돼 있어도 실행»을 풀었고, «절전 중 기상»은 별개다. 둘을 같은 것으로 보면 매일 지연을 S4U 탓으로 오진한다.
 - **전원 옵션은 이미 허용돼 있다** — `RTCWAKE`(절전 모드 해제 타이머 허용) **AC=1 / DC=1** 실측. 작업 쪽 `WakeToRun` 만 켜면 된다.
-- ⚠️ **같이 봐야 할 것 — 무인 절전 시간 제한(UNATTENDSLEEP).** 기상 타이머로 깨어난 뒤에는 이 값이 적용되고 기본이 **2분**이다. 래퍼는 시작하자마자 stagger 로 **0/2/4/6분 잠든다** — 그 사이에 다시 잠들면 실제 작업이 시작도 못 하고 끝난다. **현재 값은 확인 불가** — 이 구성표에 항목이 노출돼 있지 않다(숨김 설정).
+
+🔴 **`WakeToRun` 만 켜면 오히려 세 작업이 죽는다 — 무인 절전 시간 제한(UNATTENDSLEEP)을 같이 올려야 한다.**
+
+기상 타이머로 깨어난 뒤에는 이 값이 적용된다. **실측: `AC=120s` / `DC=120s`** (`powercfg /qh SCHEME_CURRENT SUB_SLEEP 7bc4a2f9-...`). 그런데 래퍼는 시작하자마자 stagger 로 잠든다:
+
+| 작업 | 예정 | stagger | 2분 안에 실작업 시작? |
+|---|---|---|---|
+| skill-drift-audit | 07:00 | 0분 | ✅ 즉시 |
+| morning-vault-health | 07:30 | **2분** | ⚠️ 경계선 |
+| tomangchi-scout | 08:00 | **4분** | ❌ |
+| job-scout | 08:30 | **6분** | ❌ |
+
+**`WakeToRun` 만 켜면 깨어나서 stagger 로 자다가 다시 잠든다.** 지금(잠들어 안 돌음)보다 나은 것도 없고, 증상은 더 읽기 어렵다 — «깨어나긴 했는데 리포트가 없다».
+
+- **가장 긴 실측 소요**: tomangchi-scout 16.6분(11:46:35→12:03:11) + stagger 4분 = 약 **21분**. 여유를 두면 **1800s(30분)** 가 적당하다.
+- 대안으로 stagger 를 줄이는 것도 가능하나, **stagger 는 놓친 실행 일괄 기동(StartWhenAvailable) 경로를 막는 장치라 지우면 2026-08-19 사고가 돌아온다.** 전원 값을 올리는 쪽이 맞다.
 - **근거**: `logs\scheduled\*_20260821.log` 4종, `Microsoft-Windows-TaskScheduler/Operational` id=114/129/100/201, System 로그 Kernel-Power.
 
 ## 🟡 우선순위 2 — vault 실체 정리
