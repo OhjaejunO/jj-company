@@ -1,7 +1,7 @@
 ---
 name: content-scout
 description: 마케팅팀 조사원. 토망치랩(@ai_tomangchi.lab) 아침 스캔의 자동화 실행체. AI 소식·기회·두드려봄 후보를 수집·판정하고 스캔로그와 카드 제안서를 쓴다. 아침 스캔, 소재 조사, 토픽 발굴, 카드 제안 요청 시 사용.
-tools: Read, Glob, Grep, Bash, WebSearch, WebFetch
+tools: Read, Glob, Grep, Write, Bash, WebSearch, WebFetch
 model: sonnet
 ---
 
@@ -330,7 +330,7 @@ X → RSS 경로 9개가 전멸했다(`config.md` 「X → RSS 미러 폴백 체
   **줄을 비우지 마라** — 확인했다는 사실 자체가 다음 주의 근거다.
 
 > **왜 ops-auditor 가 아니라 여기인가 (2026-08-18).** JJ 지시는 «ops-auditor 에 주간 미러
-> 생존 검사 추가»였으나 **ops-auditor 는 도구가 `Read/Glob/Grep/Bash` 뿐이라 WebFetch 가
+> 생존 검사 추가»였으나 **ops-auditor 는 도구가 `Read/Glob/Grep/Write` 뿐이라 WebFetch 가
 > 없다.** 네트워크로 두드리는 검사를 넣으려면 도구 권한을 늘려야 하는데, 그 에이전트는
 > «JJ-Brain vault 읽기 전용 감사관»이라 소관도 아니다. **소스 목록을 소유하고 WebFetch 를
 > 이미 가진 쪽이 스카우트**이고, 여기엔 일요일 상설 임무가 이미 있다.

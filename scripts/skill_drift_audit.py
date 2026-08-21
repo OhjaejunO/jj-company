@@ -368,6 +368,15 @@ def main():
               "사본을 맞추려면 실행 정본에서 복사해 **커밋·머지**한 뒤",
               "`py skills\\tomangchi\\_selftest.py` 로 자립을 다시 확인한다.",
               "", "> 근본 해결은 정본 단일화다 — `docs/plan-brand-assets-move.md` 참조.", ""]
+
+    # STATUS is the last line of the report body, same as the three agent jobs
+    # (charter section 5). Until 2026-08-21 this job printed STATUS to stdout only,
+    # so its report was the one artifact of record with no verdict in it. The
+    # verdict is computed once here and reused for stdout - two places must not be
+    # able to disagree.
+    status = f"STATUS: FAIL drift-{len(red)}" if red else "STATUS: OK"
+    lines += [status, ""]
+
     with open(out, "w", encoding="utf-8", newline="\n") as f:
         f.write("\n".join(lines))
 
@@ -378,11 +387,8 @@ def main():
         print("  🔴 " + t)
     for t in yellow:
         print("  🟡 " + t)
-    if red:
-        print(f"STATUS: FAIL drift-{len(red)}")
-        return 1
-    print("STATUS: OK")
-    return 0
+    print(status)
+    return 1 if red else 0
 
 
 if __name__ == "__main__":
