@@ -80,8 +80,13 @@ EXCLUDED = {
     "avatar_1024.png", "post_sample_8.png", "endcard_v2.png", "_endcard_prev.png",
     "토망치 커버1.png", "토망치 커버2.png", "토망치 커버3.png", "토망치 프로필.png",
 }
-#: 사본에만 있어야 정상인 것.
-COPY_ONLY = {"SKILL.md", "_selftest.py"}
+#: 사본에만 있어야 정상인 것 — **스킬로 배포되지만 제작 폴더에서는 쓰지 않는 파일.**
+#:
+#: 2026-08-21 추가: `epcheck.py`(편 게이트 검사기 정본)·`verify.template.py`(편 껍데기
+#: 템플릿). 둘은 `00_브랜드에셋` 에 있을 이유가 없다 — 편은 스킬 경로에서 부른다.
+#: 목록에 없으면 **매일 🟡 2건이 상주**하고, 늘 노란 줄이 있는 리포트는 사람이 안 보게 된다
+#: (§0 — 거짓 경보가 감시를 무디게 한다). 근거: 브랜드 동기화(PR #51) 뒤 남은 유일한 🟡.
+COPY_ONLY = {"SKILL.md", "_selftest.py", "epcheck.py", "verify.template.py"}
 
 #: 개행 정규화를 적용할 확장자. **바이너리에는 쓰지 않는다** — PNG 안의 `\r\n`
 #: 바이트를 지우면 진짜 차이를 가려 버린다.
@@ -343,6 +348,23 @@ def _dir_self_test():
     return out
 
 
+#: COPY_ONLY 역검증. 목록에 든 것은 면제되고, 안 든 것은 걸려야 한다.
+#: **양쪽을 본다** — 면제만 보면 «전부 면제하는 목록»도 정상으로 보인다.
+_CO_CASES = (
+    ("copyonly_exempt", "epcheck.py", True),
+    ("copyonly_catch", "not_in_list.py", False),
+)
+
+
+def _copyonly_self_test():
+    out = []
+    for name, fn, exempt in _CO_CASES:
+        got = fn in COPY_ONLY
+        out.append((name, frozenset(["면제" if exempt else "적발"]),
+                    frozenset(["면제" if got else "적발"]), got == exempt))
+    return out
+
+
 def self_test():
     """`[(이름, 기대, 실제, 통과)]`."""
     out = []
@@ -352,6 +374,7 @@ def self_test():
             got = frozenset(code for code, _ in classify(live, copy))
             out.append((name, expected, got, got == expected))
     out += _dir_self_test()
+    out += _copyonly_self_test()
     return out
 
 
