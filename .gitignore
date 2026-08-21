@@ -12,3 +12,6 @@ departments/sales/applied.md
 # 내려가지 않아 아래 부정 패턴이 무효가 된다.
 reports/*
 !reports/.gitkeep
+
+__pycache__/
+*.pyc

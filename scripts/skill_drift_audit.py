@@ -162,8 +162,49 @@ def clone_state(repo, rev):
     return out
 
 
-def classify(live_dir, copy_dir):
-    """두 폴더를 비교해 `[(사유코드, 설명), ...]` 로 돌려준다. 비어 있으면 일치다."""
+#: 두 시각이 이만큼 이상 벌어져야 «어느 쪽이 최근»이라고 말한다. 그 안이면 «불명»이다.
+#: 파일 복사·체크아웃이 mtime 을 건드리므로 근소한 차이는 근거가 못 된다.
+NEWER_MARGIN_S = 300
+
+
+def _newer(live_path, name, copy_age):
+    """(판정, 표기) — 판정은 "live" / "copy" / None(불명).
+
+    실행 정본 쪽 근거는 **파일 mtime**, 사본 쪽 근거는 **그 경로를 마지막으로 건드린 커밋
+    시각**이다. 둘은 성질이 다르다 — mtime 은 복사·체크아웃으로 갱신되고 커밋 시각은 안
+    그렇다. 그래서 이 함수는 **단정하지 않는다.** 근거를 나란히 적고, 차이가 여유(5분)를
+    넘을 때만 방향을 말한다. 사람이 그 두 값을 보고 뒤집을 수 있어야 한다.
+    """
+    import datetime as _dt
+    try:
+        lm = os.path.getmtime(live_path)
+    except OSError:
+        return None, "정본 mtime 확인 불가"
+    ls = _dt.datetime.fromtimestamp(lm).strftime("%Y-%m-%d %H:%M")
+    if copy_age is None:
+        return None, f"정본 mtime {ls} / 사본 시각 확인 안 함"
+    cm, cs = copy_age(name)
+    if cm is None:
+        return None, f"정본 mtime {ls} / 사본 커밋 시각 확인 불가 ({cs})"
+    if abs(lm - cm) < NEWER_MARGIN_S:
+        return None, f"정본 mtime {ls} · 사본 커밋 {cs} — 차이 5분 미만이라 **방향 불명**"
+    if lm > cm:
+        return "live", f"정본 mtime {ls} · 사본 커밋 {cs} — **정본이 최근**"
+    return "copy", f"정본 mtime {ls} · 사본 커밋 {cs} — **사본이 최근** (정본으로 덮으면 사본 수정이 사라진다)"
+
+
+def classify(live_dir, copy_dir, copy_age=None, newer_out=None):
+    """두 폴더를 비교해 `[(사유코드, 설명), ...]` 로 돌려준다. 비어 있으면 일치다.
+
+    `copy_age(name) -> (epoch, 표기)` 를 주면 «내용이 다르다» 줄에 **어느 쪽이 최근인지**를
+    같이 적는다. 2026-08-21 신설 — 그 전에는 이 감사가 «다르다»만 말하고 방향을 몰랐고,
+    그런데도 조치 문구는 늘 «실행 정본에서 복사해 커밋»이었다. `deliver.py` 는 사본 쪽이
+    새것이었으므로 **그 지시를 따랐으면 2026-08-20 양방향 대조 수정이 되돌아갔다.**
+    감사가 결함을 재도입하는 지시를 내는 상태였다.
+
+    `newer_out` 리스트를 주면 파일별 판정("live"/"copy"/None)을 담아 돌려준다 —
+    조치 문구가 그것을 보고 방향을 정한다.
+    """
     live, copy = listing(live_dir), listing(copy_dir)
     out = []
 
@@ -202,7 +243,10 @@ def classify(live_dir, copy_dir):
                     continue
             except Exception:
                 pass
-        out.append(("content", f"내용이 다르다: {f} (정본 {a:,}B / 사본 {b:,}B)"))
+        _who, _why = _newer(live[f], f, copy_age)
+        if newer_out is not None:
+            newer_out.append((f, _who))
+        out.append(("content", f"내용이 다르다: {f} (정본 {a:,}B / 사본 {b:,}B) — {_why}"))
     return out
 
 
@@ -265,6 +309,40 @@ def _synth(kind, root):
     return live, copy
 
 
+#: 방향 판정 역검증. **케이스를 하나씩 분리한다** — 한 입력이 여러 조건에 같이 걸리면
+#: «그 판정이 제 몫을 했는지»가 증명되지 않는다(§0). 여기서는 정본 mtime 과 사본 커밋
+#: 시각의 **차이 하나만** 바꾼다.
+_DIR_CASES = (
+    ("dir_live_newer", -86400, "live"),   # 사본 커밋이 하루 전  → 정본이 최근
+    ("dir_copy_newer", +86400, "copy"),   # 사본 커밋이 하루 뒤  → 사본이 최근
+    ("dir_margin",        -60, None),     # 1분 차이 (여유 5분 안) → 불명
+)
+
+
+def _dir_self_test():
+    """`_newer` 가 방향을 실제로 가르는가. `[(이름, 기대, 실제, 통과)]`."""
+    out = []
+    for name, delta, expected in _DIR_CASES:
+        with tempfile.TemporaryDirectory(prefix="drift_dir_") as td:
+            f = os.path.join(td, "x.py")
+            with open(f, "wb") as fh:
+                fh.write(_BODY)
+            lm = os.path.getmtime(f)
+            got, _why = _newer(f, "x.py", lambda _n, _c=lm + delta: (_c, "합성"))
+            out.append((name, frozenset([expected or "불명"]),
+                        frozenset([got or "불명"]), got == expected))
+    # 사본 시각을 못 읽으면 «불명»이어야 한다 — 못 읽은 것을 «정본이 최근»으로 읽으면
+    # 이력 없는 새 파일마다 «덮어라» 지시가 나간다.
+    with tempfile.TemporaryDirectory(prefix="drift_dir_") as td:
+        f = os.path.join(td, "x.py")
+        with open(f, "wb") as fh:
+            fh.write(_BODY)
+        got, _why = _newer(f, "x.py", lambda _n: (None, "이력 없음"))
+        out.append(("dir_no_history", frozenset(["불명"]),
+                    frozenset([got or "불명"]), got is None))
+    return out
+
+
 def self_test():
     """`[(이름, 기대, 실제, 통과)]`."""
     out = []
@@ -273,6 +351,7 @@ def self_test():
             live, copy = _synth(name, td)
             got = frozenset(code for code, _ in classify(live, copy))
             out.append((name, expected, got, got == expected))
+    out += _dir_self_test()
     return out
 
 
@@ -296,6 +375,7 @@ def main():
     tmp = None
     rev_desc = COPY_DIR or f"{COPY_REV} @ {COPY_REPO}"
     reasons = []
+    newer = []          # [(파일명, "live"/"copy"/None)] — 조치 문구가 방향을 정할 근거
     try:
         if COPY_DIR:
             # 폴더를 직접 지정했다 — 역검증·디버깅 경로. fetch 도 클론 상태도 보지 않는다.
@@ -325,7 +405,21 @@ def main():
             copy_dir = export_rev(COPY_REPO, COPY_REV, COPY_SUB, tmp)
             reasons += clone_state(COPY_REPO, COPY_REV)
 
-        reasons += classify(LIVE, copy_dir)
+        def _copy_age(name):
+            """사본 쪽 «최근» 근거 — 그 경로를 마지막으로 건드린 커밋 시각."""
+            rel = COPY_SUB.rstrip("/") + "/" + name
+            try:
+                r = git(COPY_REPO, "log", "-1", "--format=%ct|%cI", COPY_REV, "--", rel, check=False)
+                txt = r.stdout.decode("utf-8", "replace").strip()
+                if r.returncode != 0 or not txt:
+                    return None, "이력 없음"
+                ct, _, ci = txt.partition("|")
+                return int(ct), ci[:16].replace("T", " ")
+            except Exception:                      # noqa: BLE001
+                return None, "git 조회 실패"
+
+        _copy_age_fn = _copy_age if COPY_REPO and not COPY_DIR else None
+        reasons += classify(LIVE, copy_dir, copy_age=_copy_age_fn, newer_out=newer)
 
         ok, detail = run_selftest(copy_dir)
         if ok is None:
@@ -362,12 +456,32 @@ def main():
     for label, items in (("🔴 즉시", red), ("🟡 이번 주", yellow), ("⚪ 참고", white)):
         if items:
             lines += [f"## {label}", ""] + [f"- {t}" for t in items] + [""]
+    # 2026-08-21: 조치 문구가 **방향을 따른다.** 종전에는 방향과 무관하게 늘
+    # «실행 정본에서 복사해 커밋»이었고, 사본이 새것인 파일에 그 지시를 따르면
+    # 사본의 수정이 사라진다 (`deliver.py` 실제 사례). 방향을 모르면 지시하지 않는다.
+    _dirs = [w for _, w in newer]
+    _live_new = [f for f, w in newer if w == "live"]
+    _copy_new = [f for f, w in newer if w == "copy"]
+    _unknown = [f for f, w in newer if w is None]
     lines += ["## 조치", "",
               "`py scripts\\skill_drift_audit.py` 가 낸 결과다. 비교 대상은 클론의 워킹",
-              f"트리가 아니라 **{COPY_REV}** — 배포되는 것이 그것이기 때문이다(§4).",
-              "사본을 맞추려면 실행 정본에서 복사해 **커밋·머지**한 뒤",
-              "`py skills\\tomangchi\\_selftest.py` 로 자립을 다시 확인한다.",
-              "", "> 근본 해결은 정본 단일화다 — `docs/plan-brand-assets-move.md` 참조.", ""]
+              f"트리가 아니라 **{COPY_REV}** — 배포되는 것이 그것이기 때문이다(§4).", ""]
+    if newer:
+        lines += ["**방향 판정** — 근거는 정본 `mtime` 과 사본 마지막 커밋 시각이다. "
+                  "성질이 다른 두 값이라 **단정하지 않는다**; 차이가 5분 미만이면 «불명»으로 둔다.", ""]
+        if _live_new:
+            lines += [f"- **정본이 최근 ({len(_live_new)}건)**: {', '.join('`' + x + '`' for x in _live_new)}",
+                      "  → 실행 정본에서 사본으로 복사해 **커밋·머지**한 뒤 "
+                      "`py skills\\tomangchi\\_selftest.py` 로 자립을 다시 확인한다.", ""]
+        if _copy_new:
+            lines += [f"- 🔴 **사본이 최근 ({len(_copy_new)}건)**: {', '.join('`' + x + '`' for x in _copy_new)}",
+                      "  → **반대 방향이다.** 사본에서 실행 정본으로 가져온다. "
+                      "정본으로 덮으면 사본에 들어간 수정이 사라진다.", ""]
+        if _unknown:
+            lines += [f"- ⚪ **방향 불명 ({len(_unknown)}건)**: {', '.join('`' + x + '`' for x in _unknown)}",
+                      "  → **복사 지시를 내지 않는다.** 어느 쪽이 새것인지 사람이 두 파일을 보고 정한다. "
+                      "모르는 채로 덮는 것이 이 감사가 막으려는 사고다.", ""]
+    lines += ["> 근본 해결은 정본 단일화다 — `docs/plan-brand-assets-move.md` 참조.", ""]
 
     # STATUS is the last line of the report body, same as the three agent jobs
     # (charter section 5). Until 2026-08-21 this job printed STATUS to stdout only,
