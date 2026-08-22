@@ -11,8 +11,9 @@ $ErrorActionPreference = 'Continue'
 
 $Task       = 'morning-vault-health'
 # Start stagger (2026-08-19). All four tasks are StartWhenAvailable, so after a
-# sleep/reboot they all fire in the same second and race on "git pull" in this
-# shared tree (see scripts\git-sync.ps1). Time triggers have no deterministic
+# boot they all fire in the same second and race on "git pull" in this
+# shared tree (see scripts\git-sync.ps1). 2026-08-22: measured 12 startups
+# over 7 days - all were boots (hybrid 9 / cold 3), zero sleep resumes. Time triggers have no deterministic
 # delay in Task Scheduler, so the offset lives here: drift 0 / vault 2 /
 # scout 4 / job 6 minutes. Applied to every run, not only catch-up runs - the
 # scheduled times are 30 min apart so the shift is harmless there.

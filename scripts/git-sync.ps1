@@ -6,7 +6,7 @@
 # ASCII-only on purpose (see any schedule script header for why).
 #
 # WHY
-#   On 2026-08-19 the PC slept through 07:00-08:30 and woke at 11:40. All four
+#   On 2026-08-19 the PC was OFF through 07:00-08:30 and booted at 11:40. All four
 #   tasks have StartWhenAvailable, so all four fired at 11:46:15 and three of
 #   them ran "git pull origin main" in the SAME working tree at the same second.
 #   One won; the other two died with
