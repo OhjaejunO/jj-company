@@ -31,6 +31,24 @@
 > ✅ **JJ 실행 완료 (2026-08-22).** 관리자 PowerShell 로 `scripts\waketorun-off.ps1` 실행 —
 > **넷 다 `WakeToRun=False` · `StartWhenAvailable=True` · `LogonType=S4U` 보존 확인.**
 > 딸린 값이 날아가지 않은 것까지 스크립트가 같이 검사했다.
+>
+> ✅ **스케줄 시각 이동도 완료 (2026-08-22).** `scripts\schedule-retime.ps1` 실행 —
+> `skill-drift-audit` **07:00 → 12:30** · `morning-vault-health` **07:30 → 12:30** ·
+> `tomangchi-scout` **08:00 유지** · `job-scout` **08:30 유지**.
+> `StartWhenAvailable`·`S4U`·`WakeToRun` 보존 확인.
+>
+> ## 🟢 이 항목은 여기서 **종결**한다
+>
+> 원인 규명 → 폐기 판정 → 설정 해제 → 시각 이동 → 전제 정정까지 끝났다.
+> **남은 것은 «다음 회차 실측» 하나뿐이고, 그것은 이 항목이 아니라 아래로 넘긴다** —
+> 12:30 예정이 실제로 정시에 도는지는 **다음 평일 회차 로그**가 말해 준다
+> (§4 「고친 것이 언제부터 도는지 확인하고 검증한다」 — 오늘 실행분은 옛 시각으로 이미 끝났다).
+>
+> | 볼 것 | 언제 | 판정 기준 |
+> |---|---|---|
+> | `skill-drift-audit`·`morning-vault-health` 로그 첫 줄 | 다음 회차 | **12:30 대**인가 (stagger 0분/2분) |
+> | 두 감사의 `git pull` | 〃 | 같은 초에 떠도 **`FAIL git-sync` 가 없는가** — stagger 가 처음으로 실일을 한다 |
+> | `tomangchi-scout`·`job-scout` | 〃 | **부팅 즉시**(종전과 동일)인가 |
 
 > 🔴 **요지 한 줄: 설정은 전부 맞았고 «전제»가 틀렸다.**
 > `WakeToRun=True` 4/4 · `RTCWAKE` AC/DC 둘 다 «사용» · S3 지원 · `StartWhenAvailable` 4/4 —
