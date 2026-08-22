@@ -6,7 +6,19 @@
       "Edit(C:\\Users\\ojaej\\OneDrive\\토망치_전달함\\**)",
       "Bash(git push --force*)",
       "Bash(git push -f*)",
-      "Bash(rm -rf*)"
+      "Bash(rm -rf*)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Edit(**/.env)",
+      "Edit(**/.env.*)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Read(**/id_rsa*)",
+      "Read(**/.npmrc)",
+      "Read(**/.netrc)",
+      "Read(C:\\Users\\ojaej\\.aws\\**)",
+      "Read(C:\\Users\\ojaej\\.config\\gcloud\\**)",
+      "Read(C:\\Users\\ojaej\\.ssh\\**)"
     ]
   }
 }
