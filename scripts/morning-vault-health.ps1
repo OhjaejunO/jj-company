@@ -244,7 +244,19 @@ try {
     $prompt = $prompt.Replace('{{FRESH_DATA}}', $FreshData)
 
     Write-Log ('claude -p (ops-auditor) start, --add-dir ' + $VaultPath)
-    $out        = & $Claude -p (ConvertTo-NativeArg $prompt) --permission-mode acceptEdits --add-dir $VaultPath 2>&1
+    # Whitelist from ACTUAL tool calls in the 6 scheduled runs after the 2026-08-18
+    # ops-auditor overhaul (CLAUDE.md section 4). Pre-overhaul runs also used Edit
+    # and Monitor; excluded on purpose - this is a grade-A read-only job and Edit
+    # does not belong to it. Evidence: session transcripts under
+    # ~/.claude/projects/C--Users-ojaej-jj-company/, matched 1:1 against the
+    # 'claude -p (ops-auditor) start' lines in this job's own log files.
+    # If a run fails on a missing tool, add it FROM THE LOG - do not guess.
+    $AllowedTools = @(
+        'Agent', 'Bash', 'Glob', 'Grep', 'Read', 'SendMessage', 'ToolSearch', 'Write'
+    )
+    $out        = & $Claude -p (ConvertTo-NativeArg $prompt) --permission-mode acceptEdits `
+        --allowed-tools @AllowedTools `
+        --add-dir $VaultPath 2>&1
     $claudeCode = $LASTEXITCODE
     foreach ($l in $out) { Write-Log ('  cc| ' + $l) }
     Write-Log ('claude exit code ' + $claudeCode)
