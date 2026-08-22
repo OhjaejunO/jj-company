@@ -9,6 +9,7 @@
     publish   발행로그 × content-ops DB × 실제 폴더        (정비 항목 4)
     watch     소재 문서의 «조건» × 그 문서의 «감시처» 선언   (정비 항목 6)
     symbol    SKILL.md 의 코드 식별자 × 레포 실재            (정비 항목 5)
+    ps1       PowerShell 스크립트 인코딩 규약               (2026-08-22 신설)
 
 ## 왜 감사부터인가
 
@@ -58,6 +59,7 @@ SKILL_MD = os.environ.get(
     "TOMANGCHI_SKILL_MD",
     r"C:\Users\ojaej\.claude\skills\tomangchi\SKILL.md")
 CONTENT_OPS = os.environ.get("CONTENT_OPS", r"C:\Users\ojaej\orca\content-ops")
+JJ_ROOT = os.environ.get("JJ_ROOT", r"C:\Users\ojaej\jj-company")
 CONFIG_MD = os.environ.get(
     "JJ_SCOUT_CONFIG",
     r"C:\Users\ojaej\jj-company\departments\marketing\config.md")
@@ -340,6 +342,51 @@ def audit_symbol(skill_md: str, roots: list) -> list:
 
 
 # ════════════════════════════════════════════════════════════════════
+#  D. ps1 — PowerShell 스크립트 인코딩 규약 (2026-08-22 신설)
+# ════════════════════════════════════════════════════════════════════
+#: **PS 5.1 은 BOM 없는 UTF-8 `.ps1` 을 시스템 ANSI 로 읽어 비ASCII 를 깨뜨린다.**
+#: 그래서 이 레포의 스크립트는 **ASCII 전용**이 관례다(스케줄 래퍼 헤더에
+#: «ASCII-only on purpose» 라고 적혀 있다). 안전한 길은 둘 —
+#:   ⓐ ASCII 전용        ⓑ 비ASCII 를 쓰려면 **UTF-8 BOM** 을 붙인다
+#: 근거: 2026-08-22 `waketorun-off.ps1` 을 한글 323자·BOM 없이 만들어 실행 화면이 깨졌다.
+#: **기존 11개는 전부 ASCII 였다** — 관례로만 지켜지던 것을 새 파일 하나가 깼다.
+#: 규율이 아니라 검사로 막는다.
+PS1_DIRS = ["scripts"]
+
+
+def audit_ps1(root="."):
+    findings, checked = [], 0
+    for base in PS1_DIRS:
+        d = os.path.join(root, base)
+        if not os.path.isdir(d):
+            findings.append(("🟡", f"경로가 없다: {d}"))
+            continue
+        for dirpath, dirs, files in os.walk(d):
+            dirs[:] = [x for x in dirs if x != ".git"]
+            for f in sorted(files):
+                if not f.endswith(".ps1"):
+                    continue
+                checked += 1
+                path = os.path.join(dirpath, f)
+                raw = open(path, "rb").read()
+                bom = raw[:3] == b"\xef\xbb\xbf"
+                body = raw[3:] if bom else raw
+                try:
+                    txt = body.decode("utf-8")
+                except UnicodeDecodeError:
+                    findings.append(("🔴", f"UTF-8 로 안 읽힌다: {path}"))
+                    continue
+                n = sum(1 for ch in txt if ord(ch) > 127)
+                if n and not bom:
+                    findings.append((
+                        "🔴",
+                        f"비ASCII {n}자인데 BOM 이 없다: {os.path.relpath(path, root)} — "
+                        "PS 5.1 이 ANSI 로 읽어 깨진다. ASCII 로 바꾸거나 UTF-8 BOM 을 붙여라"))
+    findings.append(("⚪", f"`.ps1` {checked}개 검사 (ASCII 전용이거나 BOM 이 있으면 통과)"))
+    return findings
+
+
+# ════════════════════════════════════════════════════════════════════
 #  역검증 — 세 감사를 각각 따로 시험한다 (§0)
 # ════════════════════════════════════════════════════════════════════
 def selftest() -> int:
@@ -474,6 +521,25 @@ def selftest() -> int:
             "라고 적혀 있었으나 실재하지 않는다 -->\n")
         rD = [f for f in audit_symbol(md_c, [root]) if f[0] == "🔴"]
         check("symbol 여러 줄 주석의 부재 기록도 대조하지 않는다", not rD, str(rD))
+
+        # ── D. ps1 ────────────────────────────────────────────────────
+        r1 = os.path.join(tmp, "r1", "scripts")
+        os.makedirs(r1)
+        open(os.path.join(r1, "ascii.ps1"), "w", encoding="ascii").write("Write-Host 'ok'\n")
+        rP = [f for f in audit_ps1(os.path.join(tmp, "r1")) if f[0] == "🔴"]
+        check("ps1 ASCII 전용은 통과", not rP, str(rP))
+
+        with open(os.path.join(r1, "bomless.ps1"), "wb") as fh:
+            fh.write("Write-Host '한글'\n".encode("utf-8"))
+        rQ = [f for f in audit_ps1(os.path.join(tmp, "r1")) if f[0] == "🔴"]
+        check("ps1 한글 + BOM 없음이 걸린다 (waketorun-off 재현)",
+              len(rQ) == 1 and "BOM" in rQ[0][1], str(rQ))
+
+        with open(os.path.join(r1, "withbom.ps1"), "wb") as fh:
+            fh.write(b"\xef\xbb\xbf" + "Write-Host '한글'\n".encode("utf-8"))
+        rR = [f for f in audit_ps1(os.path.join(tmp, "r1")) if f[0] == "🔴"]
+        check("ps1 한글이어도 BOM 이 있으면 통과 (BOM 없는 것만 계속 걸린다)",
+              len(rR) == 1, str(rR))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -484,7 +550,7 @@ def selftest() -> int:
 # ════════════════════════════════════════════════════════════════════
 def main() -> int:
     ap = argparse.ArgumentParser(description="기록 일관성 감사 (read-only)")
-    ap.add_argument("--only", choices=["publish", "watch", "symbol"],
+    ap.add_argument("--only", choices=["publish", "watch", "symbol", "ps1"],
                     help="한 감사만 돌린다")
     ap.add_argument("--selftest", action="store_true", help="역검증만 돌린다")
     ap.add_argument("--report", help="리포트를 쓸 경로 (없으면 표준출력만)")
@@ -508,6 +574,8 @@ def main() -> int:
         sections.append(("watch — 조건 × 감시처 선언", audit_watch(WORKSHOP, CONFIG_MD)))
     if args.only in (None, "symbol"):
         sections.append(("symbol — 조문 × 코드 실재", audit_symbol(SKILL_MD, SYMBOL_ROOTS)))
+    if args.only in (None, "ps1"):
+        sections.append(("ps1 — PowerShell 인코딩 규약", audit_ps1(JJ_ROOT)))
 
     red = sum(1 for _, fs in sections for lvl, _ in fs if lvl == "🔴")
     yellow = sum(1 for _, fs in sections for lvl, _ in fs if lvl == "🟡")
