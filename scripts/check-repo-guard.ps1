@@ -145,6 +145,65 @@ if ($branchRc -ne 0 -or [string]::IsNullOrWhiteSpace($branch)) {
     }
 }
 
+# --- 3b. local main must not lag origin/main --------------------------------
+# 2026-08-22 (3 commits) and 2026-08-24 (2 commits): local main was behind and
+# an already-MERGED kit PR was reported as "not deployed" several times; a git
+# stash made in that confusion rolled the day's deployment back (caught before
+# it went live). Charter section 3 already said "fetch after work" - a rule,
+# broken twice. Charter section 0 / the 4-layer clause: move it from a rule to
+# a device. The fetch happens HERE so the verdict is about the remote as it is
+# now, not as it was last looked at.
+function Get-BehindCount([string]$LocalRef, [string]$RemoteRef) {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $n = (& git -C $Repo rev-list --count ($LocalRef + '..' + $RemoteRef) 2>$null)
+    $rc = $LASTEXITCODE
+    $ErrorActionPreference = $prev
+    if ($rc -ne 0 -or [string]::IsNullOrWhiteSpace($n)) { return $null }
+    return [int]($n.Trim())
+}
+
+$prev = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+$remotes = @(& git -C $Repo remote 2>$null)
+$ErrorActionPreference = $prev
+
+if ($remotes -contains 'origin') {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    & git -C $Repo fetch --quiet origin main *>&1 | Out-Null
+    $fetchRc = $LASTEXITCODE
+    $ErrorActionPreference = $prev
+
+    if ($fetchRc -ne 0) {
+        # Not a note: an unfetched compare would answer from stale refs, which
+        # is the very failure this check exists to catch.
+        $problems += 'git fetch origin main failed - lag check could not run (offline?)'
+    } else {
+        $behind = Get-BehindCount 'main' 'origin/main'
+        if ($null -eq $behind) {
+            $problems += 'cannot compare main with origin/main (branch missing?)'
+        } elseif ($behind -gt 0) {
+            $problems += ('local main is ' + $behind + ' commit(s) behind origin/main - a session reading it takes a stale copy as canon. Run: git -C "' + $Repo + '" pull --ff-only origin main')
+        } else {
+            Say 'lag check OK - local main is not behind origin/main'
+        }
+
+        # Reverse check (charter section 0): the comparator must report a ref
+        # that IS behind. main~1 is one commit behind by construction.
+        $rev = Get-BehindCount 'main~1' 'origin/main'
+        if ($null -eq $rev) {
+            $notes += 'lag reverse check SKIPPED - main has no parent commit'
+        } elseif ($rev -lt 1) {
+            $problems += 'LAG REVERSE CHECK FAILED: main~1 was not reported as behind origin/main'
+        } else {
+            Say ('lag reverse check OK - main~1 reads as ' + $rev + ' behind')
+        }
+    }
+} else {
+    $notes += 'no origin remote - lag check SKIPPED'
+}
+
 # --- 4. REVERSE CHECK - the hook must REFUSE a commit here ------------------
 # Charter section 0: a detector that never trips is worse than none. Feed it the
 # input that must be rejected and fail if it passes.
