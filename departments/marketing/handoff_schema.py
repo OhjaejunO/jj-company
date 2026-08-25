@@ -45,6 +45,8 @@ FIELDS = [
     ("밝힐처리",    False, "oneline"),        # 힉스필드 MCP 처럼 «제작 툴 관계» 등 독자에게 밝힐 것. 없으면 생략
     ("지표",        False, "oneline"),        # «N만 (YYYY-MM-DD 조회)» — 시점 없는 수치는 규칙 위반
     ("형상",        False, "oneline"),        # 영상 | 이미지 | 없음 확인
+    ("메모",        False, "oneline"),        # 스키마 밖 자유 서술 **한 줄**. 검사는 «한 줄»만 본다 — 벽으로 새지 않게 하는 배출구.
+                                             #   여러 줄 메모는 `#` 주석으로. (본트리판 체리픽 2026-08-25)
 ]
 REQUIRED = [k for k, req, _ in FIELDS if req]
 KNOWN = {k for k, _, _ in FIELDS}
@@ -245,6 +247,15 @@ def _selftest():
             for tier in ("공식", "X", "서드파티"):
                 v, _ = validate(blocks[bid].replace("출처층위: 공식", "출처층위: " + tier))
                 print("    %s %-6s %s" % (bid, tier, v.line()))
+        # 규칙이 «개수»를 보는지 — X 층위에 URL 을 1건 더 붙이면 통과해야 한다 (본트리판 체리픽 2026-08-25).
+        # 이 케이스가 없으면 «X 는 무조건 리젝»인 검사기도 위 재판정을 통과한다.
+        two = blocks["#11"].replace("출처층위: 공식", "출처층위: X").replace(
+            "status/2089842387845804246", "status/2089842387845804246 https://www.anthropic.com/news")
+        v, _ = validate(two)
+        ok2 = v.ok
+        if not ok2:
+            fails += 1
+        print("    #11 X+URL2건 %s  %s" % ("OK" if ok2 else "🔴 역검증 실패", v.line()))
     print("  STATUS:", "FAIL 역검증 %d건" % fails if fails else "OK")
     return fails
 
