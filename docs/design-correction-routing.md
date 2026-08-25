@@ -125,6 +125,8 @@ FAIL CONDITION 무엇이면 STATUS: FAIL 인가(정관 §4 «STATUS 의 뜻» �
 
 > **Windows 실측 🟢 확정 (2026-08-26, JJ).** 헤르메스 = 외부 에이전트 런타임(Desktop + CLI). ① Desktop **v0.20.5 Bot Mode** 실물 확인 ② CLI 문법 — **`-q`(원샷) / `-Q`(프로그램)** ③ 프로필 경로 **`%LOCALAPPDATA%\hermes\profiles\<봇>`**(현재 `gumsu` 1개 실재). 메모리 off 는 프로필 단위 설정이며 실측 ③에서 확인됐다 — 따라서 감시층 ①은 착수 조건을 갖췄다(전개 0단계 통과).
 >
+> **해제 이력 (2026-08-26)** — `cua-driver-serve` 로그온 autostart 작업 해제: `cua-driver autostart disable` 은 비권한 `schtasks /Delete` 액세스 거부로 실패 → UAC 승격 `schtasks /Delete /TN cua-driver-serve /F` 성공 → `Get-ScheduledTask` 재조회 **not found**(실값 소멸 확인). 실측 보고서 파일이 레포에 없어 이력은 여기에 둔다.
+>
 > **프로바이더 조건 — `opencode-free` (2026-08-26 등재).** 시범은 무료 프로바이더로 돌리되 **무료 지속성은 보증되지 않는다**(약관 부재 · nemotron 무료 한시 전례). 그래서 7자리 전부의 FAIL CONDITION 에 「**프로바이더 실패·변경 시 조용한 전환 금지 — 중단·보고**」를 둔다(정관 §0 «조용히 실패하는 코드»: 다른 모델로 몰래 넘어가면 «크로스 모델» 이라는 전제 자체가 무너지는데 아무도 모른다). **플랜 B: Ollama 로컬** — 전환은 JJ 결정(R2)이고 봇이 하지 않는다.
 >
 > **공통 원칙 (2026-08-26 승격) — 헤르메스 봇 입력은 «공개 예정 텍스트»만.** 정관·`_facts.py`·검증로그·미발행 내부 문서(SKILL 원문 포함)는 투입하지 않는다. 근거: 무료 프로바이더는 요청이 *anonymously served* 되어 입력의 행방을 우리가 통제할 수 없다. 규격이 필요하면 **공개 가능한 검수 체크리스트**(`docs/workers/checklists/`, JJ 승인·20줄 이내·조문 원문 아님)로 바꿔 넘긴다. 각 시트의 INPUTS 는 이 원칙으로 다시 썼다.
