@@ -78,6 +78,14 @@ Write-Log ('=== ' + $Task + ' start (pid ' + $PID + ', ' + $Weekday + ') ===')
 # morning outright (the gate above exits 2 on a stale lock). The finally block
 # cannot cover that case: no PowerShell cleanup runs when the process is killed
 # from outside. Holding no lock while we only sleep removes the failure mode.
+# Started stamp (2026-08-25): written before the sleep, removed on every normal
+# exit (finally). A leftover stamp with a dead pid = "died without a record" -
+# exactly what happened here on 8/25 09:14 (reboot during stagger). Read by
+# scripts\run_audit.py for the ops-auditor. Never blocks a run.
+$StartedFile = Join-Path $Hq ('logs\' + $Task + '.started')
+Set-Content -LiteralPath $StartedFile -Encoding UTF8 -Value ('pid=' + $PID + ' started=' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'))
+Write-Log ('started stamp: ' + $StartedFile)
+
 if ($StartDelayMinutes -gt 0) {
     Write-Log ('start stagger: sleeping ' + $StartDelayMinutes + ' min')
     Start-Sleep -Seconds ($StartDelayMinutes * 60)
@@ -91,6 +99,7 @@ if ($StartDelayMinutes -gt 0) {
 if (Test-Path -LiteralPath $LockFile) {
     Write-Log ('lock file present after stagger: ' + $LockFile + ' -- aborting')
     Write-Log 'STATUS: FAIL lock-exists'
+    Remove-Item -LiteralPath $StartedFile -Force -ErrorAction SilentlyContinue
     exit 2
 }
 
@@ -228,11 +237,16 @@ try {
     $AllowedTools = @(
         'WebSearch',
         'WebFetch',
-        'Bash(*python.exe *manage.py*)',
+        # Narrowed 2026-08-25: the old '*manage.py*' prefix let
+        # 'manage.py shell -c "<any python>"' through (9 such calls on 8/23 -
+        # read-only in practice, but the pattern admitted arbitrary code).
+        # scan_check is the only content-ops command this job is allowed to run
+        # (departments\marketing\config.md). Anything else must fall to approval.
+        'Bash(*python.exe *manage.py scan_check*)',
         # cwd does not survive between Bash calls, so a split "cd" then "python"
         # runs Django from the operations server and drops an empty db.sqlite3
         # there. content-ops commands must stay chained on one line.
-        'Bash(cd * && *python.exe *manage.py*)',
+        'Bash(cd * && *python.exe *manage.py scan_check*)',
         'Bash(dir*)',
         'Bash(type*)',
         'Bash(cd*)'
@@ -309,5 +323,9 @@ finally {
     if ($lockTaken -and (Test-Path -LiteralPath $LockFile)) {
         Remove-Item -LiteralPath $LockFile -Force -ErrorAction SilentlyContinue
         Write-Log 'lock released'
+    }
+    if (Test-Path -LiteralPath $StartedFile) {
+        Remove-Item -LiteralPath $StartedFile -Force -ErrorAction SilentlyContinue
+        Write-Log 'started stamp removed'
     }
 }

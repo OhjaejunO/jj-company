@@ -47,6 +47,7 @@ model: haiku
 | `logs/audit-data/vault_<날짜>.txt` | `BROKEN_LINKS_COUNT=` · `BROKEN_LINKS_TOP10=` · `ORPHAN_COUNT=` · `UNCLASSIFIED_COUNT=` · `RECENT_COUNT=` · `BACKUP_STATUS=` |
 | `logs/audit-data/openprs_<날짜>.txt` | `gh pr list --json` 출력. 값이 `UNAVAILABLE` 이면 조회 실패다 |
 | `logs/audit-data/freshness_<날짜>.txt` | `BEHIND_COUNT=` · `LOCAL_HEAD=`. `UNAVAILABLE` 이면 조회 실패다 |
+| `logs/audit-data/runs_<날짜>.txt` | `RUNS_INCOMPLETE=` · `RUNS_RUNNING=` · `STARTED_RESIDUAL=` · `RUNS_VERDICT=`. `scripts/run_audit.py` 산출. `UNAVAILABLE` 이면 조회 실패다 (2026-08-25) |
 
 프롬프트가 두 경로를 그대로 넘겨 준다.
 
@@ -91,6 +92,15 @@ JJ-Brain vault: C:\Obsidian.JJ\JJ-Brain (departments/ops/config.md 참조)
      그 정상은 낡은 기준의 정상이다.
    <!-- 신설 근거: 2026-08-18 실측. 운영 서버가 origin/main 대비 **14커밋 뒤처진 채**
         스케줄이 계속 돌고 있었다(PR #45~#50 전부 미반영). 아무 경보도 없었다. -->
+9. **스케줄 무기록 종료** (2026-08-25 신설): `logs/audit-data/runs_<날짜>.txt` 를 읽어 리포트에 `## 스케줄 회차` 섹션으로 적는다.
+   - `RUNS_INCOMPLETE=` 가 `NONE` 이 아니면 **🔴** — 그 작업은 «start 는 찍혔는데 STATUS 줄 없이 끝났다». 항목마다 `작업@날짜` 를 그대로 옮기고 **«리포트도 없는지»** 를 `reports/` Glob 으로 같이 본다.
+   - `STARTED_RESIDUAL=` 이 `NONE` 이 아니면 **🔴** — `.started` 스탬프가 남아 있고 그 pid 가 죽어 있다(래퍼가 정상 종료하면 스탬프를 지운다). `alive=unknown` 이면 🟡 «확인 불가».
+   - `RUNS_RUNNING=` 은 정상이다(지금 돌고 있는 작업, 보통 이 감사 자신). 🔴 로 적지 마라.
+   - 파일이 `UNAVAILABLE` 이거나 없으면 **«확인 불가 — run_audit.py 실패»**. 🔴 **«전부 정상»으로 적지 마라.** 조회 실패와 «무기록 종료 없음»은 다르다.
+   - 둘 다 `NONE` 이고 `RUNS_VERDICT=OK` 면 «어제·오늘 회차 N건 모두 STATUS 기록» 한 줄.
+   <!-- 신설 근거: 2026-08-25 판정. 8/25 tomangchi-scout·job-scout 가 09:10:38 기동 → 09:14:21 재부팅으로
+        stagger 수면 중 죽었다. STATUS 줄·리포트·완료 이벤트·lock 어디에도 흔적이 없어 «조용한 실패» 그 자체였다.
+        항목 7 은 이 감사 자신의 리포트만 보므로 다른 세 작업의 무기록 종료는 아무도 안 봤다. -->
 
 ## 리포트 규칙
 - CLAUDE.md 5절 형식, 등급 A, reports/<yyyy-MM-dd>_morning-vault-health.md 저장 (정관 4절 `<작업명>` 규약)
@@ -98,3 +108,4 @@ JJ-Brain vault: C:\Obsidian.JJ\JJ-Brain (departments/ops/config.md 참조)
 - 전날 리포트 있으면 증감 비교 한 줄. **없으면 점검 항목 7 대로 «부재»를 찍는다 — «최초 실행»으로 적지 않는다**
 - 직접 고치지 않는다. "JJ가 할 일" 목록으로만
 - 마지막 줄: STATUS: OK 또는 STATUS: FAIL <사유>
+  - **STATUS 는 «감사를 끝까지 수행했는가»다. 발견 사항의 심각도가 아니다 (2026-08-25 명시).** 🔴 가 몇 개든 리포트를 다 썼으면 `STATUS: OK`. `FAIL` 은 데이터 파일을 못 읽었거나 리포트를 못 쓴 것처럼 **감사 자체가 성립하지 않았을 때**만이다. 근거: 항목 9 신설 검증에서 에이전트가 무기록 종료 🔴 를 이유로 `STATUS: FAIL` 을 찍었는데, 그러면 래퍼가 이 회차를 «실패»로 집계해 남의 사고가 이 작업의 실패로 둔갑한다.

@@ -68,6 +68,17 @@ Write-Log ('=== ' + $Task + ' start (pid ' + $PID + ') ===')
 # morning outright (the gate above exits 2 on a stale lock). The finally block
 # cannot cover that case: no PowerShell cleanup runs when the process is killed
 # from outside. Holding no lock while we only sleep removes the failure mode.
+# Started stamp (2026-08-25). On 8/25 two wrappers were killed by a reboot
+# during this sleep: the log ended at 'start stagger' with no STATUS line, no
+# report, no lock and no scheduler completion event - nothing anyone would
+# notice. The stamp is written BEFORE the sleep and removed on every normal
+# exit path (finally below), so a leftover stamp whose pid is dead means
+# exactly "died without a record". scripts\run_audit.py reads it and the
+# ops-auditor turns it into a red item. Not a lock: it never blocks a run.
+$StartedFile = Join-Path $Hq ('logs\' + $Task + '.started')
+Set-Content -LiteralPath $StartedFile -Encoding UTF8 -Value ('pid=' + $PID + ' started=' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'))
+Write-Log ('started stamp: ' + $StartedFile)
+
 if ($StartDelayMinutes -gt 0) {
     Write-Log ('start stagger: sleeping ' + $StartDelayMinutes + ' min')
     Start-Sleep -Seconds ($StartDelayMinutes * 60)
@@ -81,6 +92,7 @@ if ($StartDelayMinutes -gt 0) {
 if (Test-Path -LiteralPath $LockFile) {
     Write-Log ('lock file present after stagger: ' + $LockFile + ' -- aborting')
     Write-Log 'STATUS: FAIL lock-exists'
+    Remove-Item -LiteralPath $StartedFile -Force -ErrorAction SilentlyContinue
     exit 2
 }
 
@@ -234,6 +246,28 @@ try {
         Write-Log ('freshness ok (behind ' + $behind + ', head ' + $localHead + ')')
     }
 
+    # Silent-death detection (2026-08-25): logs that start but never reach a
+    # STATUS line, and leftover .started stamps with a dead pid. Same shape as
+    # the vault data - the wrapper produces it, the agent only reads it.
+    $RunsData = Join-Path $DataDir ('runs_' + $IsoDate + '.txt')
+    $RunsPy   = Join-Path $Hq 'scripts\run_audit.py'
+    Write-Log ('run_audit.py -> ' + $RunsData)
+    if (-not (Test-Path -LiteralPath $RunsPy)) {
+        Write-Log ('run audit script missing: ' + $RunsPy + ' - recording as unavailable')
+        Set-Content -LiteralPath $RunsData -Value 'UNAVAILABLE' -Encoding UTF8
+    } else {
+        $runsOut  = & py $RunsPy --date $IsoDate 2>&1
+        $runsCode = $LASTEXITCODE
+        if ($runsCode -ne 0 -or -not ($runsOut -match '^RUNS_VERDICT=')) {
+            Write-Log ('run_audit.py exit code ' + $runsCode + ' - recording as unavailable')
+            foreach ($l in $runsOut) { Write-Log ('  runs| ' + $l) }
+            Set-Content -LiteralPath $RunsData -Value 'UNAVAILABLE' -Encoding UTF8
+        } else {
+            Set-Content -LiteralPath $RunsData -Value $runsOut -Encoding UTF8
+            foreach ($l in $runsOut) { Write-Log ('  runs| ' + $l) }
+        }
+    }
+
     if (-not (Test-Path -LiteralPath $PromptFile)) {
         Write-Log ('prompt file missing: ' + $PromptFile)
         Write-Log 'STATUS: FAIL prompt-missing'
@@ -241,7 +275,7 @@ try {
     }
     $prompt = (Get-Content -LiteralPath $PromptFile -Raw -Encoding UTF8).Replace('{{DATE}}', $IsoDate)
     $prompt = $prompt.Replace('{{VAULT_DATA}}', $VaultData).Replace('{{PR_DATA}}', $PrData)
-    $prompt = $prompt.Replace('{{FRESH_DATA}}', $FreshData)
+    $prompt = $prompt.Replace('{{FRESH_DATA}}', $FreshData).Replace('{{RUNS_DATA}}', $RunsData)
 
     Write-Log ('claude -p (ops-auditor) start, --add-dir ' + $VaultPath)
     # Whitelist from ACTUAL tool calls in the 6 scheduled runs after the 2026-08-18
@@ -251,10 +285,25 @@ try {
     # ~/.claude/projects/C--Users-ojaej-jj-company/, matched 1:1 against the
     # 'claude -p (ops-auditor) start' lines in this job's own log files.
     # If a run fails on a missing tool, add it FROM THE LOG - do not guess.
+    #
+    # Gate trial (2026-08-25, this job only; JJ verdict after 8/26-8/28).
+    # Four days of transcripts showed the list was not the gate: under
+    # acceptEdits the main session ran Edit 9 times (not on the list) and it
+    # went through. With --permission-mode default a headless run has nobody to
+    # ask, so anything outside the list is refused instead of silently allowed.
+    # File writing is therefore listed WITH a path: only reports\ is writable.
+    # Measured 2026-08-25: Claude Code warns that 'Write(path)' rules are not
+    # consulted by file permission checks - 'Edit(path)' rules cover every
+    # file-editing tool (Write included). Same fact as the deny note in
+    # CLAUDE.md section 2. So one Edit rule, not a Write rule. Probe: Write and
+    # Edit under reports\ passed, Write under docs\ was refused.
+    # Trial rule: 0 run failures caused by refusals in 8/26-8/28 -> consider
+    # extending; 1+ -> revert this block to acceptEdits and redesign.
     $AllowedTools = @(
-        'Agent', 'Bash', 'Glob', 'Grep', 'Read', 'SendMessage', 'ToolSearch', 'Write'
+        'Agent', 'Bash', 'Glob', 'Grep', 'Read', 'SendMessage', 'ToolSearch',
+        'Edit(reports/**)'
     )
-    $out        = & $Claude -p (ConvertTo-NativeArg $prompt) --permission-mode acceptEdits `
+    $out        = & $Claude -p (ConvertTo-NativeArg $prompt) --permission-mode default `
         --allowed-tools @AllowedTools `
         --add-dir $VaultPath 2>&1
     $claudeCode = $LASTEXITCODE
@@ -296,5 +345,11 @@ finally {
     if ($lockTaken -and (Test-Path -LiteralPath $LockFile)) {
         Remove-Item -LiteralPath $LockFile -Force -ErrorAction SilentlyContinue
         Write-Log 'lock released'
+    }
+    # Every exit inside the try block (including 'exit N') passes through here.
+    # Only an external kill skips it - which is precisely what the stamp reports.
+    if (Test-Path -LiteralPath $StartedFile) {
+        Remove-Item -LiteralPath $StartedFile -Force -ErrorAction SilentlyContinue
+        Write-Log 'started stamp removed'
     }
 }

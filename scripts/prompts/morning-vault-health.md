@@ -9,7 +9,8 @@ ops-auditor 서브에이전트를 사용해 JJ-Brain vault 건강 감사를 1회
   - vault 감사 결과: {{VAULT_DATA}}
   - 열린 PR 목록: {{PR_DATA}}  (값이 UNAVAILABLE 이면 조회 실패 — "확인 불가"로 적고 0건으로 적지 마라)
   - 운영 서버 신선도: {{FRESH_DATA}}  (`BEHIND_COUNT=` · `LOCAL_HEAD=`. UNAVAILABLE 이면 "확인 불가")
-  두 파일을 Read 로 읽어라. 파일이 없거나 값이 비면 "확인 불가 + 사유"로 기록하라.
+  - 스케줄 무기록 종료: {{RUNS_DATA}}  (`RUNS_INCOMPLETE=` · `STARTED_RESIDUAL=` · `RUNS_VERDICT=`. RED 면 🔴, UNAVAILABLE 이면 "확인 불가")
+  네 파일을 Read 로 읽어라. 파일이 없거나 값이 비면 "확인 불가 + 사유"로 기록하라.
 - 데이터로 확인되지 않는 항목은 추측하지 말고 "확인 불가 + 사유"로 기록하라
 - 각 수치는 어떤 방법으로 산출했는지 근거를 남겨라
 - 전날 리포트가 reports/ 에 있으면 증감 비교 한 줄을 추가하라.
