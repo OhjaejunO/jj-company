@@ -63,6 +63,14 @@ Write-Log ('=== ' + $Task + ' start (pid ' + $PID + ') ===')
 # morning outright (the gate above exits 2 on a stale lock). The finally block
 # cannot cover that case: no PowerShell cleanup runs when the process is killed
 # from outside. Holding no lock while we only sleep removes the failure mode.
+# Started stamp (2026-08-25): written before the sleep, removed on every normal
+# exit (finally). A leftover stamp with a dead pid = "died without a record" -
+# exactly what happened here on 8/25 09:14 (reboot during stagger). Read by
+# scripts\run_audit.py for the ops-auditor. Never blocks a run.
+$StartedFile = Join-Path $Hq ('logs\' + $Task + '.started')
+Set-Content -LiteralPath $StartedFile -Encoding UTF8 -Value ('pid=' + $PID + ' started=' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'))
+Write-Log ('started stamp: ' + $StartedFile)
+
 if ($StartDelayMinutes -gt 0) {
     Write-Log ('start stagger: sleeping ' + $StartDelayMinutes + ' min')
     Start-Sleep -Seconds ($StartDelayMinutes * 60)
@@ -76,6 +84,7 @@ if ($StartDelayMinutes -gt 0) {
 if (Test-Path -LiteralPath $LockFile) {
     Write-Log ('lock file present after stagger: ' + $LockFile + ' -- aborting')
     Write-Log 'STATUS: FAIL lock-exists'
+    Remove-Item -LiteralPath $StartedFile -Force -ErrorAction SilentlyContinue
     exit 2
 }
 
@@ -210,5 +219,9 @@ finally {
     if ($lockTaken -and (Test-Path -LiteralPath $LockFile)) {
         Remove-Item -LiteralPath $LockFile -Force -ErrorAction SilentlyContinue
         Write-Log 'lock released'
+    }
+    if (Test-Path -LiteralPath $StartedFile) {
+        Remove-Item -LiteralPath $StartedFile -Force -ErrorAction SilentlyContinue
+        Write-Log 'started stamp removed'
     }
 }
