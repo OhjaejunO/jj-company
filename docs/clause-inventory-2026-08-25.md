@@ -81,3 +81,17 @@
 - 🔴 **PR #68(OPEN, `chore-waketorun-off`) 이 #71 과 반대 방향이다.** #68 은 «WakeToRun 폐기 + 절전→부팅 전제 정정», #71 은 «WakeToRun 8/25 재적용 완료» 를 백로그에 기록했다. #68 의 CLAUDE.md 수정(«02:12 절전 → 11:40 기상» 을 «부팅» 으로)은 지금도 유효할 수 있으나 WakeToRun 부분은 충돌 — **#68 처리 방향 결정 필요**(닫거나, 전제 정정만 남겨 리베이스).
 - 🟡 `00_브랜드에셋/preflight.py` 가 `tomangchi-skill` 사본에 없다 — 다음 `skill-drift-audit` 이 🟡 로 뜬다(A4 등재 시 해소).
 - ⚪ 메모리 정리: C14·C15 는 등재 완료라 `pending-clause-*` 2건 삭제 + MEMORY.md 색인 갱신(이 세션이 처리).
+
+## G. 산출 PR (2026-08-25 문안 단계 완료 — 전부 생성만, 머지는 JJ 지목 승인)
+
+| PR | 레포 · 브랜치 | 내용 | base / 순서 |
+|---|---|---|---|
+| **#72** | jj-company `docs-clause-inventory` | 본사 9건 + `claim.ps1` + guard 뒤처짐 검사 + content-scout 스키마 참조 + 보안 원장 + 이 분류표 | main |
+| **#75** | tomangchi-skill `docs-gate-clauses` | v3.50 게이트 운용 3조 — `[5-3]`·`[8-1]~[8-3]`·pre-flight·사본 동기화 | main — **스택 1번** |
+| **#76** | tomangchi-skill `docs-cover-clauses` | v3.51 표지·씬 6건 + `reasons()` 문구 | #75 — 2번 |
+| **#77** | tomangchi-skill `docs-channel-clauses` | v3.52 채널 8건 + `[3]`·`[5-4]`·`[7]` + 946행 개정 | #76 — 3번 |
+| **#78** | tomangchi-skill `feat-kit-chain-shared` | v3.53 제작 순서 목록·`kitchain.py`·상대경로 거부 | #77 — 4번 |
+| **#18** | content-ops `fix-logo-ref-decode` | `logo_reference()` 디코드 가드 | main |
+| #68 | jj-company | **close** — WakeToRun 재적용으로 전제 붕괴 | — |
+
+머지 후 할 일과 부수 발견(ep27 킷 mtime 256초 역전 · ep31 공용 게이트 비호환 · `[4-2]` 코드 미반영 · 실행 정본 동기화 · 발행로그 머리 정정)은 메모리 `clause-prs-pending-merge` 와 각 PR 본문에 있다.
