@@ -4,7 +4,7 @@
 
 **TRIGGER** tomangchi-scout(08:00) **앞** 07:45 스케줄 — 산출이 그날 스캔의 입력이 되게(정관 §4 «래퍼 선실행» 계열: `source_watch.py` 와 같은 자리).
 
-**INPUTS** `departments/marketing/config.md` 소스 표(정본, 읽기) · `handoff_schema.py` `FIELDS`·`MIN_URLS`(정본) · 외부 소스.
+**INPUTS** 래퍼가 `config.md` 소스 표에서 추출한 **소스 URL 목록만**(공개 계정·페이지 — config.md 원본·판정 메모는 투입하지 않는다) · 스키마 **필드 이름·형식 목록**(`handoff_schema.py --fields` 출력 — 코드 원문 아님) · 외부 소스. 공통 원칙 — 정관·스캔로그·대기함 투입 금지.
 
 **PROCESS** 1. 소스 표에서 content-scout 가 `UNSUPPORTED`/승인 거부로 못 본 항목만 고른다 2. 후보를 `---8<--- #id` 레코드로 쓴다(모르는 값은 `미기입`) 3. `py handoff_schema.py <파일>` 통과 블록만 `logs/scout-data/assist_<날짜>.md` 에 남긴다 4. `STATUS:`.
 
@@ -16,7 +16,7 @@
 
 **성공지표** keep rate = content-scout 리포트에 «제안» 으로 올라간 후보 ÷ 낸 후보 ≥ 50% · 부수: `미기입` 비율(낮을수록 좋음, 단 지어내면 안 된다).
 
-**FAIL CONDITION** 소스 표 못 읽음 · 파일 못 씀. 소스 «확인 불가» 는 부분 표기.
+**FAIL CONDITION** 소스 목록 못 받음 · 파일 못 씀 · **프로바이더 실패·변경 시 조용한 전환 금지 — 중단·보고**(플랜 B Ollama 는 JJ 결정). 소스 «확인 불가» 는 부분 표기.
 
 **6질문 답** ① 소스 표·스키마(정본) + 외부 ② assist 파일 유일 작성자, 대기함은 content-scout 만 ③ content-scout 정의 §제안 (a)·SKILL §5.5 1~2단계 ④ 메모리 · 스캔로그(판정을 보면 편향) · 발행로그 ⑤ 레코드 필드 교정 반복 → R6(스키마 `FIELDS`) ⑥ 새 필드 필요 3회 → 스키마 개정 PR(정의는 참조라 자동 추종).
 

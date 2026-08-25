@@ -12,7 +12,7 @@
 
 **TRIGGER** 매일 1회 스케줄(job-scout 08:30 뒤 — 08:45 안, stagger 규약).
 
-**INPUTS** `departments/sales/watchlist.md`(신설 — 회사·URL·키워드, JJ 가 관리) · 전날 스냅숏 `logs/jobwatch/<날짜>.json`.
+**INPUTS** `departments/sales/watchlist.md`(신설 — 회사·URL·키워드, JJ 가 관리 · **공개 정보만 담는다**: 지원 의사·우선순위 같은 내부 메모는 별도 파일) · 전날 스냅숏 `logs/jobwatch/<날짜>.json`(공고 공개 텍스트의 해시·제목만). 공통 원칙 — `applied.md`·정관은 투입 금지.
 
 **PROCESS** 1. 목록의 URL 을 열어 공고 제목·마감·본문 해시를 수집 2. 전날 스냅숏과 diff 3. `reports/<날짜>_jobwatch.md` — 신규/마감/변경 3절 + `STATUS:`.
 
@@ -24,7 +24,7 @@
 
 **성공지표** 신규 공고를 **job-scout 보다 먼저** 잡은 비율(같은 날 중복이면 무승부) · keep rate = JJ 가 열어 본 diff ÷ 보고 diff ≥ 50%.
 
-**FAIL CONDITION** watchlist 못 읽음 · 스냅숏 못 씀. 특정 URL «확인 불가» 는 부분 표기.
+**FAIL CONDITION** watchlist 못 읽음 · 스냅숏 못 씀 · **프로바이더 실패·변경 시 조용한 전환 금지 — 중단·보고**(플랜 B Ollama 는 JJ 결정). 특정 URL «확인 불가» 는 부분 표기.
 
 **6질문 답** ① watchlist(정본, JJ) + 채용 페이지(외부) + 전날 스냅숏(자기 산출) ② 스냅숏·리포트 유일 작성자 ③ 정관 §4·§5 · job-scout 정의(역할 경계) ④ 메모리 · `applied.md` ⑤ 오탐(변경 아님) 반복 → R6(해시 범위 조정) ⑥ 목록 편입 기준 3회 반복 → watchlist 규칙 신설(JJ).
 
