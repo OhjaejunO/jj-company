@@ -69,11 +69,16 @@ def main():
     judge = re.findall(r"^\s*-\s*(E\d+.*)$", out, re.M)
     alerts = [l.strip("- ").strip() for l in out.splitlines() if "트리거명:" in l]
     hit = [j for j in judge if re.search(r"(?<!미)성립", j)]
+    pre = [a_ for a_ in alerts if "기 발생" in a_]
+    # 역검증 자리 — 스크립트가 «기 발생/신규» 판정 후보를 붙였는데 헤르메스가 알림을 안 냈으면 그 사실을 적는다(침묵 편입 감지)
+    expected = [i["id"] for i in data.get("items", []) if i.get("cond_verdict") in ("기 발생", "신규")]
+    missing_alert = [e for e in expected if not any(a_.startswith("트리거명: " + e) or (" " + e + " ") in a_ or a_.find(e) >= 0 for a_ in alerts)]
     unk = [j for j in judge if "확인 불가" in j]
     io.open(a.alerts, "w", encoding="utf-8").write("# 알림 %s (%d건)\n\n%s\n" % (a.date, len(alerts), "\n".join("- " + x for x in alerts)))
     body = head + ["## 헤르메스 출력 (원문 그대로)", "", "```", out, "```", "",
                    "## 관찰 기록 (사흘 시범)", "",
-                   "- 판정 %d건 · 성립 %d · 확인 불가 %d · 알림 %d건" % (len(judge), len(hit), len(unk), len(alerts)),
+                   "- 판정 %d건 · 성립 %d · 확인 불가 %d · 알림 %d건 (기 발생 %d · 신규 %d)" % (len(judge), len(hit), len(unk), len(alerts), len(pre), len(alerts) - len(pre)),
+                   "- 침묵 편입 검사: 스크립트 판정 후보(기 발생/신규) %s → 알림 누락 %s" % (", ".join(expected) or "없음", ", ".join(missing_alert) or "0건"),
                    "- 조건 문자열 적중인데 판정이 미성립인 항목: %s" % (", ".join(i for i, n in cond_hits if not any(j.startswith(i) and re.search(r"(?<!미)성립", j) for j in judge)) or "없음") + " — 미탐 후보(JJ 확인)",
                    "- 오탐/미탐: JJ 기입 ___",
                    "- keep rate 근거: 호출 1 · 유효 산출 %d · 착수 수는 JJ 기입: ___" % (1 if judge else 0),

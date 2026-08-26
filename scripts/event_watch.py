@@ -93,6 +93,21 @@ def main():
             if r["kind"] == "cond":
                 hits = [ln for ln in lines if any(c.lower() in ln.lower() for c in r["conds"])]
                 rec["cond_hits"] = hits[:3]
+                # 2026-08-26 E1 설계 수정 — 등재 시점에 조건이 이미 성립이면 «성립(기 발생)» 으로 알린다. 침묵 편입 금지.
+                # 첫 회차가 «베이스라인 생성» 이라는 이유로 적중을 삼키면 이미 난 사건이 영원히 안 보인다(E1 Seedance 2.5 실측).
+                #   신규   = 적중 줄이 베이스라인의 적중 목록에 없다 (베이스라인이 있는 경우)
+                #   기 발생 = 이 URL 의 적중 목록이 베이스라인에 아직 없다(등재 시점) 인데 적중이 있다
+                #   기 알림 = 적중이 전부 베이스라인의 적중 목록 안 (이미 알린 것 — 재알림 안 함)
+                prev_hits = baseline.get(r["url"], {}).get("cond_hits")
+                if hits and prev_hits is None:
+                    rec["cond_verdict"] = "기 발생"
+                elif hits and any(h not in prev_hits for h in hits):
+                    rec["cond_verdict"] = "신규"
+                    rec["cond_new_hits"] = [h for h in hits if h not in prev_hits][:3]
+                elif hits:
+                    rec["cond_verdict"] = "기 알림"
+                else:
+                    rec["cond_verdict"] = "없음"
             prev = baseline.get(r["url"], {}).get("lines")
             if prev is None:
                 rec["new_lines"] = []
@@ -100,7 +115,10 @@ def main():
             else:
                 prevset = set(prev)
                 rec["new_lines"] = [ln for ln in lines if ln not in prevset][:15]
-            new_base[r["url"]] = {"lines": lines, "hash": digest, "date": a.date}
+            entry = {"lines": lines, "hash": digest, "date": a.date}
+            if r["kind"] == "cond":
+                entry["cond_hits"] = sorted(set((baseline.get(r["url"], {}).get("cond_hits") or []) + [ln for ln in lines if any(c.lower() in ln.lower() for c in r["conds"])]))
+            new_base[r["url"]] = entry
         except Exception as e:  # noqa: BLE001
             rec["status"] = "blocked"
             rec["error"] = str(e)[:200]
@@ -116,6 +134,7 @@ def main():
     pl = ["오늘 %s 감시 결과다. 항목마다 «성립|미성립|확인 불가» 를 판정하고 성립 건만 알림으로 낸다." % a.date]
     if first:
         pl.append("주의: 오늘은 첫 실행이라 «신규 항목» 유형은 베이스라인 생성이다 — 신규 줄 판정은 «미성립(베이스라인 생성)» 으로 적는다.")
+    pl.append("규칙: «조건 문자열» 유형은 스크립트가 붙인 판정 후보를 그대로 따른다 — 기 발생 → «성립(기 발생)» 알림 · 신규 → «성립(신규)» 알림 · 기 알림 → «미성립(기 알림)» · 없음 → «미성립». 등재 시점에 이미 성립인 조건을 침묵 편입하지 않는다.")
     for rec in out["items"]:
         pl.append("")
         pl.append("%s %s — %s" % (rec["id"], rec["name"], rec["url"]))
@@ -123,7 +142,9 @@ def main():
             pl.append("  감시처 열기 실패: %s" % rec.get("error", ""))
             continue
         if rec["kind"] == "cond":
-            pl.append("  조건 문자열 적중 %d건: %s" % (len(rec.get("cond_hits", [])), " // ".join(rec.get("cond_hits", [])) or "없음"))
+            pl.append("  조건 문자열 적중 %d건 · 판정 후보: %s: %s" % (
+                len(rec.get("cond_hits", [])), rec.get("cond_verdict", "없음"),
+                " // ".join(rec.get("cond_new_hits") or rec.get("cond_hits", [])) or "없음"))
         nl = rec.get("new_lines", [])
         note = rec.get("new_lines_note")
         pl.append("  새로 생긴 줄 %d건%s: %s" % (len(nl), (" (%s)" % note) if note else "", " // ".join(nl[:8]) or "없음"))
