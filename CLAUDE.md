@@ -135,6 +135,7 @@
 | tomangchi-scout | content-scout | 매일 08:00 | 가동 |
 | job-scout | job-scout | 매일 08:30 | 가동 |
 | skill-drift-audit | (에이전트 없음 — 결정적 비교) | 매일 12:30 | 가동 |
+| hermes-event-watch | 헤르메스 `sagun` (감지는 `event_watch.py`) | 매일 07:40 | 시범 8/26~28 |
 
 - **정본은 실값이고 이 표는 조회 결과다** (2026-08-25). `Get-ScheduledTask -TaskPath '\JJ\'` 의 트리거가 정본이며, 이 표가 실값과 다르면 표가 틀린 것이다 — 8/22 재등록으로 vault·drift 가 12:30 으로 옮겨진 뒤 이 표는 사흘간 07:30/07:00 을 가리키고 있었고, 8/23 ops-auditor 가 그것을 읽고 «미실행»으로 오독했다. 재등록·트리거 변경 뒤에는 `docs\schedule-task-registration.md` 절차대로 실값을 재조회해 이 표를 맞춘다.
 
