@@ -42,6 +42,9 @@ FIELDS = [
     ("훅각도",      True,  "oneline"),        # 1줄, 40자 이내 권장 (형식 규칙은 줄바꿈 금지만)
     ("채널충돌",    True,  "conflict"),       # 없음 | 광고성 | 페이월 | IP | 개발자니치 (복수는 ·)
     ("신선도마감",  True,  "date_or_na"),     # YYYY-MM-DD | 상시  (마감 없음 = 상시. 비우지 않는다)
+    ("공식영상",    True,  "video"),          # 무 | <URL> <길이> — 주체 공식 채널의 데모 영상. **수집 시점에 스카우트가 확인해 적는다**
+                                             #   (2026-08-26 신설 · SKILL §7 «공식 영상 — 있으면 싣는다» · 게이트 [1-2]). 길이는 92s / 1m32s / 1:32.
+                                             #   없으면 «무» — 비우면 «안 본 것»과 «봤는데 없음»이 안 갈린다(신선도마감과 같은 취지).
     ("밝힐처리",    False, "oneline"),        # 힉스필드 MCP 처럼 «제작 툴 관계» 등 독자에게 밝힐 것. 없으면 생략
     ("지표",        False, "oneline"),        # «N만 (YYYY-MM-DD 조회)» — 시점 없는 수치는 규칙 위반
     ("형상",        False, "oneline"),        # 영상 | 이미지 | 없음 확인
@@ -61,6 +64,7 @@ UNFILLED = "미기입"
 _URL = re.compile(r"^https?://[^\s<>\"']+$")
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _METRIC = re.compile(r"\(\s*\d{4}-\d{2}-\d{2}[^)]*\)")   # 지표엔 «(YYYY-MM-DD …)» 조회 시점
+_VIDEO_LEN = re.compile(r"^(\d+s|\d+m\d{1,2}s|\d{1,2}:\d{2}(:\d{2})?)$")   # 92s · 1m32s · 1:32 · 1:01:05
 
 RULES = {
     "nonempty":   lambda v: bool(v.strip()),
@@ -70,6 +74,8 @@ RULES = {
     "date":       lambda v: bool(_DATE.match(v.strip())),
     "date_or_na": lambda v: v.strip() == "상시" or bool(_DATE.match(v.strip())),
     "conflict":   lambda v: all(x.strip() in CONFLICTS for x in v.split("·")),
+    # 공식영상 — «무» 이거나 «URL 길이» 두 토큰. URL 만 있고 길이가 없으면 위반(구간 컷 견적은 길이가 있어야 선다).
+    "video":      lambda v: v.strip() == "무" or (len(v.split()) == 2 and bool(_URL.match(v.split()[0])) and bool(_VIDEO_LEN.match(v.split()[1]))),
 }
 #: 자유 텍스트 벽 판정 — `key: value` 가 아닌 연속 줄이 이 수 이상이면 위반
 WALL_LINES = 3
@@ -216,6 +222,7 @@ def _selftest():
 훅각도: AI 가 코드 말고 약을 설계했다
 채널충돌: 없음
 신선도마감: 2026-09-07
+공식영상: 무
 지표: 노출 407.9만 (2026-08-24 조회)
 형상: 영상"""
     BAD_URL = GOOD.replace("https://x.com/AnthropicAI/status/2089842387845804246", "x.com/AnthropicAI")
@@ -227,9 +234,14 @@ def _selftest():
     X1 = GOOD.replace("출처층위: 공식", "출처층위: X")
     T1 = GOOD.replace("출처층위: 공식", "출처층위: 서드파티")
     X2 = X1.replace("출처층위: X", "출처층위: X\n출처URL: https://example.com/second-source")
+    # 공식영상 (2026-08-26) — 각 케이스는 이 필드만 건드린다. VID_OK 는 URL+길이, VID_NOLEN 은 URL 만, VID_MISSING 은 줄 자체 부재.
+    VID_OK = GOOD.replace("공식영상: 무", "공식영상: https://www.youtube.com/watch?v=abc123 1m32s")
+    VID_NOLEN = GOOD.replace("공식영상: 무", "공식영상: https://www.youtube.com/watch?v=abc123")
+    VID_MISSING = GOOD.replace("공식영상: 무\n", "")
     cases = (("GOOD", GOOD, True), ("BAD_URL", BAD_URL, False), ("BAD_TIER", BAD_TIER, False),
              ("WALL", WALL, False), ("UNFILLED", UNF, False), ("NA_상시", NA, True),
-             ("X_1url", X1, False), ("3RD_1url", T1, False), ("X_2url", X2, True))
+             ("X_1url", X1, False), ("3RD_1url", T1, False), ("X_2url", X2, True),
+             ("VID_OK", VID_OK, True), ("VID_NOLEN", VID_NOLEN, False), ("VID_MISSING", VID_MISSING, False))
     fails = 0
     for name, b, expect in cases:
         v, _ = validate(b)
@@ -243,14 +255,16 @@ def _selftest():
         with open(sp, encoding="utf-8") as f:
             blocks = dict(split_blocks(f.read()))
         print("  — 실측 샘플 층위 재판정 (#11·#14, URL 1건):")
+        # 샘플은 공식영상 신설(2026-08-26) 이전 실측이라 그 줄이 없다 — 파일 값은 지어 넣지 않고 **검사 입력에만** «무» 를 덧붙여 층위 판정을 본다.
+        _FX = "\n공식영상: 무"
         for bid in ("#11", "#14"):
             for tier in ("공식", "X", "서드파티"):
-                v, _ = validate(blocks[bid].replace("출처층위: 공식", "출처층위: " + tier))
+                v, _ = validate(blocks[bid].replace("출처층위: 공식", "출처층위: " + tier) + _FX)
                 print("    %s %-6s %s" % (bid, tier, v.line()))
         # 규칙이 «개수»를 보는지 — X 층위에 URL 을 1건 더 붙이면 통과해야 한다 (본트리판 체리픽 2026-08-25).
         # 이 케이스가 없으면 «X 는 무조건 리젝»인 검사기도 위 재판정을 통과한다.
         two = blocks["#11"].replace("출처층위: 공식", "출처층위: X").replace(
-            "status/2089842387845804246", "status/2089842387845804246 https://www.anthropic.com/news")
+            "status/2089842387845804246", "status/2089842387845804246 https://www.anthropic.com/news") + _FX
         v, _ = validate(two)
         ok2 = v.ok
         if not ok2:
