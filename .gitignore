@@ -13,5 +13,11 @@ departments/sales/applied.md
 reports/*
 !reports/.gitkeep
 
+# 슬래시가 든 패턴은 이 파일이 있는 디렉토리에 **고정**된다 — 위 두 줄은 뿌리의 reports/ 만 막는다.
+# 2026-08-27: dist_transform.py 의 경로 계산이 한 단계 얕아 departments/reports/ 가 생겼고
+# 그대로 커밋됐다(되돌림). 경로 버그는 또 날 수 있으니 «어디에 생기든» 막는다.
+**/reports/*
+!**/reports/.gitkeep
+
 __pycache__/
 *.pyc
