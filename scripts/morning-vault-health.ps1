@@ -176,6 +176,7 @@ try {
     New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
     $VaultData = Join-Path $DataDir ('vault_' + $IsoDate + '.txt')
     $PrData    = Join-Path $DataDir ('openprs_' + $IsoDate + '.txt')
+    $AuthData  = Join-Path $DataDir ('auth_' + $IsoDate + '.txt')
 
     $AuditPy = Join-Path $Hq 'scripts\vault_audit.py'
     if (-not (Test-Path -LiteralPath $AuditPy)) {
@@ -228,6 +229,33 @@ try {
         Write-Log ('open pr data ok (' + (Get-Item -LiteralPath $PrData).Length + ' bytes)')
     }
 
+    # Auth / mount pre-flight (2026-08-27). Two credentials expired on the same day
+    # and each blocked a different last step: an expired gh token stopped push and
+    # PR creation, and Google Drive Desktop not running stopped deliver.py with
+    # "cannot find My Drive". Both are the kind that surface right before publishing,
+    # when there is no time. So they are checked in the morning instead.
+    #
+    # NOT fatal: an expired token does not mean the vault audit failed to run
+    # (charter section 4 - STATUS means "did the work complete"). The wrapper records
+    # the facts and the agent raises the red flag in the report.
+    Write-Log ('auth_check.py -> ' + $AuthData)
+    $AuthPy = Join-Path $Hq 'scriptsuth_check.py'
+    if (-not (Test-Path -LiteralPath $AuthPy)) {
+        Write-Log ('auth check script missing: ' + $AuthPy + ' - recording as unavailable')
+        Set-Content -LiteralPath $AuthData -Value 'UNAVAILABLE' -Encoding UTF8
+    } else {
+        $authOut  = & py $AuthPy 2>&1
+        $authCode = $LASTEXITCODE
+        if ($authCode -ne 0) {
+            Write-Log ('auth_check.py exit code ' + $authCode + ' - recording as unavailable')
+            Set-Content -LiteralPath $AuthData -Value 'UNAVAILABLE' -Encoding UTF8
+            foreach ($l in $authOut) { Write-Log ('  auth| ' + $l) }
+        } else {
+            Set-Content -LiteralPath $AuthData -Value $authOut -Encoding UTF8
+            foreach ($l in $authOut) { Write-Log ('  auth| ' + $l) }
+        }
+    }
+
     # Operations-server freshness. The agent has no Bash, so git state must be
     # collected here. Measured 2026-08-18: this tree sat 14 commits behind
     # origin/main while scheduled jobs kept running against the stale copy.
@@ -276,6 +304,7 @@ try {
     $prompt = (Get-Content -LiteralPath $PromptFile -Raw -Encoding UTF8).Replace('{{DATE}}', $IsoDate)
     $prompt = $prompt.Replace('{{VAULT_DATA}}', $VaultData).Replace('{{PR_DATA}}', $PrData)
     $prompt = $prompt.Replace('{{FRESH_DATA}}', $FreshData).Replace('{{RUNS_DATA}}', $RunsData)
+    $prompt = $prompt.Replace('{{AUTH_DATA}}', $AuthData)
 
     Write-Log ('claude -p (ops-auditor) start, --add-dir ' + $VaultPath)
     # Whitelist from ACTUAL tool calls in the 6 scheduled runs after the 2026-08-18
