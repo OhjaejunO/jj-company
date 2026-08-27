@@ -26,7 +26,45 @@ git_dir=$(git rev-parse --git-dir 2>/dev/null) || exit 0
 
 case "$git_dir" in
     */worktrees/*)
-        exit 0
+        # Linked worktree: commits are allowed here. Before letting one through,
+        # run the checkers that guard DATA invariants in this repo.
+        #
+        # WHY (2026-08-27): content-ops scenes.self_test() existed, passed nobody,
+        # and a keyword shadow sat undetected for ten days because the only way to
+        # run it was to type it. A check that has no automatic caller is not a
+        # check - it is a note. These run in well under a second each.
+        #
+        # Scope: only when the file they guard is part of the commit. A commit that
+        # touches docs must not pay for them.
+        staged=$(git diff --cached --name-only 2>/dev/null)
+        rc=0
+        run_check() {
+            # $1 = label, rest = command
+            label=$1; shift
+            if ! out=$("$@" 2>&1); then
+                printf '\n  [repo-guard] %s FAILED - commit refused\n\n%s\n\n' "$label" "$out" >&2
+                rc=1
+            else
+                printf '  [repo-guard] %s OK\n' "$label" >&2
+            fi
+        }
+        case "$staged" in
+            *departments/marketing/handoff_schema.py*)
+                run_check "handoff_schema selftest" py departments/marketing/handoff_schema.py ;;
+        esac
+        case "$staged" in
+            *scripts/consistency_audit.py*)
+                run_check "consistency_audit selftest" py scripts/consistency_audit.py --selftest ;;
+        esac
+        case "$staged" in
+            *departments/marketing/distcheck.py*)
+                run_check "distcheck selftest" py departments/marketing/distcheck.py --selftest ;;
+        esac
+        case "$staged" in
+            *.claude/hooks/bash-escape-guard.ps1*|*scripts/check-bash-guard.ps1*)
+                run_check "bash-escape-guard reverse check" powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/check-bash-guard.ps1 ;;
+        esac
+        exit $rc
         ;;
 esac
 

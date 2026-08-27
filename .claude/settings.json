@@ -20,5 +20,18 @@
       "Read(C:\\Users\\ojaej\\.config\\gcloud\\**)",
       "Read(C:\\Users\\ojaej\\.ssh\\**)"
     ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:/WINDOWS/System32/WindowsPowerShell/v1.0/powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/bash-escape-guard.ps1\""
+          }
+        ]
+      }
+    ]
   }
 }
