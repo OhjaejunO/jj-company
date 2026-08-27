@@ -67,6 +67,43 @@ if (Test-Path -LiteralPath $Settings) {
     $problems += ('settings.json missing: ' + $Settings)
 }
 
+# --- 2b. the USER-LEVEL copy, if any, must not have drifted ------------------
+# The project registration above only covers sessions opened on THIS repo. To
+# cover every repo the guard is also copied to ~\.claude\hooks\ and registered in
+# ~\.claude\settings.json. That copy is a COPY - nobody pushes it, so it rots the
+# same way the tomangchi skill copy did (charter section 4). Hash it against the
+# repo file and say so when they differ. Absent is fine (project-only install);
+# STALE is not, because a stale guard still looks installed.
+$userGuard = Join-Path $env:USERPROFILE '.claude\hooks\bash-escape-guard.ps1'
+$userSettings = Join-Path $env:USERPROFILE '.claude\settings.json'
+$userRegistered = $false
+if (Test-Path -LiteralPath $userSettings) {
+    try {
+        $ucfg = (Get-Content -LiteralPath $userSettings -Raw -Encoding UTF8) | ConvertFrom-Json
+        foreach ($item in @($ucfg.hooks.PreToolUse)) {
+            foreach ($h in @($item.hooks)) {
+                if ([string]$h.command -match 'bash-escape-guard') {
+                    $userRegistered = $true
+                    if ([string]$h.command -match '_wt[\\/]') {
+                        $problems += 'user settings.json points the guard at a WORKTREE path - that path disappears with the worktree and the hook then fails NON-BLOCKING (silently gone)'
+                    }
+                }
+            }
+        }
+    } catch { $problems += ('user settings.json does not parse: ' + $_.Exception.Message) }
+}
+if (Test-Path -LiteralPath $userGuard) {
+    $a = (Get-FileHash -LiteralPath $Guard -Algorithm SHA256).Hash
+    $b = (Get-FileHash -LiteralPath $userGuard -Algorithm SHA256).Hash
+    if ($a -ne $b) {
+        $problems += ('user-level copy is STALE: ' + $userGuard + '  -- refresh with: Copy-Item -LiteralPath "' + $Guard + '" -Destination "' + $userGuard + '" -Force')
+    } else { Say 'user-level copy OK - same bytes as the repo guard' }
+} elseif ($userRegistered) {
+    $problems += ('user settings.json registers a guard that is not there: ' + $userGuard)
+} else {
+    $notes += 'no user-level copy - the guard covers sessions on THIS repo only'
+}
+
 # --- 3. REVERSE CHECK - feed the guard the inputs it must refuse / allow -----
 # The cases below are fed to the REAL script over stdin, exactly as Claude Code
 # feeds it. Verdict logic therefore lives in one place only.
