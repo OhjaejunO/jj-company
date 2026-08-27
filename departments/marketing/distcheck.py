@@ -46,6 +46,20 @@ CAPTION_SHINGLE = 12
 URL_RE = re.compile(r"https?://\S+")
 _TAGLINE_RE = re.compile(r"^[#@][^\s]+(\s+[#@][^\s]+)*$")
 
+# ── 첨부 미디어 ─────────────────────────────────────────────────────────
+#: 첨부를 허용하는 편 폴더 하위 경로. **화이트리스트다** — 금지 목록이 아니다.
+#: 편 폴더 루트의 `01_cover.png`·`02_banner.png` 는 **우리가 조립한 카드**이고
+#: `shots/02_banner.png` 는 **공식 원본**이다. 파일명이 겹치므로 디렉토리가 유일한 구분이며,
+#: 금지 목록으로 짜면 새 산출물 이름이 생길 때마다 조용히 새는 쪽으로 기운다.
+MEDIA_DIRS = ("shots/", "_assets/")
+#: 편 폴더 루트의 덱 산출물 꼴 — 걸렸을 때 «인스타 카드를 붙였다» 고 짚어 주기 위한 것.
+_DECK_RE = re.compile(r"^\d\d_[^/]+\.(png|jpg|jpeg|mp4)$", re.I)
+#: 본문에 넣는 출처 줄. 카드에서는 하단 크레딧 라벨이 하던 일을 **본문이 대신한다** —
+#: 공식 원본을 그대로 붙이므로 크레딧이 그림 안에 박혀 있지 않다(SKILL §6 크레딧 형식).
+CREDIT_LINE_RE = re.compile(r"^(이미지|영상)\s*출처:\s*(?P<v>.+?)\s*$")
+#: 서드파티 자작 시연 영상 4조건 ⓓ — 발행팩에 있어야 하는 절 (SKILL v3.55 §6).
+THIRDPARTY_SECTION = "## 서드파티 영상 승인"
+
 
 # ── 라이브 스킬에서 규격을 빌려온다 ──────────────────────────────────────
 def skill_dir():
@@ -98,49 +112,67 @@ def sentences(text):
     return [s.strip() for s in _SENT_SPLIT.split(text or "") if s.strip()]
 
 
-def parse_draft(text):
-    """`## P1` 블록들과 `## 소스 맵` 표를 읽는다. 반환 (posts, rows).
+def _table_cells(ln):
+    """마크다운 표의 한 줄에서 칸들을 뽑는다. 구분선·헤더면 None."""
+    if not ln.strip().startswith("|"):
+        return None
+    cells = [c.strip() for c in ln.strip().strip("|").split("|")]
+    if not cells or set(cells[0]) <= set("-: "):
+        return None
+    if not re.match(r"^[Pp](\d+)$", cells[0]):
+        return None                             # 헤더 줄
+    return cells
 
-    posts = [본문 문자열, ...] · rows = [(포스트번호, 문장번호, 근거문자열), ...]"""
-    posts, rows = [], []
-    cur, buf, in_map = None, [], False
+
+def parse_draft(text):
+    """`## P1` 블록 · `## 소스 맵` 표 · `## 첨부 미디어` 표를 읽는다.
+
+    반환 (posts, rows, media).
+    posts  = [본문 문자열, ...]
+    rows   = [(포스트번호, 문장번호, 근거문자열), ...]
+    media  = [{post, path, src_key, credit, tier, shape}, ...]"""
+    posts, rows, media = [], [], []
+    cur, buf, sect = None, [], None
     for ln in (text or "").splitlines():
         m = re.match(r"^##\s*P(\d+)\s*$", ln.strip())
         if m:
             if cur is not None:
                 posts.append("\n".join(buf).strip())
-            cur, buf, in_map = int(m.group(1)), [], False
+            cur, buf, sect = int(m.group(1)), [], None
             continue
-        if re.match(r"^##\s*소스\s*맵", ln.strip()):
+        head = ln.strip()
+        if head.startswith("##"):
             if cur is not None:
                 posts.append("\n".join(buf).strip())
                 cur, buf = None, []
-            in_map = True
+            if re.match(r"^##\s*소스\s*맵", head):
+                sect = "map"
+            elif re.match(r"^##\s*첨부\s*미디어", head):
+                sect = "media"
+            else:
+                sect = None
             continue
-        if ln.strip().startswith("##"):        # 그 밖의 헤더는 블록을 닫는다
-            if cur is not None:
-                posts.append("\n".join(buf).strip())
-                cur, buf = None, []
-            in_map = False
-            continue
-        if in_map:
-            if not ln.strip().startswith("|"):
+        if sect == "map":
+            cells = _table_cells(ln)
+            if not cells or len(cells) < 3:
                 continue
-            cells = [c.strip() for c in ln.strip().strip("|").split("|")]
-            if len(cells) < 3 or set(cells[0]) <= set("-: "):
-                continue                        # 구분선
-            pm = re.match(r"^[Pp](\d+)$", cells[0])
-            if not pm:
-                continue                        # 헤더 줄
+            pi = int(re.match(r"^[Pp](\d+)$", cells[0]).group(1))
             try:
-                rows.append((int(pm.group(1)), int(cells[1]), cells[2]))
+                rows.append((pi, int(cells[1]), cells[2]))
             except ValueError:
-                rows.append((int(pm.group(1)), -1, cells[2]))
+                rows.append((pi, -1, cells[2]))
+        elif sect == "media":
+            cells = _table_cells(ln)
+            if not cells or len(cells) < 6:
+                continue
+            media.append({"post": int(re.match(r"^[Pp](\d+)$", cells[0]).group(1)),
+                          "path": cells[1].strip("`"), "src_key": cells[2],
+                          "credit": cells[3], "tier": cells[4], "shape": cells[5]})
         elif cur is not None:
             buf.append(ln)
     if cur is not None:
         posts.append("\n".join(buf).strip())
-    return posts, rows
+    return posts, rows, media
 
 
 # ── 검사 ────────────────────────────────────────────────────────────────
@@ -192,17 +224,128 @@ def declared_text(facts):
     return "\n".join(out)
 
 
+def probe_media(path):
+    """실물을 재서 («이미지»|«영상», 폭, 높이, 초) 를 돌려준다. 못 재면 초를 None 으로.
+
+    선언한 형상이 맞는지는 **파일이 정한다** — 표에 적은 값을 믿지 않는다(정관 §0 «실물이 정본»)."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext in (".png", ".jpg", ".jpeg", ".webp", ".gif"):
+        from PIL import Image
+        with Image.open(path) as im:
+            return "이미지", im.size[0], im.size[1], None
+    if ext in (".mp4", ".mov", ".webm", ".m4v"):
+        import subprocess
+        try:
+            out = subprocess.check_output(
+                ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                 "stream=width,height:format=duration", "-of", "default=nw=1:nk=1", path],
+                stderr=subprocess.STDOUT).decode("utf-8", "replace").split()
+            return "영상", int(out[0]), int(out[1]), round(float(out[2]), 2)
+        except Exception:                        # noqa: BLE001 — ffprobe 부재/실패는 «확인 불가»
+            return "영상", None, None, None
+    return "알 수 없음", None, None, None
+
+
+def check_media(media, posts, facts, ep, r):
+    """`[10-*]` 첨부 미디어 — 공식 원본만, 크레딧은 본문에, 우리 카드는 금지.
+
+    설계 근거: SKILL §6 소스 실물 위계·크레딧 형식 · v3.30 공식 프로모 자산(크레딧 = 회사명) ·
+    v3.55 §6 서드파티 자작 시연 영상 4조건 · v3.54 §7 공식 영상 우선."""
+    ep_dir = ep["dir"]
+    if not media:
+        r.na("[10] 첨부 미디어", "선언 0건 — 텍스트 전용 스레드")
+    else:
+        # [10-1] 실재 · [10-2] 우리 카드 금지 (화이트리스트)
+        missing, ours = [], []
+        for m in media:
+            p = m["path"].replace("\\", "/")
+            if not any(p.startswith(d) for d in MEDIA_DIRS):
+                ours.append("P%d %s%s" % (m["post"], p,
+                                          " ← 편 폴더 루트의 덱 산출물(우리가 조립한 카드)"
+                                          if _DECK_RE.match(p) else ""))
+                continue
+            if not os.path.exists(os.path.join(ep_dir, p)):
+                missing.append("P%d %s" % (m["post"], p))
+        r.ok("[10-1] 첨부 파일이 편 폴더에 실재", not missing, " / ".join(missing))
+        r.ok("[10-2] 우리 제작 카드 금지 — 첨부는 %s 아래만" % "·".join(MEDIA_DIRS),
+             not ours, " / ".join(ours))
+
+        # [10-3] 출처가 편 FACTS 에 등록된 URL 인가
+        bad_src = []
+        for m in media:
+            k = m["src_key"]
+            v = getattr(facts, k, None) if k and not k.startswith("_") else None
+            if not isinstance(v, str) or not URL_RE.match(v):
+                bad_src.append("P%d %s" % (m["post"], k or "(빈칸)"))
+        r.ok("[10-3] 출처키가 _facts.py 의 URL 로 실재", not bad_src, " / ".join(bad_src))
+
+        # [10-4] 크레딧 문구가 그 포스트 본문에 있는가 (카드 하단 라벨 역할을 본문이 대신한다)
+        no_credit = []
+        for m in media:
+            i = m["post"]
+            body = posts[i - 1] if 1 <= i <= len(posts) else ""
+            vals = [cm.group("v") for cm in
+                    (CREDIT_LINE_RE.match(l.strip()) for l in body.splitlines()) if cm]
+            if m["credit"] not in vals:
+                no_credit.append("P%d «%s» 없음 (본문 출처 줄 %s)" % (i, m["credit"], vals or "0건"))
+        r.ok("[10-4] 크레딧이 해당 포스트 본문 출처 줄에", not no_credit, " / ".join(no_credit))
+
+        # [10-5] 선언한 형상이 실물과 맞는가 — 길이·해상도는 실측으로 대조한다
+        shape_bad, shape_na = [], []
+        for m in media:
+            p = os.path.join(ep_dir, m["path"].replace("\\", "/"))
+            if not os.path.exists(p):
+                continue
+            kind, w, h, dur = probe_media(p)
+            if not m["shape"].startswith(kind):
+                shape_bad.append("P%d 선언«%s» 실물«%s»" % (m["post"], m["shape"], kind))
+                continue
+            if w and ("%dx%d" % (w, h)) not in m["shape"].replace("×", "x"):
+                shape_bad.append("P%d 해상도 선언«%s» 실물 %dx%d" % (m["post"], m["shape"], w, h))
+            elif w is None:
+                shape_na.append("P%d %s" % (m["post"], os.path.basename(p)))
+            if kind == "영상" and dur is not None and ("%gs" % dur) not in m["shape"]:
+                shape_bad.append("P%d 길이 선언«%s» 실측 %gs" % (m["post"], m["shape"], dur))
+        r.ok("[10-5] 선언 형상 = 실물 (해상도·영상 길이 실측 대조)", not shape_bad, " / ".join(shape_bad))
+        if shape_na:
+            r.na("[10-5] 실측 불가 항목", "ffprobe 로 못 잰 파일: %s" % " / ".join(shape_na))
+
+    # [10-6] 공식 영상 우선 (SKILL v3.54 §7 — Threads 는 영상 도달이 가장 높다)
+    ov = ep.get("OFFICIAL_VIDEO")
+    if not ov:
+        r.na("[10-6] 공식 영상 우선", "편 선언 OFFICIAL_VIDEO = 무 — 공식 이미지로 간다")
+    else:
+        has_v = [m for m in media if m["shape"].startswith("영상")]
+        r.ok("[10-6] 공식 영상이 있으면 첨부에 영상 1건 이상", bool(has_v),
+             "OFFICIAL_VIDEO 선언 있음 / 첨부 영상 0건")
+
+    # [10-7] 서드파티 자작 시연 영상 4조건 (SKILL v3.55 §6) — 넷 중 하나라도 비면 쓰지 않는다
+    tp = [m for m in media if m["tier"] == "서드파티" and m["shape"].startswith("영상")]
+    if not tp:
+        r.na("[10-7] 서드파티 자작 영상 4조건", "해당 첨부 0건")
+    else:
+        log, pack = ep.get("verify_log", ""), ep.get("pack", "")
+        no_log = ["P%d %s" % (m["post"], m["src_key"]) for m in tp
+                  if str(getattr(facts, m["src_key"], "")) not in log]
+        r.ok("[10-7ⓒ] 서드파티 영상 출처가 검증로그에 있음", not no_log, " / ".join(no_log))
+        r.ok("[10-7ⓓ] 발행팩에 «%s» 절" % THIRDPARTY_SECTION, THIRDPARTY_SECTION in pack,
+             "절이 없다 — 승인을 «안 받은 것»과 «받고 안 적은 것»을 가르지 않는다")
+        # ⓐ 크레딧은 [10-4] 가 이미 본다.
+        r.na("[10-7ⓑ] 공식 UI 실물 여부",
+             "육안 판정 — 기계가 **못 잡는다**. JJ 가 발행 전에 본다 (SKILL v3.55 §6)")
+
+
 def _tone_target(s):
     """어미 검사 대상 문자열. 검사에서 빼는 것 — URL 만 있는 줄 · 해시태그/멘션 줄 · 시그니처 이모지."""
     s = s.strip()
-    if URL_RE.fullmatch(s) or _TAGLINE_RE.match(s):
-        return ""
+    if URL_RE.fullmatch(s) or _TAGLINE_RE.match(s) or CREDIT_LINE_RE.match(s):
+        return ""   # 출처 줄은 크레딧 라벨이지 산문이 아니다 - 어미 규정 밖(SKILL 4.1 해시태그 제외와 같은 취지)
     s = URL_RE.sub(" ", s)
     s = re.sub(r"[\U0001F000-\U0001FAFF☀-➿️]", "", s)
     return s.strip()
 
 
-def check(posts, rows, facts, kit_url, caption, cardcheck):
+def check(posts, rows, facts, kit_url, caption, cardcheck, media=None, ep=None):
     """게이트 본체 — 순수 함수. 파일 접근은 호출자가 한다(역검증이 합성 입력을 넣을 수 있게)."""
     r = Result()
     HAEYO = skill_regex("HAEYO")
@@ -315,6 +458,9 @@ def check(posts, rows, facts, kit_url, caption, cardcheck):
                 i += 1
         r.ok("[9] 캡션과 한글 %d자 연속 일치 0건" % CAPTION_SHINGLE, not runs,
              " / ".join("«%s»" % x for x in runs[:6]))
+
+    if ep is not None:
+        check_media(media or [], posts, facts, ep, r)
     return r
 
 
@@ -352,8 +498,9 @@ def run_cli(argv=None):
     import dist_transform
     ep_dir = a.ep_dir or dist_transform.find_ep_dir(a.ep)
     ep = dist_transform.load_ep(ep_dir)
-    posts, rows = parse_draft(io.open(a.draft, encoding="utf-8").read())
-    r = check(posts, rows, ep["facts"], ep["kit_url"], ep["caption"], load_cardcheck())
+    posts, rows, media = parse_draft(io.open(a.draft, encoding="utf-8").read())
+    r = check(posts, rows, ep["facts"], ep["kit_url"], ep["caption"], load_cardcheck(),
+              media=media, ep=ep)
     print("유통 변환 게이트 — ep%s · 초안 %s" % (ep["EP"], os.path.basename(a.draft)))
     print("규격 출처: 라이브 스킬 %s (%s)" % (skill_revision(), skill_dir()))
     report(r)
@@ -401,7 +548,7 @@ def _mutate(fn):
     rows = list(_BASE_ROWS)
     cap = _BASE_CAPTION
     posts, rows, cap = fn(posts, rows, cap)
-    return check(posts, rows, _Facts(), _BASE_KIT, cap, load_cardcheck())
+    return check(posts, rows, _Facts(), _BASE_KIT, cap, load_cardcheck())   # 미디어 없는 기준선
 
 
 def _m_facts(p, r, c):
@@ -486,6 +633,96 @@ _CASES = [
 ]
 
 
+# ── 역검증: 첨부 미디어 ─────────────────────────────────────────────────
+# 별도 기준선을 쓴다 — 미디어 검사는 편 폴더 실물을 읽으므로 합성 폴더를 만들어 붙인다.
+_MEDIA_POSTS = [_BASE_POSTS[0] + "\n이미지 출처: Qwen"] + _BASE_POSTS[1:]
+_MEDIA_ROWS = _BASE_ROWS + [(1, 3, "BLOG")]
+_MEDIA_BASE = [{"post": 1, "path": "shots/demo.png", "src_key": "BLOG", "credit": "Qwen",
+                "tier": "공식", "shape": "이미지 20x10"}]
+
+
+class _MediaFacts(_Facts):
+    BLOG = "https://example.invalid/blog"
+    TPV = "https://example.invalid/thirdparty-demo"
+
+
+def _media_ep(tmp, **kw):
+    ep = {"dir": tmp, "OFFICIAL_VIDEO": None,
+          "verify_log": "출처 " + _MediaFacts.TPV + " 를 확인했다",
+          "pack": THIRDPARTY_SECTION + "\nJJ 육안 확인함"}
+    ep.update(kw)
+    return ep
+
+
+def _media_selftest(cc):
+    import shutil
+    import tempfile
+    from PIL import Image
+    tmp = tempfile.mkdtemp(prefix="distcheck_")
+    bad = 0
+    try:
+        os.makedirs(os.path.join(tmp, "shots"))
+        Image.new("RGB", (20, 10), (200, 200, 200)).save(os.path.join(tmp, "shots", "demo.png"))
+        Image.new("RGB", (20, 10), (200, 200, 200)).save(os.path.join(tmp, "02_banner.png"))
+
+        def run(media, posts=None, rows=None, **epkw):
+            return check(posts or _MEDIA_POSTS, rows or _MEDIA_ROWS, _MediaFacts(), _BASE_KIT,
+                         _BASE_CAPTION, cc, media=media, ep=_media_ep(tmp, **epkw))
+
+        base = run(_MEDIA_BASE)
+        if base.failed:
+            bad += 1
+            print("[ FAIL ] 미디어 기준선이 전부 통과해야 한다 — %s" % [i[0] for i in base.failed])
+        else:
+            print("[  OK  ] 미디어 기준선 전 항목 통과 (검사 %d건)" % len(base.items))
+        base_fail = base.labels_failed()
+
+        def one(m, **kw):
+            return dict(_MEDIA_BASE[0], **m), kw
+
+        cases = [
+            ("[10-1]", "shots/ 아래지만 없는 파일", {"path": "shots/nope.png"}, {}),
+            ("[10-2]", "편 폴더 루트의 우리 카드를 붙인다", {"path": "02_banner.png"}, {}),
+            ("[10-3]", "FACTS 에 없는 출처키", {"src_key": "NOPE"}, {}),
+            ("[10-4]", "본문에 없는 크레딧을 적는다", {"credit": "누군가"}, {}),
+            ("[10-5]", "해상도를 틀리게 적는다", {"shape": "이미지 99x99"}, {}),
+            ("[10-6]", "공식 영상이 있는데 첨부는 이미지뿐", {}, {"OFFICIAL_VIDEO": {"url": "u", "dur": "9s"}}),
+        ]
+        for tag, why, mut, epkw in cases:
+            got = run([dict(_MEDIA_BASE[0], **mut)], **epkw).labels_failed() - base_fail
+            hit = any(g.startswith(tag) for g in got)
+            extra = sorted(g for g in got if not g.startswith(tag))
+            if hit and not extra:
+                print("[  OK  ] %-8s %s → 그 검사만 걸린다" % (tag, why))
+            else:
+                bad += 1
+                print("[ FAIL ] %-8s %s → 걸린 검사 %s" % (tag, why, sorted(got) or "없음"))
+
+        # 서드파티 영상 4조건 — mp4 를 만들 수 없으니 «영상» 선언만으로 조건 발동을 본다.
+        tpv = {"post": 1, "path": "shots/tp.mp4", "src_key": "TPV", "credit": "Qwen",
+               "tier": "서드파티", "shape": "영상 20x10"}
+        for tag, why, epkw in [("[10-7ⓒ]", "출처가 검증로그에 없다", {"verify_log": "관련 없는 내용"}),
+                               ("[10-7ⓓ]", "발행팩에 승인 절이 없다", {"pack": "## 다른 절"})]:
+            got = run([tpv], **epkw).labels_failed()
+            ref = run([tpv]).labels_failed()
+            diff = got - ref
+            if diff == {tag}:
+                print("[  OK  ] %-8s %s → 그 검사만 걸린다" % (tag, why))
+            else:
+                bad += 1
+                print("[ FAIL ] %-8s %s → 걸린 검사 %s" % (tag, why, sorted(diff) or "없음"))
+        # ⓑ 는 기계가 못 잡는다 — «못 잡는다» 고 출력에 남는지를 본다(정관 §0 4층 ④).
+        na = [i for i in run([tpv]).items if i[0].startswith("[10-7ⓑ]") and i[1] == "NA"]
+        if na and "못 잡는다" in na[0][2]:
+            print("[  OK  ] [10-7ⓑ] 육안 항목이 «못 잡는다» 로 출력에 남는다")
+        else:
+            bad += 1
+            print("[ FAIL ] [10-7ⓑ] 육안 항목이 출력에 안 남는다 — 검사가 완전한 척한다")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return bad
+
+
 def selftest():
     cc = load_cardcheck()
     print("유통 변환 게이트 역검증 — 규격 출처: 라이브 스킬 %s" % skill_revision())
@@ -529,6 +766,7 @@ def selftest():
         else:
             bad += 1
             print("[ FAIL ] 문장 분할 — %s (%d개로 갈렸다)" % (why, got))
+    bad += _media_selftest(cc)
     # 규격 추출 자체의 역검증 — 못 찾으면 던져야 한다.
     try:
         skill_regex("__NOT_A_REAL_REGEX__")
