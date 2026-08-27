@@ -239,7 +239,7 @@ try {
     # (charter section 4 - STATUS means "did the work complete"). The wrapper records
     # the facts and the agent raises the red flag in the report.
     Write-Log ('auth_check.py -> ' + $AuthData)
-    $AuthPy = Join-Path $Hq 'scriptsuth_check.py'
+    $AuthPy = Join-Path $Hq 'scripts\auth_check.py'
     if (-not (Test-Path -LiteralPath $AuthPy)) {
         Write-Log ('auth check script missing: ' + $AuthPy + ' - recording as unavailable')
         Set-Content -LiteralPath $AuthData -Value 'UNAVAILABLE' -Encoding UTF8
