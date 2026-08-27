@@ -45,6 +45,10 @@ FIELDS = [
     ("공식영상",    True,  "video"),          # 무 | <URL> <길이> — 주체 공식 채널의 데모 영상. **수집 시점에 스카우트가 확인해 적는다**
                                              #   (2026-08-26 신설 · SKILL §7 «공식 영상 — 있으면 싣는다» · 게이트 [1-2]). 길이는 92s / 1m32s / 1:32.
                                              #   없으면 «무» — 비우면 «안 본 것»과 «봤는데 없음»이 안 갈린다(신선도마감과 같은 취지).
+    ("링크확인",    False, "linkcheck"),      # 열람 | 링크없음 — **공식 층위에 x.com URL 이 있으면 필수** (validate() 판정 ④)
+                                             #   (2026-08-27 신설) X 포스트가 공식 링크(블로그·릴리스 노트)를 품고 있으면 그 원문을 열어
+                                             #   보기 전에는 FACTS 로 확정하지 않는다. «열람» 이면 **그 원문 URL 을 출처URL 에 같이** 적는다
+                                             #   (그러면 x.com 단독이 아니게 된다). 포스트에 링크가 없으면 «링크없음».
     ("밝힐처리",    False, "oneline"),        # 힉스필드 MCP 처럼 «제작 툴 관계» 등 독자에게 밝힐 것. 없으면 생략
     ("지표",        False, "oneline"),        # «N만 (YYYY-MM-DD 조회)» — 시점 없는 수치는 규칙 위반
     ("형상",        False, "oneline"),        # 영상 | 이미지 | 없음 확인
@@ -73,6 +77,8 @@ RULES = {
     "tier":       lambda v: v.strip() in TIERS,
     "date":       lambda v: bool(_DATE.match(v.strip())),
     "date_or_na": lambda v: v.strip() == "상시" or bool(_DATE.match(v.strip())),
+    # 링크확인 — 열람 | 링크없음 (2026-08-27). «열람» 의 부속 조건(원문 URL 동반)은 validate() 판정 ④ 가 본다.
+    "linkcheck":  lambda v: v.strip() in ("열람", "링크없음"),
     "conflict":   lambda v: all(x.strip() in CONFLICTS for x in v.split("·")),
     # 공식영상 — «무» 이거나 «URL 길이» 두 토큰. URL 만 있고 길이가 없으면 위반(구간 컷 견적은 길이가 있어야 선다).
     "video":      lambda v: v.strip() == "무" or (len(v.split()) == 2 and bool(_URL.match(v.split()[0])) and bool(_VIDEO_LEN.match(v.split()[1]))),
@@ -141,6 +147,24 @@ def validate(block):
         n = len(rec["출처URL"].split())
         if n < MIN_URLS[tier]:
             v.invalid.append(("출처URL", "%s층위 %d건 필요, %d건" % (tier, MIN_URLS[tier], n)))
+    # 판정 ④ — X 포스트를 «공식» 근거로 쓸 때 링크 원문 확인 (2026-08-27 신설)
+    #
+    #   공식 발표가 X 포스트로 오면 그 포스트는 대개 **블로그·릴리스 노트 링크를 품고 있다.** 포스트 본문만 읽고
+    #   FACTS 를 확정하면 원문에만 있는 조건(요금제 한정·시행일·«coming soon»)을 놓친다 — ep33 의 «Work 한정»
+    #   오판이 그 자리였다(대기함 #19: 서드파티 기사만 보고 층위·대기 사유를 정했고, 공식 포스트 원문은
+    #   "Plus, Pro, and Business" 라 전제가 뒤집혔다 — 2026-08-27 확인).
+    #
+    #   기계가 볼 수 있는 것은 **«원문 URL 을 같이 적었는가»** 까지다. 그래서 층위가 공식이고 URL 에 x.com 이 있으면
+    #   `링크확인` 을 요구한다 — `열람` 이면 x.com 아닌 URL 이 1건 이상 있어야 하고, `링크없음` 이면 X 단독 발표로 본다.
+    #   🔴 **못 잡는 것**: 링크를 적어 놓고 실제로는 안 읽은 경우. 그건 사람이 본다(§0 4층 ④).
+    _urls = rec.get("출처URL", "").split()
+    _has_x = any("x.com/" in u or "twitter.com/" in u for u in _urls)
+    if tier == "공식" and _has_x and "출처URL" not in v.missing:
+        lc = rec.get("링크확인", "").strip()
+        if not lc or lc == UNFILLED:
+            v.invalid.append(("링크확인", "공식 층위 + X 포스트 — «열람» 또는 «링크없음» 을 적는다"))
+        elif lc == "열람" and not [u for u in _urls if "x.com/" not in u and "twitter.com/" not in u]:
+            v.invalid.append(("링크확인", "«열람» 인데 원문 URL 이 없다 — 연 원문을 출처URL 에 같이 적는다"))
     if "지표" in rec and rec["지표"].strip() != UNFILLED and not _METRIC.search(rec["지표"]):
         v.invalid.append(("지표", "조회시점없음"))            # content-scout.md 58 행
     v.wall = wall if wall >= WALL_LINES else 0
@@ -223,6 +247,7 @@ def _selftest():
 채널충돌: 없음
 신선도마감: 2026-09-07
 공식영상: 무
+링크확인: 링크없음
 지표: 노출 407.9만 (2026-08-24 조회)
 형상: 영상"""
     BAD_URL = GOOD.replace("https://x.com/AnthropicAI/status/2089842387845804246", "x.com/AnthropicAI")
@@ -238,10 +263,23 @@ def _selftest():
     VID_OK = GOOD.replace("공식영상: 무", "공식영상: https://www.youtube.com/watch?v=abc123 1m32s")
     VID_NOLEN = GOOD.replace("공식영상: 무", "공식영상: https://www.youtube.com/watch?v=abc123")
     VID_MISSING = GOOD.replace("공식영상: 무\n", "")
+    # 링크확인 (2026-08-27) — 각 케이스는 이 판정 하나만 건드린다.
+    #   LC_MISSING  공식 + x.com 인데 줄 자체가 없다        → 리젝
+    #   LC_READ_NO  «열람» 인데 x.com 아닌 원문 URL 이 없다 → 리젝
+    #   LC_READ_OK  «열람» + 원문 URL 동반                  → 통과
+    #   LC_NOT_OFF  층위가 X 면 이 판정은 아예 안 건다       → 통과 (URL 2건이라 판정 ① 도 통과)
+    LC_MISSING = GOOD.replace("링크확인: 링크없음\n", "")
+    LC_READ_NO = GOOD.replace("링크확인: 링크없음", "링크확인: 열람")
+    LC_READ_OK = LC_READ_NO.replace("status/2089842387845804246",
+                                    "status/2089842387845804246 https://www.anthropic.com/news/claude-drug-binder")
+    LC_NOT_OFF = LC_MISSING.replace("출처층위: 공식", "출처층위: X").replace(
+        "status/2089842387845804246", "status/2089842387845804246 https://example.com/second")
     cases = (("GOOD", GOOD, True), ("BAD_URL", BAD_URL, False), ("BAD_TIER", BAD_TIER, False),
              ("WALL", WALL, False), ("UNFILLED", UNF, False), ("NA_상시", NA, True),
              ("X_1url", X1, False), ("3RD_1url", T1, False), ("X_2url", X2, True),
-             ("VID_OK", VID_OK, True), ("VID_NOLEN", VID_NOLEN, False), ("VID_MISSING", VID_MISSING, False))
+             ("VID_OK", VID_OK, True), ("VID_NOLEN", VID_NOLEN, False), ("VID_MISSING", VID_MISSING, False),
+             ("LC_MISSING", LC_MISSING, False), ("LC_READ_NO", LC_READ_NO, False),
+             ("LC_READ_OK", LC_READ_OK, True), ("LC_NOT_OFF", LC_NOT_OFF, True))
     fails = 0
     for name, b, expect in cases:
         v, _ = validate(b)
