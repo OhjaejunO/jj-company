@@ -29,6 +29,8 @@ TASKS = ["skill-drift-audit", "morning-vault-health", "tomangchi-scout", "job-sc
 # 래퍼 로그 줄은 '[yyyy-MM-dd HH:mm:ss] STATUS: ...' — 줄머리가 아니라 타임스탬프 뒤다.
 # 첫 판본이 '^STATUS:' 로 써서 정상 회차 전부를 INCOMPLETE 로 찍었다(대조군이 잡음, 2026-08-25).
 _STATUS = re.compile(r"^\[[^\]]+\] STATUS:", re.M)
+#: 같은 줄의 STATUS 이후를 통째로 잡는다 — 실패 사유를 리포트에 실으려면 «있다/없다» 로는 부족하다.
+_STATUS_LINE = re.compile(r"^\[[^\]]+\] (STATUS:.*)$", re.M)
 
 
 def pid_alive(pid):
@@ -52,18 +54,64 @@ def read_stamp(path):
     return (int(m.group(1)) if m else None), txt
 
 
-def audit_log(path, task):
-    """마지막 '=== <task> start' 뒤에 ^STATUS: 가 있는가. (starts, status_after_last_start)"""
-    with open(path, encoding="utf-8", errors="replace") as f:
-        text = f.read()
+def classify(text, task):
+    """로그 본문에서 (start 횟수, STATUS 유무, 마지막 STATUS 사유). 사유는 FAIL 일 때만 채운다.
+
+    문자열을 받는다 — 파일을 열지 않으므로 자체 검사가 합성 로그로 그대로 부를 수 있다.
+    """
     starts = [m.start() for m in re.finditer(r"^\[[^\]]+\] === %s start" % re.escape(task), text, re.M)]
     if not starts:
-        return 0, True
+        return 0, True, ""
     tail = text[starts[-1]:]
-    return len(starts), bool(_STATUS.search(tail))
+    hits = _STATUS_LINE.findall(tail)
+    if not hits:
+        return len(starts), False, ""
+    last = hits[-1].strip()
+    # 'STATUS: FAIL skill-sync' → 'skill-sync'. 'STATUS: OK (부분: ...)' 은 FAIL 이 아니다(정관 §4).
+    m = re.match(r"STATUS:\s*FAIL\s*(.*)$", last)
+    return len(starts), True, (m.group(1).strip() or "(사유 없음)") if m else ""
+
+
+def audit_log(path, task):
+    """classify 의 파일판. (starts, status_after_last_start, fail_reason)"""
+    with open(path, encoding="utf-8", errors="replace") as f:
+        text = f.read()
+    return classify(text, task)
+
+
+_SELFTESTED = []
+
+
+def _selftest():
+    r"""판정기 자신을 시험한다 — 합성 로그 넷으로 «잡아야 할 것»과 «잡으면 안 되는 것»을 같이 본다.
+
+    정관 §0: 역검증 케이스는 다른 검사가 같이 걸리지 않게 분리한다. 여기서는 네 입력이
+    각각 하나의 축만 건드린다 — 완주 OK / 무기록 / FAIL / «OK (부분:)».
+    특히 마지막이 중요하다: 정관 §4 는 부분 완주를 FAIL 이 아니라고 못박았으므로,
+    이것이 RUNS_FAILED 에 들어가면 매일 거짓 🔴 가 뜬다.
+    """
+    if _SELFTESTED:
+        return
+    T = "morning-vault-health"
+    ok = "[2026-08-28 12:30:00] === %s start (pid 1) ===\n[2026-08-28 12:34:00] STATUS: OK\n" % T
+    dead = "[2026-08-28 12:30:00] === %s start (pid 1) ===\n[2026-08-28 12:32:00] start stagger\n" % T
+    bad = "[2026-08-27 12:30:00] === %s start (pid 1) ===\n[2026-08-27 12:32:02] STATUS: FAIL skill-sync\n" % T
+    part = "[2026-08-28 12:30:00] === %s start (pid 1) ===\n[2026-08-28 12:34:00] STATUS: OK (부분: 소스 미조회)\n" % T
+    cases = [
+        (ok, (1, True, ""), "완주 회차를 실패로 읽었다"),
+        (dead, (1, False, ""), "무기록 종료를 놓쳤다"),
+        (bad, (1, True, "skill-sync"), "FAIL 사유를 못 뽑았다"),
+        (part, (1, True, ""), "«OK (부분:)» 을 FAIL 로 읽었다 - 정관 §4 위반"),
+    ]
+    for text, want, msg in cases:
+        got = classify(text, T)
+        if got != want:
+            raise AssertionError("run_audit 자체 검사 실패: %s (기대 %r, 실제 %r)" % (msg, want, got))
+    _SELFTESTED.append(True)
 
 
 def main(argv=None):
+    _selftest()
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", default=datetime.date.today().isoformat())
     ap.add_argument("--log-dir", default=r"C:\Users\ojaej\jj-company\logs\scheduled")
@@ -88,25 +136,28 @@ def main(argv=None):
         elif alive is None:
             residual.append("%s(%s,alive=unknown)" % (t, txt.replace(" ", ",")))
 
-    checked, incomplete, running = 0, [], []
+    checked, incomplete, running, failed = 0, [], [], []
     for d in (today - datetime.timedelta(days=1), today):
         for t in tasks:
             p = os.path.join(a.log_dir, "%s_%s.log" % (t, d.strftime("%Y%m%d")))
             if not os.path.exists(p):
                 continue
             checked += 1
-            n, ok = audit_log(p, t)
+            n, ok, why = audit_log(p, t)
             if n and not ok:
                 if d == today and stamps.get(t) is True:
                     running.append("%s@%s" % (t, d.isoformat()))
                 else:
                     incomplete.append("%s@%s" % (t, d.isoformat()))
+            elif n and why:
+                failed.append("%s@%s:%s" % (t, d.isoformat(), why))
 
     print("RUNS_CHECKED=%d" % checked)
     print("RUNS_INCOMPLETE=%s" % (";".join(incomplete) or "NONE"))
+    print("RUNS_FAILED=%s" % (";".join(failed) or "NONE"))
     print("RUNS_RUNNING=%s" % (";".join(running) or "NONE"))
     print("STARTED_RESIDUAL=%s" % (";".join(residual) or "NONE"))
-    print("RUNS_VERDICT=%s" % ("RED" if (incomplete or residual) else "OK"))
+    print("RUNS_VERDICT=%s" % ("RED" if (incomplete or residual or failed) else "OK"))
     return 0
 
 

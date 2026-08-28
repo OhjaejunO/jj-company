@@ -165,7 +165,15 @@ try {
     foreach ($l in $depOut) { Write-Log ('  skill| ' + $l) }
     if ($depCode -ne 0) {
         Write-Log ('deploy-skill exit code ' + $depCode)
-        Write-Log 'STATUS: FAIL skill-sync'
+        # Name the cause in the STATUS line itself (2026-08-28). run_audit.py reads
+        # this line, so the next morning's report can say "credentials expired"
+        # instead of sending the reader back into a log nobody opens - which is why
+        # 8/27 went unnoticed until the following day.
+        if (($depOut | Out-String) -match 'credentials') {
+            Write-Log 'STATUS: FAIL skill-sync-auth (gh token expired or missing)'
+        } else {
+            Write-Log 'STATUS: FAIL skill-sync'
+        }
         exit 1
     }
 
@@ -234,7 +242,25 @@ try {
     # Headless sessions cannot answer permission prompts, so the tools this job
     # actually needs are granted explicitly and narrowly. Deny rules in
     # settings.json still win over allow, so vault / tomangchi write blocks hold.
+    #
+    # Gate extended from morning-vault-health 2026-08-28 (that job ran under
+    # --permission-mode default on 8/26 and 8/28 with no refusal-caused failure;
+    # 8/27 never reached its agent, see the skill-sync note in that wrapper).
+    # Under acceptEdits this list gated only Bash prefixes and the Web tools -
+    # measured 8/22-8/25 - so file writes were ungated no matter what was listed.
+    # Under default everything outside the list is refused instead.
+    #
+    # Bash stays exactly as narrow as it already was. The verification commands
+    # this job's main session likes to run (tail / ls / git status) were ALREADY
+    # being refused under acceptEdits and the runs still finished, so nothing is
+    # added for them: evidence, not guesswork. Charter section 2 allows writes
+    # only under reports\ and the scan-log folder, and now the flag says so too.
     $AllowedTools = @(
+        'Agent',
+        'Read', 'Glob', 'Grep',
+        'ToolSearch', 'SendMessage',
+        'Edit(reports/**)',
+        ('Edit(' + $ScanLogDir.Replace('\', '/') + '/**)'),
         'WebSearch',
         'WebFetch',
         # Narrowed 2026-08-25: the old '*manage.py*' prefix let
@@ -252,8 +278,34 @@ try {
         'Bash(cd*)'
     )
 
+    # --- approval-refusal probe, every run (2026-08-28) -----------------------
+    # See scripts\permission_probe.py. The flag above is a claim; this is the
+    # measurement, taken on this run, in both directions. A failing probe stops
+    # the job rather than letting an ungated agent proceed.
+    $ProbePy = Join-Path $Hq 'scripts\permission_probe.py'
+    if (-not (Test-Path -LiteralPath $ProbePy)) {
+        Write-Log ('permission probe missing: ' + $ProbePy)
+        Write-Log 'STATUS: FAIL probe-script-missing'
+        exit 1
+    }
+    $ProbeData  = Join-Path $ScoutDataDir ('probe_' + $IsoDate + '.txt')
+    $ProbeDeny  = Join-Path $Hq 'docs\_probe_should_fail.md'
+    $ProbeAllow = Join-Path $Hq 'reports\_probe_ok.md'
+    Write-Log ('permission_probe.py -> ' + $ProbeData)
+    $probeOut = & py $ProbePy --cwd $Hq --deny $ProbeDeny --allow $ProbeAllow `
+        --add-dir $SkillDir --add-dir $ContentOps --add-dir $ScanLogDir `
+        '--' @AllowedTools 2>&1
+    $probeCode = $LASTEXITCODE
+    Set-Content -LiteralPath $ProbeData -Value $probeOut -Encoding UTF8
+    foreach ($l in $probeOut) { Write-Log ('  probe| ' + $l) }
+    if ($probeCode -ne 0) {
+        $pv = ($probeOut | Select-String -Pattern '^PROBE_VERDICT=' | Select-Object -Last 1)
+        Write-Log ('STATUS: FAIL probe ' + $(if ($pv) { $pv.Line } else { 'no verdict line' }))
+        exit 1
+    }
+
     Write-Log ('claude -p (content-scout) start, allowed-tools: ' + ($AllowedTools -join ' '))
-    $out = & $Claude -p (ConvertTo-NativeArg $prompt) --permission-mode acceptEdits `
+    $out = & $Claude -p (ConvertTo-NativeArg $prompt) --permission-mode default `
         --allowed-tools @AllowedTools `
         --add-dir $SkillDir --add-dir $ContentOps --add-dir $ScanLogDir 2>&1
     $claudeCode = $LASTEXITCODE
