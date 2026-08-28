@@ -3,9 +3,22 @@ r"""Threads 발행 워커 — 승인된 편 1건의 텍스트 스레드를 체�
 
 정본 명세: `docs\workers\publish-threads.md`. **그 문서가 규칙이고 이 파일은 그 실행체다.**
 
+    py scripts\publish_threads.py --ep ep39 --draft-approval    ← 승인 «초안» 을 reports\ 에
     py scripts\publish_threads.py --ep ep39                     ← 드라이런 (기본값)
     py scripts\publish_threads.py --ep ep39 --publish           ← 실제 게시
     py scripts\publish_threads.py --self-test                   ← 검사기 자체 시험
+
+## 승인은 초안·서명 2단이다 (2026-08-28 개정)
+
+    ① 에이전트: `--draft-approval` → `reports\<ep>.approval.json` **초안**
+       (본문 해시 5건 + chain + 대상 편. 해시 계산은 기계가 한다 — 사람이 셀 값이 아니다)
+    ② JJ: 원고 5포스트를 읽고 판정한 뒤 `scripts\move-approval.bat` 으로
+       `publish_approval\<ep>.json` 으로 **옮긴다. 이동이 곧 서명이다.**
+    ③ 워커: **`publish_approval\` 에 있는 것만** 승인으로 본다.
+
+🔴 **초안 생성이 잠금을 우회하지 않는다.** 에이전트는 `reports\` 에만 쓸 수 있고
+`publish_approval\` 에는 쓰지도 못하고 이동 배치를 실행하지도 못한다(프로브가 회차마다 실증).
+초안은 **«승인해 달라는 서류»** 이지 승인이 아니다 — 그 서류가 어느 폴더에 있느냐가 전부다.
 
 ## 왜 에이전트가 아니라 스크립트인가
 
@@ -20,9 +33,11 @@ r"""Threads 발행 워커 — 승인된 편 1건의 텍스트 스레드를 체�
 
 ## 🔴 이 스크립트가 증명하지 *못* 하는 것 (§0 4층 ④)
 
-- **승인 파일의 서명을 검증하지 않는다.** 3확인 ② 의 판정은 «승인 폴더에 못 쓴다» 이고
-  그것을 재는 것은 `scripts\permission_probe.py` 다 — 워커 기동 **전에** 래퍼가 돌린다.
-  여기서 서명을 다시 검사하는 척하지 않는다.
+- **승인 파일의 암호 서명을 검증하지 않는다.** 서명은 «이동» 이고, 이동할 수 있는 것은
+  `publish_approval\` 에 쓸 수 있는 자 뿐이다. 그 자리를 재는 것은 `scripts\permission_probe.py` 이고
+  워커 기동 **전에** 래퍼가 돌린다. 여기서 다시 검사하는 척하지 않는다.
+- 🔴 **그 프로브가 증명하는 것은 «에이전트가 만들 수 없다» 가 아니라 «이 회차에 만들지 못했다» 다.**
+  권한 밖 경로로 우회하는 길(다른 세션·사람 권한 탈취)은 이 장치가 못 잡는다.
 - **컨테이너가 실제로 만료돼 사라지는지 확인할 수 없다** — API 가 만료 시각을 내주지 않는다.
 """
 import argparse
@@ -149,6 +164,25 @@ def parse_posts(md_path):
             raise SystemExit("🔴 P%d 가 두 번 나온다 — %s" % (seq, md_path))
         out[seq] = fence.group(1).strip()
     return out
+
+
+def build_draft(ep, ms_path, posts):
+    """승인 «초안» 을 만든다 — 해시 계산은 기계 몫이다. **서명은 여기 없다.**
+
+    `signed_by`·`signature` 를 미리 채우지 않는다. 채워 두면 사람이 «이미 서명됐다» 로 읽는다 —
+    서명은 이 파일을 `publish_approval\\` 로 **옮기는 행위** 다.
+    """
+    return {
+        "ep": ep,
+        "body_sha256": sha256_file(ms_path),
+        "posts": [{"seq": s, "sha256": sha256_text(posts[s])} for s in sorted(posts)],
+        "chain": sorted(posts),
+        "drafted_by": "publish_threads.py --draft-approval",
+        "drafted_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S KST"),
+        "manuscript": os.path.basename(ms_path),
+        "_승인_방법": ("이 파일을 scripts\\move-approval.bat 으로 publish_approval\\ 로 옮기면 "
+                   "그것이 승인이다. reports\\ 에 있는 동안은 승인이 아니다."),
+    }
 
 
 def check_approval(appr, ep, ms_path, posts):
@@ -285,6 +319,13 @@ def _selftest():
     assert check_approval(dict(base, ep="ep40"), "ep39", p, posts), "ep 불일치를 놓쳤다"
     assert check_approval(dict(base, body_sha256="x" * 64), "ep39", p, posts), "원고 해시 불일치를 놓쳤다"
     assert check_approval(dict(base, chain=[1]), "ep39", p, posts), "chain/posts 어긋남을 놓쳤다"
+
+    # ③-b 초안은 서명 자리를 만들지 않는다 — 만들면 «이미 서명됐다» 로 읽힌다
+    d = build_draft("ep39", p, posts)
+    assert d["ep"] == "ep39" and d["chain"] == [1, 2], d
+    assert "signature" not in d and "signed_by" not in d, "초안이 서명 자리를 갖고 있다"
+    assert check_approval(d, "ep39", p, posts) == [], "제 초안이 제 검사를 통과 못 한다"
+
     for q in (p, p2):
         os.remove(q)
 
@@ -309,6 +350,8 @@ def main(argv=None):
     ap.add_argument("--out-dir", default=None)
     ap.add_argument("--publish", action="store_true",
                     help="🔴 실제 게시. 없으면 드라이런 — 기본값은 게시하지 않는다")
+    ap.add_argument("--draft-approval", action="store_true",
+                    help="승인 «초안» 을 reports\\<ep>.approval.json 으로 쓴다. 승인이 아니다")
     ap.add_argument("--self-test", action="store_true")
     a = ap.parse_args(argv)
     if a.self_test:
@@ -328,12 +371,42 @@ def main(argv=None):
         print(m)
         lines.append(m)
 
+    def find_manuscript():
+        if a.manuscript:
+            return a.manuscript
+        cand = sorted(f for f in os.listdir(out_dir)
+                      if re.match(r"\d{4}-\d\d-\d\d_dist_%s\.md$" % a.ep, f))
+        return os.path.join(out_dir, cand[-1]) if cand else None
+
+    # --- 초안 만들기 — 승인이 아니다 -------------------------------------------
+    if a.draft_approval:
+        ms = find_manuscript()
+        if not ms:
+            print("🔴 원고를 못 찾았다: reports\\<날짜>_dist_%s.md" % a.ep)
+            return 1
+        draft = build_draft(a.ep, ms, parse_posts(ms))
+        dpath = os.path.join(out_dir, a.ep + ".approval.json")
+        io.open(dpath, "w", encoding="utf-8", newline="\n").write(
+            json.dumps(draft, ensure_ascii=False, indent=1) + "\n")
+        print("초안: %s" % dpath)
+        print("포스트 %d건 · 원고 %s" % (len(draft["posts"]), draft["manuscript"]))
+        print("🔴 **이것은 승인이 아니다.** JJ 가 원고 5포스트를 읽고 "
+              "`scripts\\move-approval.bat` 으로 publish_approval\\ 로 옮겨야 승인이다.")
+        print("STATUS: OK (초안 생성 — 승인 아님)")
+        return 0
+
     log("# Threads 발행 — %s · %s" % (a.ep, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
     log("모드: **%s**" % ("실제 게시" if a.publish else "드라이런 (publish 미호출)"))
 
-    # 트리거 — 승인 파일이 없으면 워커는 뜨지 않는다 (에러 아님)
+    # 트리거 — 승인 파일이 없으면 워커는 뜨지 않는다 (에러 아님).
+    # 🔴 **`publish_approval\` 만 본다.** reports\ 의 초안은 승인이 아니므로 여기서 찾지 않는다 —
+    #    찾는 순간 «에이전트가 자기에게 내주는 허가» 가 되고 3확인 전체가 무너진다.
     if not os.path.exists(appr_path):
         log("승인 파일 없음 — 트리거가 없다: %s" % appr_path)
+        draft_path = os.path.join(out_dir, a.ep + ".approval.json")
+        if os.path.exists(draft_path):
+            log("🔴 초안은 있다 (`%s`) — **초안은 승인이 아니다.** "
+                "JJ 가 `scripts\\move-approval.bat` 으로 옮겨야 한다" % os.path.basename(draft_path))
         log("STATUS: OK (부분: 승인 파일 없음 — 발행 대상 아님)")
         return 0
     appr = json.load(io.open(appr_path, encoding="utf-8"))
@@ -356,8 +429,11 @@ def main(argv=None):
         log("STATUS: FAIL approval (%d건)" % len(bad))
         return 1
     log("3확인 통과 — ep 일치 · 원고 해시 일치 · chain↔posts↔원고 seq 일치")
-    log("🔴 ② «에이전트가 만들지 않았을 것» 은 이 스크립트가 재지 않는다 — "
-        "래퍼의 `permission_probe.py` 가 회차마다 실증한다")
+    log("승인 출처: `%s` — **이동이 곧 서명이다**" % appr_path)
+    log("🔴 ② 는 이 스크립트가 재지 않는다 — «승인 파일이 `publish_approval\\` 에 있고 "
+        "그 폴더에 대한 에이전트 쓰기·이동배치 실행이 **이 회차에** 거부됐음» 을 "
+        "래퍼의 `permission_probe.py` 가 실증한다. "
+        "그것은 «만들 수 없다» 가 아니라 **«이 회차에 만들지 못했다»** 다(§0 4층 ④)")
 
     token = load_token()
     api = Api(token, allow_publish=a.publish)
