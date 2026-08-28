@@ -87,14 +87,22 @@ class _Subst(ast.NodeTransformer):
     (ep36 실측 — 영상 카드가 있는 편은 처음부터 이 상태였다). 정관 §0 «조용히 실패하는 코드».
     """
 
-    def __init__(self, tables):
+    def __init__(self, tables, local=None):
         self.tables = tables          # {"F": {이름: 값}, ...}
+        #: **같은 파일 위쪽에서 이미 값이 정해진 이름**. 빌더가 `"key": "… — %s" % AAI_LABEL`
+        #: 처럼 자기 상수를 쓰는 일이 흔하다(ep35 실측) — 그것도 풀어 준다.
+        self.local = local if local is not None else {}
 
     def visit_Attribute(self, node):
         v = node.value
         if isinstance(v, ast.Name) and v.id in self.tables and node.attr in self.tables[v.id]:
             return ast.copy_location(ast.Constant(self.tables[v.id][node.attr]), node)
         return self.generic_visit(node)
+
+    def visit_Name(self, node):
+        if isinstance(node.ctx, ast.Load) and node.id in self.local:
+            return ast.copy_location(ast.Constant(self.local[node.id]), node)
+        return node
 
 
 def _module_literals(path, tables=None):
@@ -105,8 +113,9 @@ def _module_literals(path, tables=None):
     `tables` 를 주면 `F.VIDEO_SRC` 같은 모듈 속성도 값으로 바꿔 읽는다.
     """
     tree = ast.parse(io.open(path, encoding="utf-8").read())
-    sub = _Subst(tables or {})
     out, alias = {}, {}
+    # `out` 을 그대로 넘긴다 — 위에서 아래로 읽으므로 앞서 정해진 이름은 이미 들어 있다.
+    sub = _Subst(tables or {}, out)
     for node in tree.body:
         if not isinstance(node, ast.Assign) or len(node.targets) != 1:
             continue
