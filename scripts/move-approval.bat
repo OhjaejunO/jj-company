@@ -72,7 +72,22 @@ rem  Target name drops the .approval part: ep39.approval.json -> ep39.json
 rem  because the worker looks for publish_approval\<ep>.json.
 for /f "tokens=1 delims=." %%A in ("!NAME!") do set "EP=%%A"
 
-if not exist "%DST%" mkdir "%DST%"
+rem  No mkdir here (2026-08-28). NOTHING in this repo creates publish_approval\ -
+rem  JJ makes it by hand, once. The rule is absolute so it can be checked: a self
+rem  test greps every script for a creation of that path and expects zero hits, and
+rem  the worker fails the run if the folder appears while it is running. An
+rem  exception "only the human tool may create it" would be unverifiable from the
+rem  outside, because a batch cannot prove who double-clicked it.
+if not exist "%DST%" (
+    echo.
+    echo   publish_approval\ does not exist:
+    echo     %DST%
+    echo   Create it yourself first, then run this again. Nothing here creates it -
+    echo   the folder existing at all is part of what makes the move a signature.
+    echo.
+    pause
+    exit /b 1
+)
 if exist "%DST%\!EP!.json" (
     echo.
     echo   !EP!.json already exists in publish_approval\ - refusing.
