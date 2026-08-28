@@ -78,12 +78,34 @@ def find_ep_dir(ep):
 
 
 # ── 편 선언 읽기 ─────────────────────────────────────────────────────────
-def _module_literals(path):
+class _Subst(ast.NodeTransformer):
+    """`F.NAME` 같은 **모듈 속성 참조**를 실제 값으로 바꿔 준다.
+
+    🔴 왜 필요한가 (2026-08-28). 빌더가 `"shot": F.VIDEO_SRC` 처럼 `_facts.py` 값을 가리키면
+    `ast.literal_eval` 이 통째로 실패한다. 종전 코드는 그 실패를 **조용히 삼켜** `CARDS` 를
+    빼먹었고, `load_ep` 이 `or {}` 로 받아 **주장 0건·첨부 0건짜리 지시서**를 정상인 척 냈다
+    (ep36 실측 — 영상 카드가 있는 편은 처음부터 이 상태였다). 정관 §0 «조용히 실패하는 코드».
+    """
+
+    def __init__(self, tables):
+        self.tables = tables          # {"F": {이름: 값}, ...}
+
+    def visit_Attribute(self, node):
+        v = node.value
+        if isinstance(v, ast.Name) and v.id in self.tables and node.attr in self.tables[v.id]:
+            return ast.copy_location(ast.Constant(self.tables[v.id][node.attr]), node)
+        return self.generic_visit(node)
+
+
+def _module_literals(path, tables=None):
     """`build_epNN.py` 를 **실행하지 않고** 최상위 리터럴 대입만 뽑는다.
 
     빌더는 스킬 모듈을 import 하고 경로를 만지므로 import 하면 부작용이 있다.
-    `COVER = COVER_A` 처럼 같은 파일 안의 이름을 가리키는 대입은 한 번 더 풀어 준다."""
+    `COVER = COVER_A` 처럼 같은 파일 안의 이름을 가리키는 대입은 한 번 더 풀어 준다.
+    `tables` 를 주면 `F.VIDEO_SRC` 같은 모듈 속성도 값으로 바꿔 읽는다.
+    """
     tree = ast.parse(io.open(path, encoding="utf-8").read())
+    sub = _Subst(tables or {})
     out, alias = {}, {}
     for node in tree.body:
         if not isinstance(node, ast.Assign) or len(node.targets) != 1:
@@ -92,8 +114,8 @@ def _module_literals(path):
         if not isinstance(t, ast.Name):
             continue
         try:
-            out[t.id] = ast.literal_eval(node.value)
-        except (ValueError, SyntaxError):
+            out[t.id] = ast.literal_eval(sub.visit(node.value))
+        except (ValueError, SyntaxError, TypeError):
             if isinstance(node.value, ast.Name):
                 alias[t.id] = node.value.id
     for k, v in alias.items():
@@ -106,7 +128,16 @@ def load_ep(ep_dir):
     builds = [f for f in os.listdir(ep_dir) if re.match(r"^build_ep\d+\.py$", f)]
     if not builds:
         raise RuntimeError("빌더 선언 파일이 없다: %s" % ep_dir)
-    decl = _module_literals(os.path.join(ep_dir, sorted(builds)[0]))
+    # `_facts.py` 를 먼저 읽어 `F.` 참조를 풀 수 있게 한다 — 안 그러면 영상 카드가 든 편의
+    # `CARDS` 가 통째로 안 읽힌다(위 `_Subst` 주석).
+    _facts_p = os.path.join(ep_dir, "_facts.py")
+    _tables = {"F": _module_literals(_facts_p)} if os.path.exists(_facts_p) else {}
+    decl = _module_literals(os.path.join(ep_dir, sorted(builds)[0]), _tables)
+    if not decl.get("CARDS"):
+        # 🔴 조용히 넘어가지 않는다. 카드가 0건인 편은 존재하지 않으므로 **읽기 실패**다.
+        raise RuntimeError(
+            "편 선언에서 CARDS 를 읽지 못했다: %s — 리터럴이 아닌 참조가 들어 있으면 "
+            "`_facts.py` 에 올리거나 `_Subst` 에 그 모듈을 더해라" % ep_dir)
     kit = decl.get("KIT") or {}
     if not kit.get("url"):
         raise RuntimeError("편 선언에 KIT['url'] 이 없다 — 마지막 포스트에 무엇을 넣을지 정할 수 없다")
