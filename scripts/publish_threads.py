@@ -56,6 +56,22 @@ import urllib.request
 BASE = "https://graph.threads.net"
 API = "/v1.0"
 
+#: 🔴 **HQ 는 절대경로로 박는다 (2026-08-28 · 상대 계산 폐기).**
+#:
+#: 종전에는 `os.path.dirname(os.path.dirname(__file__))` 로 잡았다. 그러면 **같은 코드가
+#: 어디 놓이느냐에 따라 다른 폴더를 본다** — 운영 서버 사본은 `jj-company\publish_approval`,
+#: 작업장 사본은 `orca\jj-company\publish_approval` 이었다. 둘 다 실재하는 사본이다.
+#:
+#: 승인 폴더는 **잠금의 경계**다. 경계가 사본마다 다르면 «에이전트가 못 쓴다» 는 실증이
+#: 어느 폴더에 대한 것인지 흐려지고, 배치가 옮겨 둔 승인을 워커가 못 보는 조합도 생긴다.
+#: 배치(`move-approval.bat` DST)·래퍼(`publish-threads.ps1` $Hq)는 이미 절대경로였다 —
+#: **셋 중 하나만 상대 계산이었고, 그 하나가 보안 경계를 쥐고 있었다.**
+#:
+#: 세 자리가 어긋나면 `_selftest()` 가 파일을 열어 **실제로 대조해** 걸러 낸다.
+HQ = r"C:\Users\ojaej\jj-company"
+APPROVAL_DIR = os.path.join(HQ, "publish_approval")
+REPORTS_DIR = os.path.join(HQ, "reports")
+
 #: 🔴 publish 는 **경로의 마지막 세그먼트 일치**로만 판정한다 (C-8 2026-08-28 사례).
 #: «문자열 포함» 으로 짰다가 `threads_publishing_limit`(쿼터 조회)까지 막혀 조사 한 항목이
 #: «확인 불가» 로 끝날 뻔했다. 넓게 잡힌 금지는 조사를 막고, 막힌 자리가 «불가능» 으로 오독된다.
@@ -329,6 +345,29 @@ def _selftest():
     for q in (p, p2):
         os.remove(q)
 
+    # ③-c 승인 폴더가 **세 자리에서 같은 값인가** — 파일을 열어 실제로 대조한다.
+    #     선언만 맞추면 다음 사람이 한 곳만 고치고 지나간다. 그 «한 곳» 이 하필
+    #     보안 경계였던 것이 이 조항의 계기다(2026-08-28).
+    #     세 파일이 같은 폴더에 있을 때만 본다 — 시험 실행에서 파일이 없다고 죽지 않는다.
+    here = os.path.dirname(os.path.abspath(__file__))
+    bat = os.path.join(here, "move-approval.bat")
+    ps1 = os.path.join(here, "publish-threads.ps1")
+    if os.path.exists(bat) and os.path.exists(ps1):
+        bt = io.open(bat, encoding="utf-8", errors="replace").read()
+        pt = io.open(ps1, encoding="utf-8", errors="replace").read()
+        m = re.search(r'set\s+"HQ=([^"]+)"', bt)
+        assert m, "move-approval.bat 에서 HQ 를 못 찾았다"
+        assert os.path.normcase(m.group(1).rstrip("\\")) == os.path.normcase(HQ), \
+            "승인 폴더가 어긋난다 — 배치 HQ=%r 대 워커 HQ=%r" % (m.group(1), HQ)
+        m2 = re.search(r"\$Hq\s*=\s*'([^']+)'", pt)
+        assert m2, "publish-threads.ps1 에서 $Hq 를 못 찾았다"
+        assert os.path.normcase(m2.group(1).rstrip("\\")) == os.path.normcase(HQ), \
+            "승인 폴더가 어긋난다 — 래퍼 $Hq=%r 대 워커 HQ=%r" % (m2.group(1), HQ)
+
+    # ③-d 절대경로인가 — 상대 계산으로 되돌아가면 사본마다 다른 폴더를 본다
+    assert os.path.isabs(APPROVAL_DIR), "APPROVAL_DIR 이 절대경로가 아니다"
+    assert APPROVAL_DIR == os.path.join(HQ, "publish_approval"), APPROVAL_DIR
+
     # ④ 드라이런에서 publish 가 실제로 막히는가 (토큰 없이도 되는 검사)
     api = Api("dummy", allow_publish=False)
     try:
@@ -360,9 +399,12 @@ def main(argv=None):
     if not a.ep:
         raise SystemExit("--ep 가 필요하다")
 
-    hq = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    appr_dir = a.approval_dir or os.path.join(hq, "publish_approval")
-    out_dir = a.out_dir or os.path.join(hq, "reports")
+    # 자리는 위 상수로 고정한다. 인자는 **시험용 우회**일 뿐이고, 쓰면 리포트가 그렇게 적는다 —
+    # 그렇게 적지 않으면 fixture 회차가 실제 회차처럼 읽힌다.
+    appr_dir = a.approval_dir or APPROVAL_DIR
+    out_dir = a.out_dir or REPORTS_DIR
+    overridden = [n for n, v in (("--approval-dir", a.approval_dir),
+                                 ("--out-dir", a.out_dir)) if v]
     appr_path = os.path.join(appr_dir, a.ep + ".json")
 
     lines = []
@@ -397,6 +439,10 @@ def main(argv=None):
 
     log("# Threads 발행 — %s · %s" % (a.ep, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
     log("모드: **%s**" % ("실제 게시" if a.publish else "드라이런 (publish 미호출)"))
+    log("승인 폴더: `%s`" % appr_dir)
+    if overridden:
+        log("🔴 **기본 자리가 아니다 — 시험용 우회** (%s). 실제 회차가 아니다"
+            % ", ".join(overridden))
 
     # 트리거 — 승인 파일이 없으면 워커는 뜨지 않는다 (에러 아님).
     # 🔴 **`publish_approval\` 만 본다.** reports\ 의 초안은 승인이 아니므로 여기서 찾지 않는다 —
