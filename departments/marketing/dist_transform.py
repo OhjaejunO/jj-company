@@ -27,8 +27,17 @@
     | P1 | 1 | - |
     | P1 | 2 | PARAMS_MAIN, PARAMS_ACTIVE |
 
+    ## 첨부 미디어
+    | 포스트 | 파일 | 출처키 | 크레딧 | 층위 | 형상 |
+    |---|---|---|---|---|---|
+    | P1 | shots/02_banner.png | BLOG | Qwen | 공식 | 이미지 1920x1080 |
+
 근거는 셋 중 하나다 — `_facts.py` 의 **변수 이름** · `KIT_URL` · `-`(사실 주장 없는 문장).
 `-` 인 줄에 수치가 있으면 게이트 `[5-3]` 이 막는다. 소스 맵에 없는 문장은 존재할 수 없다.
+
+첨부는 **공식 원본만**이고 `shots/`·`_assets/` 아래여야 한다 — 편 폴더 루트의 `01_`~`09_` 는
+**우리가 조립한 카드**라 붙이면 인스타 재탕이 된다(파일명이 겹치므로 디렉토리가 유일한 구분이다).
+크레딧은 그림에 박혀 있지 않으니 **본문에 `이미지 출처: <크레딧>` 줄**을 두고 소스 맵에도 한 행 넣는다.
 
 읽기만 한다. 편 폴더(출장지)에는 쓰지 않는다 — 정관 §2.
 """
@@ -111,11 +120,39 @@ def load_ep(ep_dir):
         "EP": decl.get("EP"),
         "CARDS": decl.get("CARDS") or {},
         "COVER": decl.get("COVER") or (),
+        # None = 공식 영상 «무» · {url, dur} = 유 (SKILL v3.54 §7). 첨부 미디어 `[10-6]` 이 본다.
+        "OFFICIAL_VIDEO": decl.get("OFFICIAL_VIDEO"),
         "kit_url": kit["url"],
         "caption": _read("caption.txt"),
         "pinned": _read("pinned_comment.txt"),
+        "verify_log": _read("검증로그.md"),      # 서드파티 영상 4조건 ⓒ 대조용
+        "pack": _read("발행팩.md"),               # 4조건 ⓓ «## 서드파티 영상 승인» 절 확인용
         "facts": distcheck.load_facts(ep_dir),
     }
+
+
+def official_sources(ep):
+    """편이 실제로 쓴 **공식 원본 캡처** 목록 — 첨부 후보다.
+
+    카드 선언의 `shot`/`credit` 이 정본이다. 같은 파일명이 편 폴더 루트에도 있지만 그쪽은
+    **우리가 조립한 카드**이므로 후보가 아니다 — `shots/` 아래만 낸다."""
+    out = []
+    for no in sorted(ep["CARDS"]):
+        c = ep["CARDS"][no]
+        shot = c.get("shot")
+        if not shot:
+            continue
+        rel = "shots/" + shot
+        p = os.path.join(ep["dir"], "shots", shot)
+        if not os.path.exists(p):
+            continue
+        kind, w, h, dur = distcheck.probe_media(p)
+        shape = kind + (" %dx%d" % (w, h) if w else "")
+        if dur is not None:
+            shape += " %gs" % dur
+        out.append({"card": no, "path": rel, "credit": c.get("credit", ""), "shape": shape,
+                    "headline": c.get("headline", "")})
+    return out
 
 
 # ── PROCESS 1~2: 주장 목록 · FACTS 키 후보 ───────────────────────────────
@@ -186,6 +223,36 @@ def brief(ep):
     a("  첫 줄이 훅이고, 이미지 없이 읽혀야 한다.")
     a("- 소스 맵에 없는 문장은 존재할 수 없다. 근거가 없으면 **뺀다**(덜 싣는 건 자유).")
     a("")
+    a("## 첨부 미디어 후보 (공식 원본만)")
+    a("")
+    ov = ep.get("OFFICIAL_VIDEO")
+    if ov:
+        a("- 🔴 **공식 영상이 있다** — `%s` (%s). Threads 는 영상 도달이 가장 높아 **영상이 먼저다**"
+          % (ov.get("url", "?"), ov.get("dur", "?")))
+    else:
+        a("- 공식 영상 **무**(편 선언 `OFFICIAL_VIDEO = None`) → 공식 이미지로 간다.")
+    a("- 🔴 **우리가 조립한 카드를 붙이지 않는다.** 편 폴더 루트의 `01_`~`09_` 가 그것이고,")
+    a("  **같은 파일명이 `shots/` 에도 있다** — 그쪽이 공식 원본이다. 디렉토리가 유일한 구분이다.")
+    a("- 크레딧은 그림에 안 박혀 있으므로 **본문에 `이미지 출처: <크레딧>` 줄**로 적는다.")
+    a("  그 줄도 소스 맵에 한 행이 필요하다(근거 = 출처키).")
+    a("")
+    srcs = official_sources(ep)
+    if srcs:
+        a("| 카드 | 파일 | 크레딧 | 형상 | 그 카드가 말하는 것 |")
+        a("|---|---|---|---|---|")
+        for s in srcs:
+            a("| %s | `%s` | %s | %s | %s |"
+              % (s["card"], s["path"], s["credit"], s["shape"], s["headline"]))
+    else:
+        a("- `shots/` 에 공식 원본 캡처가 없다 — 첨부 없이 텍스트로 간다.")
+    a("")
+    a("**출처키**는 `_facts.py` 의 URL 변수 이름으로 적는다. 이 편에 있는 것:")
+    a("")
+    for n in sorted(dir(ep["facts"])):
+        v = getattr(ep["facts"], n, None)
+        if not n.startswith("_") and isinstance(v, str) and v.startswith("http"):
+            a("- `%s` — %s" % (n, v))
+    a("")
     a("## 주장 목록 (카드 선언 · 정본)")
     a("")
     idx = fact_index(ep["facts"])
@@ -208,7 +275,7 @@ def brief(ep):
 
 
 # ── PROCESS 5: 발행 복붙 세트 ────────────────────────────────────────────
-def pack(ep, posts, rows, gate):
+def pack(ep, posts, rows, gate, media=None):
     today = datetime.date.today().isoformat()
     L = []
     a = L.append
@@ -219,6 +286,9 @@ def pack(ep, posts, rows, gate):
     a("")
     a("## 발행 순서")
     a("")
+    by_post = {}
+    for m in (media or []):
+        by_post.setdefault(m["post"], []).append(m)
     for i, p in enumerate(posts, 1):
         a("### %s%d — %d자" % ("P", i, len(p)))
         a("")
@@ -226,6 +296,12 @@ def pack(ep, posts, rows, gate):
         a(p)
         a("```")
         a("")
+        for m in by_post.get(i, []):
+            a("**첨부** `%s` — %s · 크레딧 `%s` · %s"
+              % (os.path.join(ep["dir"], m["path"].replace("/", os.sep)),
+                 m["shape"], m["credit"], m["tier"]))
+        if by_post.get(i):
+            a("")
     a("## 게이트")
     a("")
     a("검사 판본: 라이브 스킬 `%s`" % distcheck.skill_revision())
@@ -279,9 +355,9 @@ def main(argv=None):
 
     if not a.draft:
         ap.error("pack 에는 --draft 가 필요하다")
-    posts, rows = distcheck.parse_draft(io.open(a.draft, encoding="utf-8").read())
+    posts, rows, media = distcheck.parse_draft(io.open(a.draft, encoding="utf-8").read())
     gate = distcheck.check(posts, rows, ep["facts"], ep["kit_url"], ep["caption"],
-                           distcheck.load_cardcheck())
+                           distcheck.load_cardcheck(), media=media, ep=ep)
     print("유통 변환 게이트 — ep%s" % ep["EP"])
     distcheck.report(gate)
     if gate.failed:
@@ -289,7 +365,7 @@ def main(argv=None):
         print("복붙 세트를 쓰지 않았다 — 게이트 FAIL %d건을 먼저 고친다." % len(gate.failed))
         return 1
     out = a.out or os.path.join(outdir, "%s_dist_ep%s.md" % (today, ep["EP"]))
-    write_utf8(out, pack(ep, posts, rows, gate))
+    write_utf8(out, pack(ep, posts, rows, gate, media))
     print("복붙 세트: %s" % out)
     return 0
 
