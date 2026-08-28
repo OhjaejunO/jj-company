@@ -297,6 +297,9 @@ def run_chain(api, uid, ep, ms_path, appr, log, publish):
 
 
 # ---------------------------------------------------------------- 자체 검사
+_NO_MKDIR_CHECKED = []
+
+
 def _selftest():
     r"""검사기 자신을 시험한다 — 통과해야 할 것과 걸려야 할 것을 **같이** 본다 (정관 §0).
 
@@ -368,6 +371,37 @@ def _selftest():
     assert os.path.isabs(APPROVAL_DIR), "APPROVAL_DIR 이 절대경로가 아니다"
     assert APPROVAL_DIR == os.path.join(HQ, "publish_approval"), APPROVAL_DIR
 
+    # ③-e **이 경로를 만드는 코드는 어디에도 없어야 한다 (2026-08-28 신설).**
+    #
+    #     2026-08-28 21:16:29 에 빈 `publish_approval\` 이 나타났다. 조사 결과
+    #     어느 세션도 그 창에 돌지 않았고 스케줄도 없었으며 코드에도 만드는 자리가 없었다 —
+    #     즉 **사람이 만든 것**으로 보이고, 그렇다면 정상이다. 문제는 그때
+    #     «코드가 만든 것인지 사람이 만든 것인지 가릴 방법이 없었다» 는 것이다.
+    #
+    #     그래서 규칙을 **예외 없이** 세운다: 이 레포의 어떤 스크립트도 그 폴더를 만들지 않는다.
+    #     «사람 도구만 만들어도 된다» 는 예외는 밖에서 검증할 수 없다 —
+    #     배치는 자기를 누가 눌렀는지 증명하지 못한다. 예외가 없어야 grep 한 번으로 판정된다.
+    #     🔴 주석은 빼고 본다. 첫 판이 «이 폴더를 만들지 않는다» 고 **설명하는 주석**에 걸렸다 —
+    #     낱말만 세면 규칙을 적어 둔 자리가 규칙 위반으로 잡힌다(C-8 계열).
+    scripts_dir = os.path.dirname(os.path.abspath(__file__))
+    mk = re.compile(r"(makedirs|mkdir|New-Item[^\n]*Directory)", re.I)
+    offenders = []
+    for fn in sorted(os.listdir(scripts_dir)):
+        if not fn.lower().endswith((".py", ".ps1", ".bat", ".cmd")):
+            continue
+        fp = os.path.join(scripts_dir, fn)
+        if os.path.samefile(fp, os.path.abspath(__file__)):
+            continue                      # 이 파일의 검사 코드 자신은 대상이 아니다
+        for ln in io.open(fp, encoding="utf-8", errors="replace").read().splitlines():
+            bare = ln.strip()
+            if bare.startswith("#") or bare.startswith("::") or bare[:4].lower() == "rem ":
+                continue                  # 주석은 코드가 아니다
+            if "publish_approval" in bare and mk.search(bare):
+                offenders.append("%s: %s" % (fn, bare[:90]))
+    assert not offenders, ("publish_approval 을 만드는 코드가 있다 — 그 폴더는 사람이 만든다:\n  "
+                           + "\n  ".join(offenders))
+    _NO_MKDIR_CHECKED.append(scripts_dir)
+
     # ④ 드라이런에서 publish 가 실제로 막히는가 (토큰 없이도 되는 검사)
     api = Api("dummy", allow_publish=False)
     try:
@@ -380,7 +414,7 @@ def _selftest():
 
 
 # ---------------------------------------------------------------- main
-def main(argv=None):
+def _run(argv=None):
     _selftest()
     ap = argparse.ArgumentParser()
     ap.add_argument("--ep", help="대상 편 (예: ep39)")
@@ -440,6 +474,10 @@ def main(argv=None):
     log("# Threads 발행 — %s · %s" % (a.ep, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
     log("모드: **%s**" % ("실제 게시" if a.publish else "드라이런 (publish 미호출)"))
     log("승인 폴더: `%s`" % appr_dir)
+    # 🔴 이 회차가 시작될 때 그 폴더가 있었는가. 끝에서 다시 봐서 «없었는데 생겼다» 면
+    #    코드가 만든 것이므로 그 회차를 FAIL 로 찍는다 — 승인 폴더는 사람이 만든다.
+    _DIR_WATCH[:] = [appr_dir, os.path.isdir(appr_dir)]
+    log("승인 폴더 존재(회차 시작 시): %s" % ("예" if _DIR_WATCH[1] else "아니오"))
     if overridden:
         log("🔴 **기본 자리가 아니다 — 시험용 우회** (%s). 실제 회차가 아니다"
             % ", ".join(overridden))
@@ -530,6 +568,35 @@ def main(argv=None):
     io.open(rep, "w", encoding="utf-8", newline="\n").write("\n".join(lines) + "\n")
     print("report: %s" % rep)
     return rc
+
+
+#: [승인 폴더 경로, 회차 시작 시 존재 여부]. 아래 `main` 이 **모든 출구에서** 다시 본다.
+_DIR_WATCH = []
+
+
+def main(argv=None):
+    """`_run` 을 감싸 **어느 출구로 나가든** 승인 폴더가 새로 생겼는지 확인한다.
+
+    🔴 첫 판은 이 검사를 함수 꼬리에만 뒀다가 **조기 반환 경로(승인 파일 없음)에서 건너뛰었다** —
+    역검증에서 «안 걸렸다» 로 잡혔다. 실제 회차의 대부분이 그 조기 반환 경로이므로,
+    꼬리에만 두면 거의 언제나 검사가 없는 것과 같다(정관 §0 «검사가 헛도는지»).
+    """
+    _DIR_WATCH[:] = []
+    # `finally` 안에서 `return` 하지 않는다 — 그렇게 하면 `_run` 이 던진 예외를 조용히 삼킨다
+    # (파이썬이 SyntaxWarning 으로 경고하는 자리이고, 정관 §0 «조용히 실패하는 코드» 그대로다).
+    # 판정만 `finally` 에서 세우고, 값은 밖에서 돌려준다.
+    created = [False]
+    try:
+        rc = _run(argv)
+    finally:
+        created[0] = (len(_DIR_WATCH) == 2 and (not _DIR_WATCH[1])
+                      and os.path.isdir(_DIR_WATCH[0]))
+        if created[0]:
+            for line in ("🔴 승인 폴더가 이 회차 도중에 생겼다: %s" % _DIR_WATCH[0],
+                         "   그 폴더는 사람이 만든다 — 코드가 만들면 «이동이 곧 서명» 이 성립하지 않는다.",
+                         "STATUS: FAIL approval-dir-created"):
+                print(line)
+    return 1 if created[0] else rc
 
 
 if __name__ == "__main__":
