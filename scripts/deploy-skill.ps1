@@ -49,9 +49,44 @@ trap { Die $_.Exception.Message }
 if (-not (Test-Path -LiteralPath $Repo)) { Die ('source repo missing: ' + $Repo) }
 
 # --- read origin/main WITHOUT touching the repo working tree -----------------
-Say 'git fetch origin'
-& git -C $Repo fetch --quiet origin
-if ($LASTEXITCODE -ne 0) { throw 'git fetch failed' }
+#
+# Never let git open an interactive credential prompt (2026-08-28). On 8/27 an
+# expired gh token sent this fetch down the prompt path, where it spent time on
+# "bash: line 1: /dev/tty: No such device or address" before dying with
+# "could not read Username for 'https://github.com'". A scheduled run has no
+# terminal, so the prompt can only ever fail - say so up front and get a clean
+# error instead of a misleading one.
+$env:GIT_TERMINAL_PROMPT = '0'
+$env:GCM_INTERACTIVE = 'never'
+
+# Retry like scripts\git-sync.ps1 does for the operations server: a wake-up
+# stampede or a flaky network is transient and a single attempt turns it into a
+# skipped run. An auth failure is NOT transient, so it breaks out immediately -
+# retrying an expired token three times only delays the report by ten seconds.
+$fetchErr = ''
+$fetchOk = $false
+foreach ($attempt in 1..3) {
+    Say ('git fetch origin (attempt ' + $attempt + '/3)')
+    # ErrorActionPreference is 'Stop' for this script, and under PowerShell 5.1 a
+    # native command writing to stderr under '2>&1' then raises NativeCommandError,
+    # which the trap at the top turns into an immediate Die. That skipped the retry
+    # loop entirely and threw away the classification below - measured while writing
+    # this. git talks on stderr even when it succeeds, so the preference is lifted
+    # for the call and restored right after.
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $fetchOut = & git -C $Repo fetch --quiet origin 2>&1
+    $code = $LASTEXITCODE
+    $ErrorActionPreference = $prev
+    if ($code -eq 0) { $fetchOk = $true; break }
+    $fetchErr = ($fetchOut | Out-String).Trim()
+    foreach ($l in $fetchOut) { Say ('  git| ' + $l) }
+    if ($fetchErr -match 'could not read Username|Authentication failed|terminal prompts disabled|Invalid username or token|401|403') {
+        Die ('git fetch failed: credentials (gh token expired or missing) - run "gh auth login"')
+    }
+    if ($attempt -lt 3) { Start-Sleep -Seconds 5 }
+}
+if (-not $fetchOk) { Die ('git fetch failed after 3 attempts: ' + $fetchErr) }
 
 $Sha = (& git -C $Repo rev-parse --short origin/main).Trim()
 $Full = (& git -C $Repo rev-parse origin/main).Trim()

@@ -142,6 +142,44 @@ try {
         exit 1
     }
 
+    # --- auth / mount pre-flight BEFORE the skill sync (moved 2026-08-28) -------
+    #
+    # It used to run after the agent's data collection, which is one step too late:
+    # on 8/27 an expired gh token made deploy-skill's "git fetch" fail with
+    # "could not read Username for 'https://github.com'", the wrapper aborted at
+    # STATUS: FAIL skill-sync, and the check that would have NAMED the cause never
+    # ran. Three jobs died the same way that morning with the same cryptic line.
+    # The diagnostic must not sit behind the step it diagnoses.
+    #
+    # Still NOT fatal on its own (charter section 4 - STATUS means "did the work
+    # complete"). It only records facts; the agent raises the flag in the report.
+    $DataDir  = Join-Path $Hq 'logs\audit-data'
+    New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
+    $AuthData = Join-Path $DataDir ('auth_' + $IsoDate + '.txt')
+    # cp949 stdout mangles the Korean values these scripts print (see the longer
+    # note at the vault_audit call below). Set once here - the pre-flight needs it too.
+    $env:PYTHONIOENCODING = 'utf-8'
+    Write-Log ('auth_check.py -> ' + $AuthData)
+    $AuthPy = Join-Path $Hq 'scripts\auth_check.py'
+    $authAllOk = 'unknown'
+    if (-not (Test-Path -LiteralPath $AuthPy)) {
+        Write-Log ('auth check script missing: ' + $AuthPy + ' - recording as unavailable')
+        Set-Content -LiteralPath $AuthData -Value 'UNAVAILABLE' -Encoding UTF8
+    } else {
+        $authOut  = & py $AuthPy 2>&1
+        $authCode = $LASTEXITCODE
+        if ($authCode -ne 0) {
+            Write-Log ('auth_check.py exit code ' + $authCode + ' - recording as unavailable')
+            Set-Content -LiteralPath $AuthData -Value 'UNAVAILABLE' -Encoding UTF8
+        } else {
+            Set-Content -LiteralPath $AuthData -Value $authOut -Encoding UTF8
+        }
+        foreach ($l in $authOut) { Write-Log ('  auth| ' + $l) }
+        $m = $authOut | Select-String -Pattern '^AUTH_ALL_OK=(\S+)' | Select-Object -First 1
+        if ($m) { $authAllOk = $m.Matches[0].Groups[1].Value }
+    }
+    Write-Log ('auth all ok: ' + $authAllOk)
+
     # Same charter 4 step, second half (2026-08-15): the live rulebook is synced
     # here too. The live skill folder is a plain copy of origin/main now, so
     # nothing updates it unless we push it - a stale live folder is exactly the
@@ -158,7 +196,15 @@ try {
     foreach ($l in $depOut) { Write-Log ('  skill| ' + $l) }
     if ($depCode -ne 0) {
         Write-Log ('deploy-skill exit code ' + $depCode)
-        Write-Log 'STATUS: FAIL skill-sync'
+        # Name the cause in the STATUS line itself (2026-08-28). run_audit.py reads
+        # this line and the next morning's report carries the reason verbatim, so
+        # "skill-sync" alone would send the reader back into the log. When the
+        # pre-flight above already said the credentials are gone, say so here.
+        if ($authAllOk -eq 'no') {
+            Write-Log 'STATUS: FAIL skill-sync-auth (gh/drive pre-flight said AUTH_ALL_OK=no)'
+        } else {
+            Write-Log 'STATUS: FAIL skill-sync'
+        }
         exit 1
     }
 
@@ -172,11 +218,8 @@ try {
     # So the wrapper runs the data collection and the agent only reads the output.
     # Bash is removed from its tools: the boundary is now tool absence, not a rule.
     # See docs\ops-grade-boundary.md.
-    $DataDir  = Join-Path $Hq 'logs\audit-data'
-    New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
     $VaultData = Join-Path $DataDir ('vault_' + $IsoDate + '.txt')
     $PrData    = Join-Path $DataDir ('openprs_' + $IsoDate + '.txt')
-    $AuthData  = Join-Path $DataDir ('auth_' + $IsoDate + '.txt')
 
     $AuditPy = Join-Path $Hq 'scripts\vault_audit.py'
     if (-not (Test-Path -LiteralPath $AuditPy)) {
@@ -229,33 +272,6 @@ try {
         Write-Log ('open pr data ok (' + (Get-Item -LiteralPath $PrData).Length + ' bytes)')
     }
 
-    # Auth / mount pre-flight (2026-08-27). Two credentials expired on the same day
-    # and each blocked a different last step: an expired gh token stopped push and
-    # PR creation, and Google Drive Desktop not running stopped deliver.py with
-    # "cannot find My Drive". Both are the kind that surface right before publishing,
-    # when there is no time. So they are checked in the morning instead.
-    #
-    # NOT fatal: an expired token does not mean the vault audit failed to run
-    # (charter section 4 - STATUS means "did the work complete"). The wrapper records
-    # the facts and the agent raises the red flag in the report.
-    Write-Log ('auth_check.py -> ' + $AuthData)
-    $AuthPy = Join-Path $Hq 'scripts\auth_check.py'
-    if (-not (Test-Path -LiteralPath $AuthPy)) {
-        Write-Log ('auth check script missing: ' + $AuthPy + ' - recording as unavailable')
-        Set-Content -LiteralPath $AuthData -Value 'UNAVAILABLE' -Encoding UTF8
-    } else {
-        $authOut  = & py $AuthPy 2>&1
-        $authCode = $LASTEXITCODE
-        if ($authCode -ne 0) {
-            Write-Log ('auth_check.py exit code ' + $authCode + ' - recording as unavailable')
-            Set-Content -LiteralPath $AuthData -Value 'UNAVAILABLE' -Encoding UTF8
-            foreach ($l in $authOut) { Write-Log ('  auth| ' + $l) }
-        } else {
-            Set-Content -LiteralPath $AuthData -Value $authOut -Encoding UTF8
-            foreach ($l in $authOut) { Write-Log ('  auth| ' + $l) }
-        }
-    }
-
     # Operations-server freshness. The agent has no Bash, so git state must be
     # collected here. Measured 2026-08-18: this tree sat 14 commits behind
     # origin/main while scheduled jobs kept running against the stale copy.
@@ -305,6 +321,8 @@ try {
     $prompt = $prompt.Replace('{{VAULT_DATA}}', $VaultData).Replace('{{PR_DATA}}', $PrData)
     $prompt = $prompt.Replace('{{FRESH_DATA}}', $FreshData).Replace('{{RUNS_DATA}}', $RunsData)
     $prompt = $prompt.Replace('{{AUTH_DATA}}', $AuthData)
+    $ProbeData = Join-Path $DataDir ('probe_' + $IsoDate + '.txt')
+    $prompt = $prompt.Replace('{{PROBE_DATA}}', $ProbeData)
 
     Write-Log ('claude -p (ops-auditor) start, --add-dir ' + $VaultPath)
     # Whitelist from ACTUAL tool calls in the 6 scheduled runs after the 2026-08-18
@@ -326,12 +344,48 @@ try {
     # file-editing tool (Write included). Same fact as the deny note in
     # CLAUDE.md section 2. So one Edit rule, not a Write rule. Probe: Write and
     # Edit under reports\ passed, Write under docs\ was refused.
-    # Trial rule: 0 run failures caused by refusals in 8/26-8/28 -> consider
-    # extending; 1+ -> revert this block to acceptEdits and redesign.
+    # Trial verdict 2026-08-28: 8/26 and 8/28 completed with STATUS: OK and no
+    # refusal-caused failure; 8/27 never reached the agent (skill-sync, see above),
+    # so it carries no evidence either way. Kept, and now proven per run by the
+    # probe below rather than by this block being present in the file.
     $AllowedTools = @(
         'Agent', 'Bash', 'Glob', 'Grep', 'Read', 'SendMessage', 'ToolSearch',
         'Edit(reports/**)'
     )
+
+    # --- approval-refusal probe, every run (2026-08-28) -----------------------
+    #
+    # The gate above is a flag on a command line. Nothing proved it was still
+    # closed ON THIS RUN: a revert to acceptEdits, a typo in the list, a BOM in
+    # settings.json - all of them leave the report looking exactly the same.
+    # Charter section 0: a detector must be shown to actually hold a value.
+    #
+    # So the run first tries, for real, to write one file it must NOT be able to
+    # write (docs\) and one it must (reports\). Both directions, because refusal
+    # alone cannot tell a working gate from a session that refuses everything.
+    # The verdict is the FILES, not what the bot says about them.
+    # A failing probe aborts the run: an open gate means the next step would be an
+    # ungated agent, which is the thing being guarded against.
+    $ProbePy = Join-Path $Hq 'scripts\permission_probe.py'
+    if (-not (Test-Path -LiteralPath $ProbePy)) {
+        Write-Log ('permission probe missing: ' + $ProbePy)
+        Write-Log 'STATUS: FAIL probe-script-missing'
+        exit 1
+    }
+    $ProbeDeny  = Join-Path $Hq 'docs\_probe_should_fail.md'
+    $ProbeAllow = Join-Path $Hq 'reports\_probe_ok.md'
+    Write-Log ('permission_probe.py -> ' + $ProbeData)
+    $probeOut = & py $ProbePy --cwd $Hq --deny $ProbeDeny --allow $ProbeAllow `
+        --add-dir $VaultPath '--' @AllowedTools 2>&1
+    $probeCode = $LASTEXITCODE
+    Set-Content -LiteralPath $ProbeData -Value $probeOut -Encoding UTF8
+    foreach ($l in $probeOut) { Write-Log ('  probe| ' + $l) }
+    if ($probeCode -ne 0) {
+        $pv = ($probeOut | Select-String -Pattern '^PROBE_VERDICT=' | Select-Object -Last 1)
+        Write-Log ('STATUS: FAIL probe ' + $(if ($pv) { $pv.Line } else { 'no verdict line' }))
+        exit 1
+    }
+
     $out        = & $Claude -p (ConvertTo-NativeArg $prompt) --permission-mode default `
         --allowed-tools @AllowedTools `
         --add-dir $VaultPath 2>&1

@@ -150,7 +150,15 @@ try {
     foreach ($l in $depOut) { Write-Log ('  skill| ' + $l) }
     if ($depCode -ne 0) {
         Write-Log ('deploy-skill exit code ' + $depCode)
-        Write-Log 'STATUS: FAIL skill-sync'
+        # Name the cause in the STATUS line itself (2026-08-28). run_audit.py reads
+        # this line, so the next morning's report can say "credentials expired"
+        # instead of sending the reader back into a log nobody opens - which is why
+        # 8/27 went unnoticed until the following day.
+        if (($depOut | Out-String) -match 'credentials') {
+            Write-Log 'STATUS: FAIL skill-sync-auth (gh token expired or missing)'
+        } else {
+            Write-Log 'STATUS: FAIL skill-sync'
+        }
         exit 1
     }
 
@@ -163,10 +171,55 @@ try {
 
     # This job only reads files inside the operations server, so no --add-dir is
     # needed. Bash is not granted either - applied.md is read with the Read tool.
-    $AllowedTools = @('WebSearch', 'WebFetch')
+    #
+    # Gate extended from morning-vault-health 2026-08-28. Under acceptEdits this
+    # two-item list gated only the Web tools: every file write went through
+    # ungated no matter what was listed (measured 8/22-8/25). Under
+    # --permission-mode default the list is the whole permission surface, so the
+    # tools the run actually uses have to be named - hence Agent/Read/Glob/Grep,
+    # and one Edit rule scoping writes to reports\ (a Write() rule is not consulted
+    # by the file permission check; charter section 2).
+    #
+    # Bash is still absent on purpose. This job's main session does like to run
+    # tail / ls / git status to check its own output, and those were ALREADY being
+    # refused under acceptEdits while the runs finished normally - so leaving Bash
+    # off changes nothing that was working.
+    $AllowedTools = @(
+        'Agent',
+        'Read', 'Glob', 'Grep',
+        'ToolSearch', 'SendMessage',
+        'Edit(reports/**)',
+        'WebSearch', 'WebFetch'
+    )
+
+    # --- approval-refusal probe, every run (2026-08-28) -----------------------
+    # See scripts\permission_probe.py: one real write that must be refused and one
+    # that must succeed, judged by whether the files exist. A failing probe stops
+    # the job rather than letting an ungated agent proceed.
+    $ProbePy = Join-Path $Hq 'scripts\permission_probe.py'
+    if (-not (Test-Path -LiteralPath $ProbePy)) {
+        Write-Log ('permission probe missing: ' + $ProbePy)
+        Write-Log 'STATUS: FAIL probe-script-missing'
+        exit 1
+    }
+    $JobDataDir = Join-Path $Hq 'logs\job-data'
+    New-Item -ItemType Directory -Force -Path $JobDataDir | Out-Null
+    $ProbeData  = Join-Path $JobDataDir ('probe_' + $IsoDate + '.txt')
+    $ProbeDeny  = Join-Path $Hq 'docs\_probe_should_fail.md'
+    $ProbeAllow = Join-Path $Hq 'reports\_probe_ok.md'
+    Write-Log ('permission_probe.py -> ' + $ProbeData)
+    $probeOut = & py $ProbePy --cwd $Hq --deny $ProbeDeny --allow $ProbeAllow '--' @AllowedTools 2>&1
+    $probeCode = $LASTEXITCODE
+    Set-Content -LiteralPath $ProbeData -Value $probeOut -Encoding UTF8
+    foreach ($l in $probeOut) { Write-Log ('  probe| ' + $l) }
+    if ($probeCode -ne 0) {
+        $pv = ($probeOut | Select-String -Pattern '^PROBE_VERDICT=' | Select-Object -Last 1)
+        Write-Log ('STATUS: FAIL probe ' + $(if ($pv) { $pv.Line } else { 'no verdict line' }))
+        exit 1
+    }
 
     Write-Log ('claude -p (job-scout) start, allowed-tools: ' + ($AllowedTools -join ' '))
-    $out = & $Claude -p (ConvertTo-NativeArg $prompt) --permission-mode acceptEdits `
+    $out = & $Claude -p (ConvertTo-NativeArg $prompt) --permission-mode default `
         --allowed-tools @AllowedTools 2>&1
     $claudeCode = $LASTEXITCODE
     foreach ($l in $out) { Write-Log ('  cc| ' + $l) }
