@@ -122,6 +122,8 @@ def load_ep(ep_dir):
         "COVER": decl.get("COVER") or (),
         # None = 공식 영상 «무» · {url, dur} = 유 (SKILL v3.54 §7). 첨부 미디어 `[10-6]` 이 본다.
         "OFFICIAL_VIDEO": decl.get("OFFICIAL_VIDEO"),
+        # 편이 첨부용 공식 원본을 지목했으면 그것이 정본이다 — `shots/` 추측보다 우선한다.
+        "ATTACH_OFFICIAL": decl.get("ATTACH_OFFICIAL"),
         "kit_url": kit["url"],
         "caption": _read("caption.txt"),
         "pinned": _read("pinned_comment.txt"),
@@ -131,11 +133,42 @@ def load_ep(ep_dir):
     }
 
 
+#: 카드 상단 판의 실크기. `_beforeafter.py`·자체 도해가 내는 값이라 **이 크기면 우리 합성 판**이다.
+#: 공식 캡처가 우연히 딱 이 크기로 나오는 일은 없다(webshot·CDN 원본은 임의 크기).
+PLATE_SIZE = (1080, 776)
+
+
 def official_sources(ep):
     """편이 실제로 쓴 **공식 원본 캡처** 목록 — 첨부 후보다.
 
     카드 선언의 `shot`/`credit` 이 정본이다. 같은 파일명이 편 폴더 루트에도 있지만 그쪽은
-    **우리가 조립한 카드**이므로 후보가 아니다 — `shots/` 아래만 낸다."""
+    **우리가 조립한 카드**이므로 후보가 아니다 — `shots/` 아래만 낸다.
+
+    🔴 **`shots/` 아래가 곧 «공식 원본»은 아니다 (2026-08-28 개정).** ep38 2차 교정에서
+    `shots/02_anchor.png`·`03_official.png`·`04_ours.png` 가 **전/후를 합치고 우리 라벨을 얹은
+    합성 판**으로 바뀌었다. 그걸 그대로 첨부하면 «공식 원본만» 규칙을 어긴 채 **규칙을 지킨 것처럼**
+    보인다 — 정관 §0 «조용히 실패하는 코드».
+
+    그래서 둘을 본다.
+      ① **편 선언 `ATTACH_OFFICIAL`** 이 있으면 그것이 정본이다(편 폴더 기준 상대 경로 목록).
+      ② 없으면 `shots/` 를 훑되, **판 실크기(1080x776)인 파일은 «우리 합성 판»으로 표시**해
+         후보에서 빼고 사유를 같이 낸다. 조용히 넣지 않는다.
+    """
+    declared = ep.get("ATTACH_OFFICIAL")
+    if declared:
+        out = []
+        for rel in declared:
+            p = os.path.join(ep["dir"], rel.replace("/", os.sep))
+            if not os.path.exists(p):
+                out.append({"card": "-", "path": rel, "credit": "", "shape": "🔴 파일 없음",
+                            "headline": "편 선언 ATTACH_OFFICIAL 에 있으나 실물이 없다"})
+                continue
+            kind, w, h, dur = distcheck.probe_media(p)
+            shape = kind + (" %dx%d" % (w, h) if w else "") + (" %gs" % dur if dur is not None else "")
+            out.append({"card": "선언", "path": rel, "credit": "", "shape": shape,
+                        "headline": "편이 ATTACH_OFFICIAL 로 지목한 공식 원본"})
+        return out
+
     out = []
     for no in sorted(ep["CARDS"]):
         c = ep["CARDS"][no]
@@ -150,7 +183,10 @@ def official_sources(ep):
         shape = kind + (" %dx%d" % (w, h) if w else "")
         if dur is not None:
             shape += " %gs" % dur
-        out.append({"card": no, "path": rel, "credit": c.get("credit", ""), "shape": shape,
+        composite = (w, h) == PLATE_SIZE
+        out.append({"card": no, "path": rel, "credit": c.get("credit", ""),
+                    "shape": ("🔴 우리 합성 판 — " if composite else "") + shape,
+                    "composite": composite,
                     "headline": c.get("headline", "")})
     return out
 
@@ -231,8 +267,10 @@ def brief(ep):
           % (ov.get("url", "?"), ov.get("dur", "?")))
     else:
         a("- 공식 영상 **무**(편 선언 `OFFICIAL_VIDEO = None`) → 공식 이미지로 간다.")
-    a("- 🔴 **우리가 조립한 카드를 붙이지 않는다.** 편 폴더 루트의 `01_`~`09_` 가 그것이고,")
-    a("  **같은 파일명이 `shots/` 에도 있다** — 그쪽이 공식 원본이다. 디렉토리가 유일한 구분이다.")
+    a("- 🔴 **우리가 조립한 카드를 붙이지 않는다.** 편 폴더 루트의 `01_`~`09_` 가 그것이다.")
+    a("  🔴 **`shots/` 아래도 무조건 공식 원본은 아니다** — 전/후 합성 판(`_beforeafter.py`)이 거기 앉는다.")
+    a("  편이 `ATTACH_OFFICIAL` 을 선언했으면 그것이 정본이고, 아니면 판 실크기(1080x776)인 파일을")
+    a("  **«우리 합성 판»으로 표시**해 후보에서 뺀다.")
     a("- 크레딧은 그림에 안 박혀 있으므로 **본문에 `이미지 출처: <크레딧>` 줄**로 적는다.")
     a("  그 줄도 소스 맵에 한 행이 필요하다(근거 = 출처키).")
     a("")
@@ -245,6 +283,11 @@ def brief(ep):
               % (s["card"], s["path"], s["credit"], s["shape"], s["headline"]))
     else:
         a("- `shots/` 에 공식 원본 캡처가 없다 — 첨부 없이 텍스트로 간다.")
+    if any(s.get("composite") for s in srcs):
+        a("")
+        a("🔴 **위 표에 «우리 합성 판»이 있다.** 그건 첨부하지 마라 — 공식 원본은 편 폴더의")
+        a("`_official/` 같은 자리에 따로 있다. 편 선언에 `ATTACH_OFFICIAL = [\"_official/….png\"]` 을")
+        a("적어 두면 다음 회차부터 이 표가 그것을 낸다.")
     a("")
     a("**출처키**는 `_facts.py` 의 URL 변수 이름으로 적는다. 이 편에 있는 것:")
     a("")
