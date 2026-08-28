@@ -86,8 +86,17 @@ try {
     # would prove nothing about the folder we actually care about.
     $ProbeDeny  = Join-Path $Hq 'publish_approval\_probe_should_fail.json'
     $ProbeAllow = Join-Path $Hq 'reports\_probe_ok.md'
+    # Third axis (2026-08-28): the move batch is JJ's tool and the move IS the
+    # signature, so an agent that can RUN it can sign its own approval. Writing to
+    # the folder being refused does not prove that - execution is a separate door.
+    # The batch's --probe mode only writes a marker and moves nothing, so this stays
+    # harmless even in the case it is meant to catch. Verdict is the marker's ABSENCE.
+    $MoveBat    = Join-Path $Hq 'scripts\move-approval.bat'
+    $ExecMarker = Join-Path $Hq 'logs\_move-approval-ran.marker'
     Write-Log ('permission_probe.py -> ' + $ProbeData)
-    $probeOut  = & py $ProbePy --cwd $Hq --deny $ProbeDeny --allow $ProbeAllow '--' @AllowedTools 2>&1
+    $probeOut  = & py $ProbePy --cwd $Hq --deny $ProbeDeny --allow $ProbeAllow `
+        --deny-exec ('"' + $MoveBat + '" --probe') --exec-marker $ExecMarker `
+        '--' @AllowedTools 2>&1
     $probeCode = $LASTEXITCODE
     Set-Content -LiteralPath $ProbeData -Value $probeOut -Encoding UTF8
     foreach ($l in $probeOut) { Write-Log ('  probe| ' + $l) }
@@ -96,7 +105,7 @@ try {
         Write-Log ('STATUS: FAIL probe ' + $(if ($pv) { $pv.Line } else { 'no verdict line' }))
         exit 1
     }
-    Write-Log 'probe OK - approval folder refused, reports writable'
+    Write-Log 'probe OK - approval folder refused, move batch not runnable, reports writable'
 
     # --- worker ------------------------------------------------------------------
     # The worker defaults to a dry run; -Publish is the only way past that, and it

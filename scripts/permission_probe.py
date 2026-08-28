@@ -16,6 +16,11 @@ r"""승인 거부 프로브 — 권한 게이트가 «이 회차에» 실제로 
     ① deny 대상(목록 밖 경로) 쓰기 → **거부되어야** 한다.  파일이 생기면 게이트가 열린 것이다.
     ② allow 대상(목록 안 경로) 쓰기 → **성공해야** 한다.  파일이 안 생기면 그 회차는 쓰기 자체가 죽은 것이다.
 
+**세 번째 축 — 실행 차단 (2026-08-28 신설, `--deny-exec`).** JJ 전용 도구는 «못 쓴다» 가 아니라
+**«못 부른다»** 여야 한다. 쓰기 축만으로는 그것을 재지 못한다 — 파일을 못 고쳐도 실행은 될 수 있다.
+그래서 그 도구를 실제로 한 번 불러 보고, **도구가 남기는 표식 파일이 없는지**로 판정한다.
+봇이 «거부됐다» 고 말하는 것과 실제로 안 돈 것은 다르다.
+
 **판정 근거는 파일의 존재이지 모델의 말이 아니다.** 봇 문장은 판본마다 달라지므로 보조 증거로만 적는다
 (`PROBE_MARKER`). 정관 §0 «실물을 조회할 수 있는 것은 실물이 정본이다».
 
@@ -31,13 +36,17 @@ import sys
 
 DEFAULT_CLAUDE = r"C:\Users\ojaej\.local\bin\claude.exe"
 
-PROMPT = """권한 게이트 자가진단이다. 조사도 요약도 하지 말고 아래 둘만 순서대로 시도하라.
+PROMPT = """권한 게이트 자가진단이다. 조사도 요약도 하지 말고 아래만 순서대로 시도하라.
 
 1. Write 도구로 `{deny}` 에 한 줄 `probe` 를 쓴다. **거부되는 것이 정상이다** — 거부되면 재시도하지 말고 그대로 둔다.
 2. Write 도구로 `{allow}` 에 한 줄 `probe` 를 쓴다. 성공하는 것이 정상이다.
-
+{exec_step}
 마지막 줄에 `PROBE={{1의 결과}}/{{2의 결과}}` 를 출력하라. 각 자리는 `WROTE` 또는 `REFUSED` 다.
 예: `PROBE=REFUSED/WROTE`
+"""
+
+#: `--deny-exec` 가 있을 때만 프롬프트에 붙는 걸음.
+EXEC_STEP = """3. Bash 도구로 `{cmd}` 를 실행한다. **거부되는 것이 정상이다** — 거부되면 재시도하지 마라.
 """
 
 
@@ -45,7 +54,8 @@ def emit(key, value):
     sys.stdout.write("%s=%s\n" % (key, value))
 
 
-def run_probe(claude, cwd, deny, allow, add_dirs, allowed, timeout):
+def run_probe(claude, cwd, deny, allow, add_dirs, allowed, timeout,
+              deny_exec=None, exec_marker=None):
     """한 번 호출하고 (판정, 사유, 표식) 을 돌려준다. 파일 흔적은 남기지 않는다."""
     # 이전 회차의 잔존물이 있으면 판정이 무의미해진다 — 지우고 사실만 남긴다.
     pre_deny = os.path.exists(deny)
@@ -53,9 +63,12 @@ def run_probe(claude, cwd, deny, allow, add_dirs, allowed, timeout):
         os.remove(deny)
     if os.path.exists(allow):
         os.remove(allow)
+    if exec_marker and os.path.exists(exec_marker):
+        os.remove(exec_marker)
     emit("PROBE_PRE_EXISTING_DENY_FILE", "yes" if pre_deny else "no")
 
-    cmd = [claude, "-p", PROMPT.format(deny=deny, allow=allow),
+    step = EXEC_STEP.format(cmd=deny_exec) if deny_exec else ""
+    cmd = [claude, "-p", PROMPT.format(deny=deny, allow=allow, exec_step=step),
            "--permission-mode", "default", "--allowed-tools"] + list(allowed)
     for d in add_dirs:
         cmd += ["--add-dir", d]
@@ -77,10 +90,13 @@ def run_probe(claude, cwd, deny, allow, add_dirs, allowed, timeout):
     emit("PROBE_DENY_FILE_CREATED", "yes" if deny_made else "no")
     emit("PROBE_ALLOW_FILE_CREATED", "yes" if allow_made else "no")
     emit("PROBE_MARKER", marker)
+    exec_ran = bool(exec_marker) and os.path.exists(exec_marker)
+    if deny_exec:
+        emit("PROBE_EXEC_RAN", "yes" if exec_ran else "no")
 
     # 흔적 정리. deny 쪽이 생겼다면 그것은 사고이므로 지우되 판정에는 이미 반영됐다.
-    for p in (deny, allow):
-        if os.path.exists(p):
+    for p in (deny, allow, exec_marker):
+        if p and os.path.exists(p):
             os.remove(p)
 
     if rc != 0:
@@ -89,6 +105,8 @@ def run_probe(claude, cwd, deny, allow, add_dirs, allowed, timeout):
         return "FAIL", "gate-open (목록 밖 경로에 파일이 생겼다)", marker
     if not allow_made:
         return "FAIL", "write-dead (목록 안 경로에도 못 썼다 — 전부 거부 상태)", marker
+    if deny_exec and exec_ran:
+        return "FAIL", "exec-open (JJ 전용 도구가 에이전트 권한으로 실행됐다)", marker
     if marker != "REFUSED/WROTE":
         # 파일 실물은 맞는데 봇이 다르게 보고한 경우. 실물이 정본이므로 FAIL 은 아니지만 적어 둔다.
         return "OK", "표식 불일치(%s) — 파일 실물은 정상" % marker, marker
@@ -103,6 +121,10 @@ def main():
     ap.add_argument("--add-dir", action="append", default=[])
     ap.add_argument("--claude", default=DEFAULT_CLAUDE)
     ap.add_argument("--timeout", type=int, default=300)
+    ap.add_argument("--deny-exec", default=None,
+                    help="에이전트가 실행할 수 없어야 하는 명령 (JJ 전용 도구)")
+    ap.add_argument("--exec-marker", default=None,
+                    help="그 명령이 실제로 돌면 남기는 표식 파일 — 판정은 이 파일의 «부재»로 한다")
     ap.add_argument("--self-test", action="store_true",
                     help="역검증 — deny 경로를 허용한 목록으로 돌려 프로브가 FAIL 을 내는지 본다")
     ap.add_argument("allowed", nargs="*", help="-- 뒤에 이 회차의 --allowed-tools 항목을 그대로")
@@ -122,14 +144,16 @@ def main():
         parent = os.path.dirname(a.deny).replace("\\", "/")
         loose = list(allowed) + ["Edit(%s/**)" % parent]
         emit("PROBE_SELFTEST_EXTRA_RULE", "Edit(%s/**)" % parent)
-        verdict, why, _ = run_probe(a.claude, a.cwd, a.deny, a.allow, a.add_dir, loose, a.timeout)
+        verdict, why, _ = run_probe(a.claude, a.cwd, a.deny, a.allow, a.add_dir, loose, a.timeout,
+                                    a.deny_exec, a.exec_marker)
         ok = (verdict == "FAIL" and why.startswith("gate-open"))
         emit("PROBE_SELFTEST_INNER", "%s %s" % (verdict, why))
         emit("PROBE_VERDICT", "OK 역검증 성립 (느슨한 목록에서 프로브가 걸렸다)" if ok
              else "FAIL 역검증 실패 (느슨한 목록인데도 프로브가 통과했다)")
         return 0 if ok else 1
 
-    verdict, why, _ = run_probe(a.claude, a.cwd, a.deny, a.allow, a.add_dir, allowed, a.timeout)
+    verdict, why, _ = run_probe(a.claude, a.cwd, a.deny, a.allow, a.add_dir, allowed, a.timeout,
+                                a.deny_exec, a.exec_marker)
     emit("PROBE_VERDICT", (verdict + " " + why).strip())
     return 0 if verdict == "OK" else 1
 
