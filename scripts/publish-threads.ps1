@@ -28,7 +28,11 @@ $Hq      = 'C:\Users\ojaej\jj-company'
 $Stamp   = Get-Date -Format 'yyyyMMdd'
 $IsoDate = Get-Date -Format 'yyyy-MM-dd'
 $LogDir  = Join-Path $Hq 'logs\scheduled'
-$LogFile = Join-Path $LogDir ($Task + '_' + $Ep + '_' + $Stamp + '.log')
+# run_audit.py looks for exactly '<task>_<yyyyMMdd>.log'. The episode used to sit in
+# the file name, which made every publish log invisible to the audit - the start line
+# was written but nothing ever opened the file. The episode is in the start line
+# instead, so nothing is lost and the audit can find the run.
+$LogFile = Join-Path $LogDir ($Task + '_' + $Stamp + '.log')
 $LockFile = Join-Path $Hq ('logs\' + $Task + '.lock')
 
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
@@ -52,7 +56,12 @@ if (Test-Path -LiteralPath $LockFile) {
     exit 2
 }
 
-Write-Log ('=== ' + $Task + ' ' + $Ep + ' start (pid ' + $PID + ') ===')
+# run_audit.py matches '=== <task> start' with the task name immediately followed by
+# ' start'. The episode used to sit in between, so the audit counted zero starts even
+# when it could open the file - it saw a log with no runs in it. The episode goes on
+# its own line instead: still in the log, out of the pattern's way.
+Write-Log ('=== ' + $Task + ' start (pid ' + $PID + ') ===')
+Write-Log ('episode: ' + $Ep)
 Write-Log ('mode: ' + $(if ($Publish) { 'PUBLISH' } else { 'dry run (no publish)' }))
 
 $lockTaken = $false
