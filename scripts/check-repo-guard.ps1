@@ -359,6 +359,31 @@ if (-not $NoSelfTest) {
     }
 }
 
+# --- canonical folders must not hold untracked files -------------------------
+#
+# Backlog item 18. On 2026-08-29 the production directive was dropped into
+# docs\directives\ by hand and never committed. The file was there, so everyone
+# said "it is in the repo" - but it was untracked, which means it was NOT on
+# origin/main, NOT on the operations server, and one `git clean` from gone.
+# A file called canonical was living outside the canonical store.
+#
+# This only covers folders whose whole purpose is to hold canonical text. It is
+# NOT a general "no untracked files" check: reports\ and logs\ are gitignored on
+# purpose, and a blanket rule would have to re-learn that distinction every run.
+$CanonDirs = @('docs\directives')
+foreach ($cd in $CanonDirs) {
+    $full = Join-Path $Repo $cd
+    if (-not (Test-Path -LiteralPath $full)) { continue }
+    $out = & git -C $Repo ls-files --others --exclude-standard -- $cd 2>&1
+    $stray = @($out | Where-Object { $_ -and ($_ -notmatch '^\s*$') })
+    if ($stray.Count -gt 0) {
+        $problems += ('untracked file(s) in canonical folder ' + $cd +
+                      ' - a file called canonical is outside the canonical store: ' +
+                      ($stray -join ', '))
+        $problems += ('  fix: git -C "' + $Repo + '" add ' + $cd + ' && commit via a worktree')
+    }
+}
+
 # --- report -----------------------------------------------------------------
 foreach ($n in $notes) { Say ('NOTE: ' + $n) }
 
