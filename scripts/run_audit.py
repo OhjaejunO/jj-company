@@ -25,7 +25,8 @@ import argparse
 import datetime
 import subprocess
 
-TASKS = ["skill-drift-audit", "morning-vault-health", "tomangchi-scout", "job-scout"]
+TASKS = ["skill-drift-audit", "morning-vault-health", "tomangchi-scout", "job-scout",
+         "publish-threads"]
 # 래퍼 로그 줄은 '[yyyy-MM-dd HH:mm:ss] STATUS: ...' — 줄머리가 아니라 타임스탬프 뒤다.
 # 첫 판본이 '^STATUS:' 로 써서 정상 회차 전부를 INCOMPLETE 로 찍었다(대조군이 잡음, 2026-08-25).
 _STATUS = re.compile(r"^\[[^\]]+\] STATUS:", re.M)
