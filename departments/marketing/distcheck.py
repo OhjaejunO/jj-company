@@ -52,6 +52,8 @@ OFFICIAL_LABEL = "공식 발표 수치"
 CAPTION_SHINGLE = 12
 
 URL_RE = re.compile(r"https?://\S+")
+#: 한글이 한 자라도 있는가 — «우리 산문인가» 의 바닥선 (어미 검사 대상 판정).
+HANGUL_RE = re.compile(r"[\uac00-\ud7a3]")
 _TAGLINE_RE = re.compile(r"^[#@][^\s]+(\s+[#@][^\s]+)*$")
 
 # ── 첨부 미디어 ─────────────────────────────────────────────────────────
@@ -360,6 +362,13 @@ def _tone_target(s):
     s = s.strip()
     if URL_RE.fullmatch(s) or _TAGLINE_RE.match(s) or CREDIT_LINE_RE.match(s):
         return ""   # 출처 줄은 크레딧 라벨이지 산문이 아니다 - 어미 규정 밖(SKILL 4.1 해시태그 제외와 같은 취지)
+    # 🔴 **한글이 없는 줄은 우리 산문이 아니다** (2026-08-29 · 지시서 5-1 개정).
+    #    뉴스형 편은 복붙 세트 자리를 «공식 발표 원문 인용» 으로 대신한다 — 영문 인용 줄이
+    #    «…해요» 로 끝날 수는 없으므로, 빼지 않으면 **통과할 수 있는 원고가 없다**
+    #    (`clause-backlog` C-26 «통과 조합이 없는 검사» 계열). URL·해시태그·크레딧 줄을
+    #    같은 이유로 이미 빼고 있었고, 이것은 그 판정의 한 갈래다.
+    if not HANGUL_RE.search(s):
+        return ""
     s = URL_RE.sub(" ", s)
     s = re.sub(r"[\U0001F000-\U0001FAFF☀-➿️]", "", s)
     return s.strip()
@@ -677,6 +686,32 @@ _CASES = [
 ]
 
 
+def _quote_tone_selftest():
+    """`[2]` 무한글 줄 제외 — 넣는 쪽과 빼는 쪽을 **따로** 본다 (정관 §0 역검증).
+
+    ⓐ 영문 인용 줄은 어미 검사를 **안 받는다** (그래야 5-1 개정 원고가 통과한다)
+    ⓑ 한글이 섞인 줄은 **계속 받는다** (검사가 통째로 죽지 않았다)
+    """
+    cases = [
+        ('"You approve every spend request, and Grok Bot receives a card."', "", "영문 인용"),
+        ("https://example.invalid/kit", "", "URL"),
+        ("#ai #토망치랩", "", "해시태그"),
+        ("영상 출처: X / @bot", "", "크레딧 줄"),
+        ("지출 요청마다 사람이 승인해야 넘어가요.", "지출 요청마다 사람이 승인해야 넘어가요.",
+         "한국어 산문"),
+        ("Link 를 연결하면 돼요.", "Link 를 연결하면 돼요.", "영문 낱말이 섞인 산문"),
+    ]
+    bad = 0
+    for src, want, why in cases:
+        got = _tone_target(src)
+        okc = (got == want) if want else (got == "")
+        bad += 0 if okc else 1
+        print("[%s] [2] 무한글 제외 — %s%s"
+              % ("  OK  " if okc else " FAIL ", why,
+                 "" if okc else "  기대 %r 실제 %r" % (want, got)))
+    return bad
+
+
 # ── 역검증: 첨부 미디어 ─────────────────────────────────────────────────
 # 별도 기준선을 쓴다 — 미디어 검사는 편 폴더 실물을 읽으므로 합성 폴더를 만들어 붙인다.
 _MEDIA_POSTS = [_BASE_POSTS[0] + "\n이미지 출처: Qwen"] + _BASE_POSTS[1:]
@@ -769,9 +804,11 @@ def _media_selftest(cc):
 
 def selftest():
     cc = load_cardcheck()
+    quote_bad = _quote_tone_selftest()
     print("유통 변환 게이트 역검증 — 규격 출처: 라이브 스킬 %s" % skill_revision())
     base = check(_BASE_POSTS, _BASE_ROWS, _Facts(), _BASE_KIT, _BASE_CAPTION, cc)
     bad = 0
+    bad += quote_bad
     if base.failed:
         print("[ FAIL ] 기준 초안이 전부 통과해야 한다 — %s" % [i[0] for i in base.failed])
         bad += 1
