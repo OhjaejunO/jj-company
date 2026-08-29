@@ -18,13 +18,16 @@
 
 param(
     [Parameter(Mandatory = $true)][string]$Ep,
-    [switch]$Publish
+    [switch]$Publish,
+    # Test-only override of the operations server path. A run that uses it says so in
+    # the log, the same way the Python worker labels --approval-dir as a test detour.
+    # Never pass this for a real publish.
+    [string]$Hq = 'C:\Users\ojaej\jj-company'
 )
 
 $ErrorActionPreference = 'Continue'
 
 $Task    = 'publish-threads'
-$Hq      = 'C:\Users\ojaej\jj-company'
 $Stamp   = Get-Date -Format 'yyyyMMdd'
 $IsoDate = Get-Date -Format 'yyyy-MM-dd'
 $LogDir  = Join-Path $Hq 'logs\scheduled'
@@ -70,6 +73,52 @@ try {
     $lockTaken = $true
     try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
     $env:PYTHONIOENCODING = 'utf-8'
+
+    if ($Hq -ne 'C:\Users\ojaej\jj-company') {
+        Write-Log ('TEST DETOUR - operations server overridden: ' + $Hq)
+        Write-Log 'this is not a real run'
+    }
+
+    # --- version gate: never publish from stale code -----------------------------
+    #
+    # Charter section 4, "know when a fix starts running". Schedule wrappers pull at
+    # the top of every run; a wrapper a person calls by hand had no such step. On
+    # 2026-08-29 the operations server sat on c010f43 while three merges (receipts,
+    # reconcile, duplicate-live) waited on the remote. Running the publish command
+    # then would have used a worker with NO duplicate-publish protection at all, on
+    # the single most expensive run there is - the first real post.
+    #
+    # A failed pull does NOT fall through to the old code. It stops the run. Backlog
+    # item 17 offered two options; JJ chose this one (pull, matching the schedule
+    # path) over "check and refuse", so the two paths now behave the same way.
+    #
+    # WHAT THIS DOES AND DOES NOT REFRESH
+    #   The Python worker is started AFTER this, so it runs the pulled code. This
+    #   .ps1 file was read whole by PowerShell before the pull, so changes to the
+    #   WRAPPER itself only take effect on the NEXT run. That is charter section 4
+    #   again ("a running script finishes on the old version"), and it is why the
+    #   check lives here rather than being trusted to a person's memory.
+    $SyncHelper = Join-Path $Hq 'scripts\git-sync.ps1'
+    if (-not (Test-Path -LiteralPath $SyncHelper)) {
+        Write-Log ('git-sync helper missing: ' + $SyncHelper)
+        Write-Log 'STATUS: FAIL stale-version'
+        exit 1
+    }
+    . $SyncHelper
+    Push-Location -LiteralPath $Hq
+    try {
+        $sync = Invoke-GitPullRetry -Log ${function:Write-Log}
+    } finally {
+        Pop-Location
+    }
+    if (-not $sync.Ok) {
+        Write-Log ('git pull failed after ' + $sync.Attempts + ' attempts (exit ' + $sync.ExitCode + ')')
+        Write-Log 'refusing to publish from code that may be behind the remote'
+        Write-Log 'STATUS: FAIL stale-version'
+        exit 1
+    }
+    $rev = (& git -C $Hq rev-parse --short HEAD 2>&1 | Select-Object -First 1)
+    Write-Log ('operations server now at ' + $rev)
 
     # --- check 2 of the three checks: the approval folder must be out of reach ----
     #
