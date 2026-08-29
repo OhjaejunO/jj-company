@@ -194,8 +194,19 @@ def build_draft(ep, ms_path, posts):
     `signed_by`·`signature` 를 미리 채우지 않는다. 채워 두면 사람이 «이미 서명됐다» 로 읽는다 —
     서명은 이 파일을 `publish_approval\\` 로 **옮기는 행위** 다.
     """
+    # 🔴 판본은 **메타 필드**다 — 해시 대상이 아니다 (C-32 ①). 기록은 남기되 승인의
+    #    무결성 판정에는 넣지 않는다. 사이드카가 없으면 «미상» 으로 적는다(조용히 빼지 않는다).
+    _meta = ms_path + ".meta.json"
+    _rev = "미상 (사이드카 없음)"
+    if os.path.exists(_meta):
+        try:
+            _rev = json.loads(io.open(_meta, encoding="utf-8").read()).get(
+                "gate_skill_revision") or _rev
+        except ValueError:
+            _rev = "미상 (사이드카를 못 읽었다)"
     return {
         "ep": ep,
+        "gate_skill_revision": _rev,
         "body_sha256": sha256_file(ms_path),
         "posts": [{"seq": s, "sha256": sha256_text(posts[s])} for s in sorted(posts)],
         "chain": sorted(posts),

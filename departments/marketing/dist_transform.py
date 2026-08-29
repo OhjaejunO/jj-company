@@ -444,7 +444,10 @@ def pack(ep, posts, rows, gate, media=None):
             a("")
     a("## 게이트")
     a("")
-    a("검사 판본: 라이브 스킬 `%s`" % distcheck.skill_revision())
+    # 🔴 **검사 판본은 여기 적지 않는다** (2026-08-29 · C-32 판정 ①).
+    #    원고는 승인 해시의 대상이고, 판본은 **배포할 때마다 바뀐다** — 내용이 한 글자도
+    #    안 바뀌었는데 서명이 낡는다(실측: 포스트 5건 해시는 같고 본문 해시만 달랐다).
+    #    같은 값을 원고 옆 사이드카에 쓰고, 승인 초안이 그것을 메타 필드로 싣는다.
     a("")
     for label, verdict, detail in gate.items:
         a("- `%s` %s%s" % ({"OK": " OK ", "FAIL": "FAIL", "NA": " -- "}[verdict], label,
@@ -510,7 +513,17 @@ def main(argv=None):
         return 1
     out = a.out or os.path.join(outdir, "%s_dist_ep%s.md" % (today, ep["EP"]))
     write_utf8(out, pack(ep, posts, rows, gate, media))
+    # 판본 기록은 **원고 밖**에 남긴다 (C-32 ①). 없애는 것이 아니라 자리를 옮기는 것이다 —
+    # 승인 초안이 이 파일을 읽어 메타 필드로 싣는다.
+    import json as _json
+    write_utf8(out + ".meta.json", _json.dumps(
+        {"gate_skill_revision": distcheck.skill_revision(),
+         "_왜_여기_있나": ("원고는 승인 해시의 대상이라 배포마다 바뀌는 값을 담으면 "
+                      "내용이 그대로인데 서명이 낡는다 (clause-backlog C-32)")},
+        ensure_ascii=False, indent=2))
     print("복붙 세트: %s" % out)
+    print("검사 판본: %s (원고 밖 · %s)"
+          % (distcheck.skill_revision(), os.path.basename(out) + ".meta.json"))
     return 0
 
 
