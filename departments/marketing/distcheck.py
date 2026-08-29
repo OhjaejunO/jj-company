@@ -34,6 +34,14 @@ THREADS_CHAR_MAX = 500
 #: 스레드 길이. JJ 지시 2026-08-27 «3~5개 포스트».
 POSTS_MIN, POSTS_MAX = 3, 5
 
+#: v3.56 — «공식» 빈도. **편 합산**이다(원고 포스트 + 카드 문안), 카드당이 아니다.
+#: 🔴 단위가 판정을 뒤집는다 — ep39 실측으로 카드 합계 8회·카드별 최대 2회라,
+#:    «카드당» 으로 읽으면 통과하고 «편 합산» 으로 읽으면 크게 걸린다. JJ 확정은 **편 합산**.
+OFFICIAL_WORD = "공식"
+OFFICIAL_WORD_MAX = 2
+#: 이 검사가 도는 최소 편 판본. 편 게이트의 `since=` 와 같은 뜻이고, 값도 같이 움직인다.
+OFFICIAL_WORD_SINCE = (3, 56)
+
 #: 벤치마크 수치를 실은 포스트가 달아야 하는 라벨 (JJ 지시 · 캡션·킷 관례 그대로).
 #: 카드 게이트 `[5-4]` SELF_REF 는 «공식 발표» 를 금지하지만 **그건 카드 층 규칙**이고,
 #: 캡션 층은 ep34 캡션 «점수는 공식 발표 수치입니다» 처럼 이 라벨을 쓴다. Threads 본문은 캡션 층이다.
@@ -128,6 +136,12 @@ def _table_cells(ln):
     if not re.match(r"^[Pp](\d+)$", cells[0]):
         return None                             # 헤더 줄
     return cells
+
+
+def _parse_ver(v):
+    """«v3.56» → (3, 56). 못 읽으면 None — **모름을 «통과» 로 읽지 않는다.**"""
+    m = re.match(r"^v?(\d+)\.(\d+)", str(v or "").strip())
+    return (int(m.group(1)), int(m.group(2))) if m else None
 
 
 def parse_draft(text):
@@ -464,6 +478,30 @@ def check(posts, rows, facts, kit_url, caption, cardcheck, media=None, ep=None):
                 i += 1
         r.ok("[9] 캡션과 한글 %d자 연속 일치 0건" % CAPTION_SHINGLE, not runs,
              " / ".join("«%s»" % x for x in runs[:6]))
+
+    # [11] «공식» 빈도 (v3.56) — 편 합산. 예외 선언 카드는 뺀다.
+    #
+    # 예외를 **편 선언의 명시 필드**로 둔 이유: 검사 쪽에 카드 번호를 적으면 그 줄이
+    # 편마다 늘어나 검사 본문이 편을 알게 된다(epcheck 의 «검사 본문에 편 이름이 들어가면
+    # 그것은 선언이어야 한다» 와 같은 규칙). 편이 자기 사유와 함께 적는다:
+    #     OFFICIAL_WORD_EXEMPT = ("03",)   # 검증 경계 소재 — 귀속을 카드마다 밝혀야 한다
+    _ver = _parse_ver(ep.get("SKILL_VER")) if ep else None
+    if ep is None or _ver is None:
+        r.na("[11] «%s» 빈도" % OFFICIAL_WORD, "편 선언(SKILL_VER)을 못 읽었다")
+    elif _ver < OFFICIAL_WORD_SINCE:
+        r.na("[11] «%s» 빈도" % OFFICIAL_WORD,
+             "편 규격 v%d.%d — 신설 v%d.%d 이전이라 대상 아님"
+             % (_ver + OFFICIAL_WORD_SINCE))
+    else:
+        _ex = {str(x) for x in (ep.get("OFFICIAL_WORD_EXEMPT") or ())}
+        _card_t = [t for _no, _c in (ep.get("CARDS") or {}).items() if str(_no) not in _ex
+                   for t in [_c.get("headline", ""), _c.get("key", "")] + list(_c.get("body") or [])]
+        _n_card = sum(t.count(OFFICIAL_WORD) for t in _card_t)
+        _n_post = sum(p.count(OFFICIAL_WORD) for p in posts)
+        r.ok("[11] «%s» 편 합산 %d회 이하 (원고+카드 · 예외 %d장 제외)"
+             % (OFFICIAL_WORD, OFFICIAL_WORD_MAX, len(_ex)),
+             _n_card + _n_post <= OFFICIAL_WORD_MAX,
+             "합계 %d회 (원고 %d · 카드 %d)" % (_n_card + _n_post, _n_post, _n_card))
 
     if ep is not None:
         check_media(media or [], posts, facts, ep, r)
