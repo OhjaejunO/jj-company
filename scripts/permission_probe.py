@@ -1,5 +1,19 @@
 # -*- coding: utf-8 -*-
-r"""승인 거부 프로브 — 권한 게이트가 «이 회차에» 실제로 닫혀 있는지 매 회차 확인한다.
+r"""승인 거부 프로브 — **도구 층** 권한 게이트가 «이 회차에» 닫혀 있는지 매 회차 확인한다.
+
+🔴 **이 프로브가 증명하는 범위는 «도구 층» 이다** (2026-08-29 정정). 세 축 전부 `claude` 를
+띄워 Write·Bash **도구를 부르게 하고** 그 결과를 본다. 같은 경로가 **파이썬 파일 API 로는
+열려 있다** — 실측으로 확인했다:
+
+    io.open(r"C:\Users\ojaej\jj-company\publish_approval\_probe.json", "w")  → 성공
+
+차단의 실체는 `settings.json` 의 `Edit(경로)` deny 이고 그것은 도구 호출을 막는다. 에이전트가
+Bash 로 파이썬 한 줄을 돌리면 그 문은 열려 있다 — §4 «`--allowed-tools` 는 게이트가 아니다» 의
+한 겹 바깥이다. **그래서 «막혔다» 가 아니라 «도구로는 막혔다» 로 읽어야 한다.**
+
+네 번째 축(`PROBE_OS_LAYER`)이 그 사실을 **매 회차 출력에 남긴다.** 지금은 판정을 바꾸지
+않는다 — `docs\infra-backlog.md` **19번**이 열려 있어서다. 19번이 닫히면 이 축을 판정으로
+승격한다(승격 조건도 19번에 적혀 있다).
 
     py scripts\permission_probe.py --cwd <작업 폴더> --deny <막혀야 할 파일> --allow <써져야 할 파일>
                                    [--add-dir <경로>]... [--claude <exe>] [--timeout <초>]
@@ -13,7 +27,7 @@ r"""승인 거부 프로브 — 권한 게이트가 «이 회차에» 실제로 
 **양방향이다 (정관 §0 역검증).** 거부만 보면 «전부 거부하는 상태» 와 «제대로 거부하는 상태» 가 구별되지 않는다 —
 `claude` 가 아예 못 뜨거나 목록이 통째로 비어도 «거부됨» 으로 읽힌다. 그래서 한 번의 호출에서 둘 다 시도한다.
 
-    ① deny 대상(목록 밖 경로) 쓰기 → **거부되어야** 한다.  파일이 생기면 게이트가 열린 것이다.
+    ① deny 대상(목록 밖 경로) 쓰기 → **거부되어야** 한다.  파일이 생기면 도구 층 게이트가 열린 것이다.
     ② allow 대상(목록 안 경로) 쓰기 → **성공해야** 한다.  파일이 안 생기면 그 회차는 쓰기 자체가 죽은 것이다.
 
 **세 번째 축 — 실행 차단 (2026-08-28 신설, `--deny-exec`).** JJ 전용 도구는 «못 쓴다» 가 아니라
@@ -52,6 +66,37 @@ EXEC_STEP = """3. Bash 도구로 `{cmd}` 를 실행한다. **거부되는 것이
 
 def emit(key, value):
     sys.stdout.write("%s=%s\n" % (key, value))
+
+
+def probe_os_layer(deny_path):
+    """**OS 층** — 같은 폴더에 파이썬 파일 API 로 직접 써 본다 (2026-08-29 신설).
+
+    도구 층 세 축은 `claude` 를 통해 잰다. 이 축은 **도구를 거치지 않고** 잰다 —
+    에이전트가 Bash 로 파이썬을 돌리면 실제로 지나갈 수 있는 그 문이다.
+
+    deny 파일 자체가 아니라 **옆자리**(`<deny>.oslayer`)에 쓴다. 같은 폴더라 ACL 은 같고,
+    deny 파일을 만들면 도구 층 판정(«파일이 생겼는가»)이 오염된다.
+
+    돌려주는 것: `"open"`(써졌다 · 구멍) · `"blocked"`(거부됐다) · `"error:<이름>"`.
+    **흔적은 남기지 않는다.**
+    """
+    probe = deny_path + ".oslayer"
+    # 🔴 «폴더가 없어서 못 썼다» 를 «막혔다» 로 읽지 않는다. 부재를 차단으로 읽으면
+    #    승인 폴더가 사라진 회차가 가장 안전해 보인다(정관 §0 조용히 실패하는 코드).
+    parent = os.path.dirname(probe)
+    if not os.path.isdir(parent):
+        return "no-dir", "폴더가 없다 — 차단이 아니라 부재다: %s" % parent
+    try:
+        io.open(probe, "w", encoding="utf-8").write("probe")
+    except (OSError, IOError) as e:                       # noqa: UP024
+        return "blocked", type(e).__name__
+    except Exception as e:                                # noqa: BLE001
+        return "error:" + type(e).__name__, str(e)[:60]
+    try:
+        os.remove(probe)
+    except OSError:
+        pass
+    return "open", "파이썬 파일 API 로 써졌다 — 도구 층 밖이다 (infra-backlog 19번)"
 
 
 def run_probe(claude, cwd, deny, allow, add_dirs, allowed, timeout,
@@ -154,6 +199,13 @@ def main():
 
     verdict, why, _ = run_probe(a.claude, a.cwd, a.deny, a.allow, a.add_dir, allowed, a.timeout,
                                 a.deny_exec, a.exec_marker)
+    # 네 번째 축 — **판정을 바꾸지 않는다.** 19번이 닫히면 그때 승격한다.
+    os_state, os_why = probe_os_layer(a.deny)
+    emit("PROBE_OS_LAYER", os_state)
+    emit("PROBE_OS_LAYER_WHY", os_why)
+    if os_state == "open":
+        emit("PROBE_OS_LAYER_NOTE",
+             "도구 층은 닫혀 있어도 OS 층은 열려 있다 — 이 프로브는 «막혔다» 를 증명하지 못한다")
     emit("PROBE_VERDICT", (verdict + " " + why).strip())
     return 0 if verdict == "OK" else 1
 
