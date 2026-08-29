@@ -47,6 +47,13 @@ OFFICIAL_WORD_SINCE = (3, 56)
 #: 캡션 층은 ep34 캡션 «점수는 공식 발표 수치입니다» 처럼 이 라벨을 쓴다. Threads 본문은 캡션 층이다.
 OFFICIAL_LABEL = "공식 발표 수치"
 
+#: v3.60 — 발표 행위 서술 상한 (지시서 1-6 · JJ 문안 2026-08-29).
+#: 카드 층 상한은 `epcheck.ATTRIB_MAX` 이고 값이 같다. **지면이 다르므로 각각 1회**다 —
+#: 카드에서 한 번 쓰고 포스트에서 또 한 번 쓰는 것은 중복이 아니라 각 지면의 리드다.
+ATTRIB_MAX = 1
+#: 이 검사가 도는 최소 편 판본.
+ATTRIB_SINCE = (3, 60)
+
 #: 캡션 복붙 판정 — 한글만 남긴 뒤 이 길이의 연속 일치가 있으면 «다시 쓰지 않은 것»으로 본다.
 #: 고유명사·숫자·영문은 어차피 같아야 하므로 판정에서 뺀다.
 CAPTION_SHINGLE = 12
@@ -488,6 +495,32 @@ def check(posts, rows, facts, kit_url, caption, cardcheck, media=None, ep=None):
         r.ok("[9] 캡션과 한글 %d자 연속 일치 0건" % CAPTION_SHINGLE, not runs,
              " / ".join("«%s»" % x for x in runs[:6]))
 
+    # [12] 발표 행위 서술 (v3.60 · 지시서 1-6) — 포스트 층. 카드 층은 epcheck [1-6].
+    #      규격 사본을 두지 않는다: 문형·주체·전언 어미를 라이브 epcheck 에서 뽑아 쓴다.
+    _av = _parse_ver(ep.get("SKILL_VER")) if ep else None
+    if ep is None or _av is None:
+        r.na("[12] 발표 행위 서술", "편 선언(SKILL_VER)을 못 읽었다")
+    elif _av < ATTRIB_SINCE:
+        r.na("[12] 발표 행위 서술",
+             "편 규격 v%d.%d — 신설 v%d.%d 이전이라 대상 아님" % (_av + ATTRIB_SINCE))
+    else:
+        AV = skill_regex("ATTRIB_VERB")
+        AS_ = skill_regex("ATTRIB_SUBJ")
+        HT = skill_regex("HEARSAY_TAIL")
+        _nouns = [n for n in (ep.get("COVER_NOUNS") or []) if n]
+        def _has_subj(t):
+            return bool(AS_.search(t)) or any(n in t for n in _nouns)
+        _hit = []
+        for i, p in enumerate(posts, 1):
+            for j, sn in enumerate(sentences(p), 1):
+                t = sn.strip()
+                if not _tone_target(t):
+                    continue          # URL·해시태그·크레딧 줄·영문 인용은 우리 산문이 아니다
+                if AV.search(t) and _has_subj(t) and not HT.search(t):
+                    _hit.append("P%d-%d «%s»" % (i, j, t[:26]))
+        r.ok("[12] 발표 행위 서술 %d회 이하 (전언 어미·인용·크레딧 줄 제외)" % ATTRIB_MAX,
+             len(_hit) <= ATTRIB_MAX, " / ".join(_hit) or "0회")
+
     # [11] «공식» 빈도 (v3.56) — 편 합산. 예외 선언 카드는 뺀다.
     #
     # 예외를 **편 선언의 명시 필드**로 둔 이유: 검사 쪽에 카드 번호를 적으면 그 줄이
@@ -802,9 +835,56 @@ def _media_selftest(cc):
     return bad
 
 
+
+def _attrib_selftest():
+    """`[12]` — 발표 행위 서술 상한. 넣는 쪽·빼는 쪽·예외를 각각 본다."""
+    # `dir` 은 첨부 검사가 먼저 읽는다 — 첨부 0건이어도 키가 없으면 죽는다.
+    ep = {"SKILL_VER": "v3.60", "CARDS": {}, "OFFICIAL_WORD_EXEMPT": (), "dir": ".",
+          "COVER_NOUNS": ["xAI", "Grok Bot", "@bot"]}
+    kit = "https://tomangchi-lab.github.io/kits/x.html"
+    base = ["xAI 가 8월 28일에 봇 공유를 열었어요.\n링크를 만들어 보내면 돼요.",
+            "받는 쪽 계정에 사본이 하나 생겨요.\n대화 이력은 안 따라가요.",
+            "지출 요청마다 사람이 승인해야 넘어가요.\n" + kit]
+    rows = [(1, 1, "-"), (1, 2, "-"), (2, 1, "-"), (2, 2, "-"), (3, 1, "-"), (3, 2, "KIT_URL")]
+    cc = load_cardcheck()
+    try:
+        skill_regex("ATTRIB_VERB")
+    except RuntimeError as e:
+        # 스킬 v3.60 배포 전이다. **건너뛴 사실을 찍는다** — 조용히 0 을 돌려주면
+        # 이 역검증은 «있는데 안 도는» 검사가 된다(L-011 이웃 · selftest-coverage 규칙 2).
+        print("[  --  ] [12] 역검증 — 라이브 스킬에 ATTRIB_VERB 가 없다 "
+              "(v3.60 배포 전). 배포 뒤 이 줄이 5건으로 바뀐다. %s" % str(e)[:40])
+        return 0
+
+    def hit(posts):
+        r = check(posts, rows, _Facts(), kit, _BASE_CAPTION, cc, ep=ep)
+        return [i[0] for i in r.failed if i[0].startswith("[12]")]
+
+    cases = [
+        ("리드 1회는 통과한다", base, False),
+        ("두 번째 발표 행위 서술이 걸린다",
+         [base[0], base[1] + "\n@bot 계정이 결제 기능을 올렸어요.", base[2]], True),
+        ("전언 어미 문장은 안 센다 (1-5 도구)",
+         [base[0], base[1] + "\n휴대폰은 곧 열린대요.", base[2]], False),
+        ("주체 없는 화면 서술은 안 센다",
+         [base[0], base[1] + "\n결제 직전이라고 화면에 적혀 있어요.", base[2]], False),
+        ("영문 인용 줄은 안 센다",
+         [base[0], base[1] + '\n"xAI posted that Grok Bot can now buy things."', base[2]], False),
+    ]
+    bad = 0
+    for why, posts, want_fail in cases:
+        got = bool(hit(posts))
+        okc = got == want_fail
+        bad += 0 if okc else 1
+        print("[%s] [12] %s%s" % ("  OK  " if okc else " FAIL ", why,
+                                  "" if okc else "  (기대 %s / 실제 %s)" % (want_fail, got)))
+    return bad
+
+
 def selftest():
     cc = load_cardcheck()
     quote_bad = _quote_tone_selftest()
+    quote_bad += _attrib_selftest()
     print("유통 변환 게이트 역검증 — 규격 출처: 라이브 스킬 %s" % skill_revision())
     base = check(_BASE_POSTS, _BASE_ROWS, _Facts(), _BASE_KIT, _BASE_CAPTION, cc)
     bad = 0

@@ -218,6 +218,9 @@ def load_ep(ep_dir):
         # `SKILL_VER` 이 없으면 그 검사는 **돌지 않는다**(편 게이트의 since 와 같은 뜻).
         "SKILL_VER": decl.get("SKILL_VER"),
         "OFFICIAL_WORD_EXEMPT": decl.get("OFFICIAL_WORD_EXEMPT") or (),
+        # v3.60 `[12]` — 발표 행위 서술의 «주체» 를 편 선언 고유명사로 잡는다.
+        # 이것이 없으면 «xAI 가 열었어요» 의 주체를 못 읽어 검사가 조용히 헛돈다.
+        "COVER_NOUNS": list(decl.get("COVER_NOUNS") or ()),
         "kit_url": kit["url"],
         "caption": _read("caption.txt"),
         "pinned": _read("pinned_comment.txt"),
