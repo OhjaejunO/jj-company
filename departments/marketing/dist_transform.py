@@ -214,6 +214,10 @@ def load_ep(ep_dir):
         "OFFICIAL_VIDEO": decl.get("OFFICIAL_VIDEO"),
         # 편이 첨부용 공식 원본을 지목했으면 그것이 정본이다 — `shots/` 추측보다 우선한다.
         "ATTACH_OFFICIAL": decl.get("ATTACH_OFFICIAL"),
+        # v3.56 — «공식» 빈도 검사가 읽는 둘. 선언이 없으면 각각 None·빈 집합이고,
+        # `SKILL_VER` 이 없으면 그 검사는 **돌지 않는다**(편 게이트의 since 와 같은 뜻).
+        "SKILL_VER": decl.get("SKILL_VER"),
+        "OFFICIAL_WORD_EXEMPT": decl.get("OFFICIAL_WORD_EXEMPT") or (),
         "kit_url": kit["url"],
         "caption": _read("caption.txt"),
         "pinned": _read("pinned_comment.txt"),
