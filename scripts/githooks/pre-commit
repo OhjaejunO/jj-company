@@ -64,6 +64,44 @@ case "$git_dir" in
             *.claude/hooks/bash-escape-guard.ps1*|*scripts/check-bash-guard.ps1*)
                 run_check "bash-escape-guard reverse check" powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/check-bash-guard.ps1 ;;
         esac
+
+        # --- canonical folders must not hold untracked files -----------------
+        #
+        # Backlog item 18. On 2026-08-29 the production directive was dropped into
+        # docs/directives/ by hand and never committed. The file was there, so
+        # everyone said "it is in the repo" - but untracked means NOT on
+        # origin/main, NOT on the operations server, and one `git clean` from gone.
+        #
+        # WHY THIS LOOKS AT THE PRIMARY TREE, NOT HERE
+        #   A person drops the file into the PRIMARY working tree. This hook runs
+        #   in a LINKED worktree, which has its own checkout - an untracked file in
+        #   the primary tree is simply not present here, so `git ls-files --others`
+        #   run locally returns nothing. Measured 2026-08-29: the primary reported
+        #   the stray file and the worktree reported an empty list for the same
+        #   instant. A naive local check would pass forever while the problem sat
+        #   one directory away. `--git-common-dir` gives the shared .git; its
+        #   parent is the primary working tree, and that is where we look.
+        #
+        # Runs on EVERY commit, not only when docs are staged: the whole point is
+        # to catch a file nobody staged. It is one `git ls-files` - microseconds.
+        common=$(git rev-parse --git-common-dir 2>/dev/null)
+        if [ -n "$common" ]; then
+            primary=$(dirname "$common")
+            for dir in docs/directives; do
+                [ -d "$primary/$dir" ] || continue
+                stray=$(git -C "$primary" ls-files --others --exclude-standard -- "$dir" 2>/dev/null)
+                if [ -n "$stray" ]; then
+                    printf '\n  [repo-guard] untracked file(s) in canonical folder %s - commit refused\n' "$dir" >&2
+                    printf '\n%s\n' "$stray" >&2
+                    printf '\n  A file called canonical is sitting outside the canonical store:\n' >&2
+                    printf '  NOT on origin/main, NOT on the operations server, one `git clean`\n' >&2
+                    printf '  from gone. Commit it (from a worktree) or move it out.\n\n' >&2
+                    printf '      primary tree: %s\n\n' "$primary" >&2
+                    rc=1
+                fi
+            done
+        fi
+
         exit $rc
         ;;
 esac
