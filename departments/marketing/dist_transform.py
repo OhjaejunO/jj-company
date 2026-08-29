@@ -63,9 +63,21 @@ PUBLISHED = os.environ.get(
     r"C:\Users\ojaej\orca\tomangchi-lab.github.io\workshop\01_발행완료")
 
 
-def repo_root():
-    """departments/marketing/<이 파일> → 레포 뿌리. 리포트는 정관 §4 대로 `reports\\` 에 쓴다."""
-    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+#: 원고가 나가는 자리. **절대경로다** — `__file__` 에서 거슬러 올라가지 않는다.
+#:
+#: 🔴 **여기가 갈렸던 자리다 (2026-08-29).** 종전에는 `repo_root()` 가 이 파일 위치에서
+#:    레포 뿌리를 거슬러 올라가 `reports\` 를 만들었다. 그래서 **어느 클론에서 돌렸느냐로
+#:    산출 위치가 갈렸다** — 작업장에서 돌리면 작업장 `reports\`, 운영 서버에서 돌리면
+#:    운영 서버 `reports\`. 그런데 이 원고를 **소비하는** `publish_threads.py` 는
+#:    `HQ = C:\Users\ojaej\jj-company` 로 못박혀 있어 운영 서버만 본다.
+#:    `reports\` 는 `.gitignore` 라 `git pull` 로도 안 넘어간다 — **전달 경로가 아예 없었다.**
+#:    실제로 ep35~38 원고 4건이 전부 작업장에만 있었고, 워커는 «원고를 못 찾았다» 로 끝났을 것이다.
+#:
+#: **왜 «복사 단계를 스킬에 박기» 가 아니라 이쪽인가.** 복사 단계는 사람이나 세션이 건너뛸 수
+#: 있고, 건너뛰면 **조용히** 어긋난다(파일은 만들어졌고 게이트도 통과하므로 아무도 모른다).
+#: 여기를 상수로 못박으면 **어디서 돌리든 한 자리에 떨어져** 건너뛸 단계 자체가 없어진다.
+#: 정관 §0 4층 ① 이고, 위 `PUBLISHED` 와 같은 꼴이다. 백로그 15번 «상대 경로» 계열.
+REPORTS_DIR = os.environ.get("JJ_REPORTS_DIR", r"C:\Users\ojaej\jj-company\reports")
 
 
 def find_ep_dir(ep):
@@ -103,6 +115,44 @@ class _Subst(ast.NodeTransformer):
         if isinstance(node.ctx, ast.Load) and node.id in self.local:
             return ast.copy_location(ast.Constant(self.local[node.id]), node)
         return node
+
+    # 🔴 **아래 둘은 «값을 손으로 적지 않은 편» 을 읽으려고 있다 (2026-08-29).**
+    #    ep39 는 예시 개수를 `EXAMPLES_TOTAL = len(EXAMPLES_EN)` 로 **세게** 하고
+    #    카드는 `"… %d가지예요." % F.EXAMPLES_TOTAL` 로 받아 썼다 — 손으로 적었다가
+    #    18/19 를 틀린 자리를 구조로 닫은 것이다(§0 4층 ①). 그런데 그렇게 하면
+    #    `ast.literal_eval` 이 `len(...)` 도 `%` 도 못 읽어 **편 전체를 못 읽는다.**
+    #    즉 **빌더가 옳게 쓸수록 이 추출기가 막는** 꼴이었다. 그래서 둘만 접어 준다.
+    #    🔴 일반 계산기를 만들지 않는다 — `len` 과 `%` 두 갈래만이다. 넓히면 이 파일이
+    #    빌더를 «실행» 하기 시작하고, 실행하지 않는 것이 이 추출기의 존재 이유다.
+    def visit_Call(self, node):
+        node = self.generic_visit(node)
+        if (isinstance(node.func, ast.Name) and node.func.id == "len"
+                and len(node.args) == 1 and not node.keywords
+                and isinstance(node.args[0], ast.Constant)):
+            try:
+                return ast.copy_location(ast.Constant(len(node.args[0].value)), node)
+            except TypeError:
+                return node
+        return node
+
+    def visit_BinOp(self, node):
+        node = self.generic_visit(node)
+        if not isinstance(node.op, ast.Mod):
+            return node
+        left = node.left
+        if not (isinstance(left, ast.Constant) and isinstance(left.value, str)):
+            return node
+        if isinstance(node.right, ast.Constant):
+            args = node.right.value
+        elif (isinstance(node.right, ast.Tuple)
+              and all(isinstance(e, ast.Constant) for e in node.right.elts)):
+            args = tuple(e.value for e in node.right.elts)
+        else:
+            return node
+        try:
+            return ast.copy_location(ast.Constant(left.value % args), node)
+        except (TypeError, ValueError):
+            return node        # 접지 못하면 그대로 둔다 — 조용히 틀린 값을 만들지 않는다
 
 
 def _module_literals(path, tables=None):
@@ -428,7 +478,11 @@ def main(argv=None):
 
     ep = load_ep(a.ep_dir or find_ep_dir(a.ep))
     today = datetime.date.today().isoformat()
-    outdir = os.path.join(repo_root(), "reports")
+    outdir = REPORTS_DIR
+    if not os.path.isdir(outdir):
+        # 조용히 만들지 않는다 — 자리가 없다는 것은 «운영 서버가 없다» 는 뜻이고,
+        # 그 상태로 원고를 쓰면 워커가 못 찾을 곳에 쓰는 것이다(§0 «조용히 실패하지 않는다»).
+        raise SystemExit("🔴 원고 자리가 없다: %s — 운영 서버 경로를 확인하라" % outdir)
 
     if a.cmd == "brief":
         out = a.out or os.path.join(outdir, "%s_dist_ep%s.brief.md" % (today, ep["EP"]))
