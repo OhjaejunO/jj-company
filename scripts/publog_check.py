@@ -120,6 +120,109 @@ def audit(text):
     return True, results, {"rows": len(rows) - 1}
 
 
+# ── 표 구조 변경 검증 (정관 §2 예외 5 · 2026-08-31) ──────────────────────────
+#
+# 🔴 **이 함수가 예외 5의 «부여 조건» 자체다.** 조문이 「값 무손실을 기계로 증명해야
+#    구조를 바꿀 수 있다」고 적었으므로, 증명이 없으면 그 동작은 예외 밖이다.
+#    말로 «안 건드렸다» 고 적는 것은 증명이 아니다 (§0 «감지 장치가 값을 담는지»).
+#
+# **무엇을 재는가.** 「기존 모든 행의 모든 값이 그대로 있는가」다. 칸이 늘면 옛 행은
+# 짧아진 채로 남는데(마크다운은 빈 칸으로 렌더한다), 그때도 **원래 있던 값들은 순서까지
+# 같아야** 한다. 값의 «자리»가 아니라 «존재와 순서»를 보는 이유는, 칸을 중간에 끼워도
+# 자리는 바뀌지만 값은 하나도 안 사라지기 때문이다.
+
+def row_values(cells):
+    """행에서 **값이 있는 칸**만 순서대로. 빈 칸은 «없는 것»이라 비교에서 뺀다."""
+    return [c for c in cells if c.strip()]
+
+
+def verify_structure(before, after):
+    """돌려주는 것은 `(무손실인가, 결과행목록)`.
+
+    검사 축 넷 — ① 머리글의 기존 칸이 하나도 사라지지 않았다 ② 칸은 늘기만 했다
+    ③ 행 수가 줄지 않았다 ④ 기존 행마다 값이 **전수 보존**됐다.
+    """
+    rb, ra = split_rows(before), split_rows(after)
+    if not rb or not ra:
+        return False, [("표", "FAIL", "표를 못 찾았다")]
+
+    out = []
+    okall = True
+    hb, ha = rb[0], ra[0]
+
+    lost = [c for c in hb if c not in ha]
+    out.append(("① 머리글 칸 보존", "OK" if not lost else "FAIL",
+                "%d칸 → %d칸" % (len(hb), len(ha))
+                + ("" if not lost else " · 사라짐: %s" % lost)))
+    okall &= not lost
+
+    grew = len(ha) >= len(hb)
+    out.append(("② 칸은 늘기만 했다", "OK" if grew else "FAIL",
+                "%+d" % (len(ha) - len(hb))))
+    okall &= grew
+
+    nb, na = len(rb) - 1, len(ra) - 1
+    keep = na >= nb
+    out.append(("③ 행 수가 줄지 않았다", "OK" if keep else "FAIL", "%d → %d" % (nb, na)))
+    okall &= keep
+
+    bad = []
+    for i, cells in enumerate(rb[1:]):
+        want = row_values(cells)
+        got = row_values(ra[1 + i]) if 1 + i < len(ra) else []
+        # 🔴 «부분집합» 이 아니라 «앞부분 일치» 로 본다. 부분집합이면 값을 하나 지우고
+        #    다른 값을 더해도 통과할 수 있다 — 그것은 무손실이 아니라 교체다.
+        if got[:len(want)] != want:
+            bad.append((i + 1, want, got))
+    out.append(("④ 기존 행 값 전수 보존", "OK" if not bad else "FAIL",
+                "%d행 전부 일치" % nb if not bad
+                else "어긋난 행 %d개 · 첫 번째=%d행" % (len(bad), bad[0][0])))
+    okall &= not bad
+    for i, want, got in bad[:3]:
+        out.append(("   · %d행" % i, "FAIL", "전 %s → 후 %s" % (want[:4], got[:4])))
+    return okall, out
+
+
+def _selftest_structure():
+    """역검증 — 🔴 **걸려야 하는 넷과 통과해야 하는 셋을 분리한다.**
+
+    한쪽만 보면 «전부 FAIL 하는 검사»도 정상으로 보인다 (정관 §0).
+    """
+    H = "| ep | 제목 | 상태 | 발행일 |"
+    S = "|---|---|---|---|"
+    R1 = "| ep1 | 가 | 발행 | 2026-08-01 10:00 KST |"
+    R2 = "| ep2 | 나 | 발행 | 2026-08-02 10:00 KST |"
+    BEFORE = "\n".join([H, S, R1, R2])
+
+    H2 = "| ep | 제목 | 상태 | 발행일 | 기록 시각 |"
+    S2 = "|---|---|---|---|---|"
+    NEWROW = "| ep3 | 다 | 발행 | 2026-08-03 10:00 KST | 2026-08-03 11:00 KST |"
+
+    cases = [
+        ("칸만 늘렸다 (정당한 구조 변경)", "\n".join([H2, S2, R1, R2]), True),
+        ("칸 늘리고 새 행도 붙였다", "\n".join([H2, S2, R1, R2, NEWROW]), True),
+        ("칸을 가운데 끼워도 값은 남는다",
+         "\n".join(["| ep | 기록 시각 | 제목 | 상태 | 발행일 |", S2, R1, R2]), True),
+        ("🔴 행을 하나 지웠다", "\n".join([H2, S2, R1]), False),
+        ("🔴 값을 하나 고쳤다",
+         "\n".join([H2, S2, R1, "| ep2 | 다른제목 | 발행 | 2026-08-02 10:00 KST |"]), False),
+        ("🔴 칸을 하나 지웠다",
+         "\n".join(["| ep | 제목 | 상태 |", "|---|---|---|",
+                    "| ep1 | 가 | 발행 |", "| ep2 | 나 | 발행 |"]), False),
+        ("🔴 값을 지우고 다른 값을 더했다 (교체)",
+         "\n".join([H2, S2, R1, "| ep2 | 발행 | 2026-08-02 10:00 KST | 새값 |"]), False),
+    ]
+    bad = 0
+    print("[R] 역검증 — 구조 변경 값 무손실")
+    for label, after, want in cases:
+        got, _ = verify_structure(BEFORE, after)
+        ok = got == want
+        bad += 0 if ok else 1
+        print("  %s %-40s 무손실=%-5s (기대 %s)"
+              % ("OK  " if ok else "FAIL", label, got, want))
+    return bad
+
+
 PROPOSAL = """\
 ## 「기록 시각」 칸 설치 문안 (사람 손 · 2줄)
 
@@ -201,14 +304,48 @@ def _self_test():
     b, _ = parse_ts("2026-08-29T16:38+00:00")
     case("KST 01:38 = UTC 16:38 (ep39 \ub8e8\ud2b8 \uc2e4\uce21)", a == b, "%s == %s" % (a, b))
 
+    bad += _selftest_structure()
+
     print()
     print("STATUS: %s" % ("OK" if not bad else "FAIL self-test %d\uac74" % bad))
     return 0 if not bad else 1
 
 
+def _run_verify_structure(argv):
+    """`--verify-structure <\uc804> <\ud6c4>` \u2014 \uc815\uad00 \u00a72 \uc608\uc678 5 \uc758 \u00ab\uac12 \ubb34\uc190\uc2e4 \uae30\uacc4 \uc99d\uba85\u00bb."""
+    try:
+        i = argv.index("--verify-structure")
+        b_path, a_path = argv[i + 1], argv[i + 2]
+    except (ValueError, IndexError):
+        print("  FAIL \uc4f0\ub294 \ubc95: --verify-structure <\ubc14\uafb8\uae30 \uc804 \ud30c\uc77c> <\ubc14\uafbc \ub4a4 \ud30c\uc77c>")
+        print("\nSTATUS: FAIL usage")
+        return 1
+    before = io.open(b_path, encoding="utf-8").read()
+    after = io.open(a_path, encoding="utf-8").read()
+    print("# \ud45c \uad6c\uc870 \ubcc0\uacbd \u2014 \uac12 \ubb34\uc190\uc2e4 \uac80\uc99d (\uc815\uad00 \u00a72 \uc608\uc678 5)")
+    print("  \uc804: %s" % b_path)
+    print("  \ud6c4: %s" % a_path)
+    print()
+    okall, rows = verify_structure(before, after)
+    for label, verdict, why in rows:
+        print("  %-4s %-24s %s" % (verdict, label, why))
+    print()
+    # \ud83d\udd34 \ud310\uc815\ub9cc \ub0b4\uace0 \ub05d\ub0b4\uc9c0 \uc54a\ub294\ub2e4 \u2014 \uc774 \uac80\uc0ac\uae30 \uc790\uc2e0\uc774 \ud5db\ub3c4\ub294\uc9c0 \uac19\uc774 \ubcf8\ub2e4.
+    #    \u00ab\uc804\ubd80 OK \ub97c \ub0b4\ub294 \uac80\uc0ac\u00bb \ub3c4 \uc5ec\uae30\uc11c\ub294 \uc815\uc0c1\uc73c\ub85c \ubcf4\uc774\uae30 \ub54c\ubb38\uc774\ub2e4 (\uc815\uad00 \u00a70).
+    rbad = _selftest_structure()
+    print()
+    if okall and not rbad:
+        print("STATUS: OK")
+        return 0
+    print("STATUS: FAIL %s" % ("\uac12 \uc190\uc2e4" if not okall else "\uc5ed\uac80\uc99d %d\uac74" % rbad))
+    return 1
+
+
 def main():
     if "--self-test" in sys.argv:
         return _self_test()
+    if "--verify-structure" in sys.argv:
+        return _run_verify_structure(sys.argv)
     if not os.path.exists(PUBLOG):
         print("  FAIL \ubc1c\ud589\ub85c\uadf8\ub97c \ubabb \ucc3e\uc558\ub2e4: %s" % PUBLOG)
         print("\nSTATUS: FAIL no-publog")
