@@ -90,6 +90,11 @@ WAIT_INTERVAL_S = 3
 
 POST_HEAD = re.compile(r"^###\s+P(\d+)\s+—", re.M)
 
+#: 원고의 첨부 선언 줄. `dist_transform.pack()` 이 **코드펜스 밖**에 이 꼴로 쓴다.
+#: 🔴 `parse_posts` 는 펜스 안만 읽으므로 이 줄은 발행 경로에 **한 번도 닿지 않았다** —
+#:    ep39(2026-08-30)에서 영상 2건이 아무 소리 없이 사라진 것이 그 결과다.
+ATTACH_HEAD = re.compile(r"^\s*\*\*첨부\*\*\s*(.*)$", re.M)
+
 
 # ---------------------------------------------------------------- 토큰·전송
 def load_token():
@@ -186,6 +191,92 @@ def parse_posts(md_path):
             raise SystemExit("🔴 P%d 가 두 번 나온다 — %s" % (seq, md_path))
         out[seq] = fence.group(1).strip()
     return out
+
+
+def media_support_state(src=None):
+    """이 워커가 **실제로** 미디어를 실을 수 있는가 — 소스를 읽어 판정한다.
+
+    컨테이너 파라미터의 ``media_type`` 값이 전부 리터럴 ``"TEXT"`` 면 실을 길이 없다.
+    돌려주는 값은 셋이다. `None` 을 «못 싣는다» 로 뭉개지 않는다 — «못 싣는다» 와
+    «모르겠다» 는 다른 사실이고, 둘을 합치면 리팩터로 배정 자리가 사라진 날 가드가
+    «확실히 못 싣는다» 고 거짓 보고한다(§0).
+
+      · ``False`` — 배정이 전부 리터럴 ``TEXT``. **미디어를 실을 길이 없다.**
+      · ``True``  — 리터럴 ``TEXT`` 가 아닌 값이 섞였다. 미디어 경로가 생겼다.
+      · ``None``  — 배정을 못 찾았다. **판정 불가.**
+
+    🔴 **`ast` 로 읽는다. 정규식이 아니다.** 정규식 판은 이 파일 안의 **시험 픽스처
+       문자열**까지 세어 «지원한다» 로 읽었다(자체 검사가 잡았다). `ast` 는 주석·
+       독스트링·문자열 리터럴을 안 보므로 **가짜가 표를 던질 수 없다.**
+    """
+    import ast as _ast
+    if src is None:
+        src = io.open(os.path.abspath(__file__), encoding="utf-8").read()
+    try:
+        tree = _ast.parse(src)
+    except SyntaxError:
+        return None
+    vals = set()
+    for node in _ast.walk(tree):
+        if not isinstance(node, _ast.Dict):
+            continue
+        for k, v in zip(node.keys, node.values):
+            if not (isinstance(k, _ast.Constant) and k.value == "media_type"):
+                continue
+            vals.add(v.value if isinstance(v, _ast.Constant) else "<비리터럴>")
+    if not vals:
+        return None
+    return vals != {"TEXT"}
+
+
+def attachment_decls(md_path):
+    """원고가 선언한 첨부 — ``[(seq, 줄), …]``. 없으면 빈 목록.
+
+    포스트 머리(``### P<n>``)로 구간을 갈라 **어느 포스트의 첨부인지**까지 남긴다.
+    개수만 세면 «몇 건 빠졌다» 는 알아도 «어디가» 를 못 적는다.
+    """
+    text = io.open(md_path, encoding="utf-8").read()
+    heads = list(POST_HEAD.finditer(text))
+    out = []
+    for m in ATTACH_HEAD.finditer(text):
+        seq = None
+        for h in heads:
+            if h.start() < m.start():
+                seq = int(h.group(1))
+            else:
+                break
+        out.append((seq, m.group(0).strip()))
+    return out
+
+
+#: `attachment_block(support=...)` 의 «안 줬음» 표시. `None` 을 기본값으로 두면
+#: **«판정 불가»(None) 를 시험에서 넣을 방법이 없어진다** — 두 뜻이 한 값에 겹친다.
+_AUTO = object()
+
+
+def attachment_block(md_path, support=_AUTO):
+    """발행을 멈춰야 하면 사유 줄 목록, 아니면 빈 목록.
+
+    판정은 **양쪽이 다 있어야** 선다 — 첨부 선언이 있고, 그것을 실을 길이 없을 때.
+    선언이 0건이면 지원 여부와 무관하게 통과다(옛 편이 새로 걸리지 않는다).
+
+    `support` 를 안 주면 소스에서 읽는다. `None` 은 **«판정 불가»** 라는 값이고,
+    판정 불가는 통과가 아니다 — **모르면 멈춘다.**
+    """
+    decls = attachment_decls(md_path)
+    if not decls:
+        return []
+    if support is _AUTO:
+        support = media_support_state()
+    if support is True:
+        return []
+    why = ("이 워커는 미디어를 싣지 못한다 (컨테이너 `media_type` 이 리터럴 TEXT 뿐)"
+           if support is False else
+           "미디어 지원 여부를 **판정하지 못했다** (`media_type` 배정을 소스에서 못 찾았다)")
+    lines = ["원고가 첨부 %d건을 선언했는데 %s" % (len(decls), why)]
+    for seq, ln in decls:
+        lines.append("  P%s — %s" % (seq if seq is not None else "?", ln))
+    return lines
 
 
 def build_draft(ep, ms_path, posts):
@@ -682,6 +773,48 @@ def _selftest():
     assert check_approval(dict(base, body_sha256="x" * 64), "ep39", p, posts), "원고 해시 불일치를 놓쳤다"
     assert check_approval(dict(base, chain=[1]), "ep39", p, posts), "chain/posts 어긋남을 놓쳤다"
 
+    # ③-a 첨부 안전판 — **양방향** (인프라 백로그 20번 ① · 2026-08-30)
+    #      막는 것만 보면 «전부 막는 가드» 가 정상으로 보인다. 통과해야 할 것을 같이 본다.
+    att_md = ok_md.replace("```\n첫 줄\n```",
+                           "```\n첫 줄\n```\n\n**첨부** `_official/a.mp4` — 영상 1920x1080")
+    pa = os.path.join(tempfile.gettempdir(), "_pt_attach.md")
+    io.open(pa, "w", encoding="utf-8").write(att_md)
+    #   ⓐ-0 **조건이 실제로 만들어졌는가.** 첨부 줄이 안 들어갔으면 아래 «막혔다» 는
+    #        가드의 공이 아니라 잴 것이 없었던 것이다 (L-009).
+    _d = attachment_decls(pa)
+    assert len(_d) == 1 and _d[0][0] == 1, "픽스처에 첨부 선언이 안 들어갔다: %r" % (_d,)
+    #   ⓐ 첨부 선언 + 미지원 → 막힌다
+    assert attachment_block(pa, support=False), "첨부 선언 원고를 통과시켰다"
+    #   ⓑ 첨부 0건 → 통과한다 (옛 편이 새로 걸리지 않는다)
+    assert attachment_decls(p) == [], "첨부 없는 원고에서 선언을 찾았다"
+    assert attachment_block(p, support=False) == [], "첨부 없는 원고를 막았다"
+    #   ⓒ 첨부 선언 + **지원** → 통과한다 (전부 막는 가드가 아니다)
+    assert attachment_block(pa, support=True) == [], "미디어를 실을 수 있어도 막는다"
+    #   ⓓ **판정 불가는 통과가 아니다** — 모르면 멈춘다
+    _unk = attachment_block(pa, support=None)
+    assert _unk and "판정하지" in _unk[0], "판정 불가를 통과시켰다: %r" % (_unk,)
+    #   ⓔ 사유 줄이 **어느 포스트인지** 를 담는다 (개수만 세면 «어디가» 를 못 적는다)
+    _why = attachment_block(pa, support=False)
+    assert any("P1" in x for x in _why), "막았지만 어느 포스트인지 안 적었다: %r" % (_why,)
+    os.remove(pa)
+
+    # ③-a2 지원 여부 판정기 — 깃발이 아니라 **소스**를 읽는다
+    #   ⓕ 지금 이 파일은 TEXT 전용으로 읽혀야 한다 (깃발 ↔ 실물 대조)
+    assert media_support_state() is False, \
+        "이 워커가 미디어를 실을 수 있다고 읽었다 — 실제로 붙었거나 판정기가 틀렸다"
+    #   ⓖ 변수로 바뀐 소스는 «지원» 으로 읽어야 한다 — 안 그러면 가드가 조용히 낡는다
+    assert media_support_state("x = {" + repr("media_type") + ": kind}") is True, \
+        "미디어 경로가 생겨도 못 알아챈다"
+    #   ⓗ 배정을 못 찾으면 «못 싣는다» 가 아니라 **모른다** 다
+    assert media_support_state("배정이 없는 소스") is None, \
+        "배정을 못 찾았는데 «못 싣는다» 로 단정했다"
+    #   ⓘ **문자열 안의 가짜 배정은 세지 않는다.** 이 파일의 시험 픽스처가 판정을 흔들면
+    #      안 된다 — 정규식 판이 정확히 그래서 떨어졌고, 그게 ast 로 바꾼 계기다.
+    assert media_support_state("x = " + repr('{"media_type": "VIDEO"}')) is None, \
+        "문자열 안의 가짜 배정을 세고 있다 — 시험 픽스처가 판정을 흔든다"
+    #   ⓙ 문법이 깨진 소스는 «못 싣는다» 가 아니라 **모른다** 다
+    assert media_support_state("def (:") is None, "깨진 소스를 «못 싣는다» 로 단정했다"
+
     # ③-b 초안은 서명 자리를 만들지 않는다 — 만들면 «이미 서명됐다» 로 읽힌다
     d = build_draft("ep39", p, posts)
     assert d["ep"] == "ep39" and d["chain"] == [1, 2], d
@@ -871,6 +1004,23 @@ def _run(argv=None):
     log("원고: %s" % os.path.basename(ms))
 
     posts = parse_posts(ms)
+
+    # 🔴 **첨부 안전판** (인프라 백로그 20번 ① · 2026-08-30). 승인 대조보다 **앞**이고
+    #    네트워크 호출보다 **앞**이다 — 못 실을 것을 들고 계정까지 갈 이유가 없다.
+    #    ep39 에서 이 자리가 없어 영상 2건이 말없이 사라졌다. 구현(20번 ③)이 서면
+    #    `media_support_state()` 가 소스에서 그것을 읽어 이 게이트는 **저절로 열린다** —
+    #    사람이 깃발을 내리는 걸음이 없다(그 걸음이 있으면 언젠가 빠진다).
+    stop = attachment_block(ms)
+    if stop:
+        for ln in stop:
+            log("🔴 %s" % ln)
+        log("🔴 **발행하지 않았다.** 첨부를 못 싣는 채로 올리면 본문의 «영상 출처:» 류 "
+            "라벨이 없는 것을 가리킨다 — ep39 실사고(2026-08-30)가 그것이다.")
+        log("STATUS: FAIL attachment-unsupported")
+        _finish(a.ep, rcpt_dir, "attachment-unsupported")
+        _write_report(out_dir, a.ep, lines)
+        return 1
+
     bad = check_approval(appr, a.ep, ms, posts)
     if bad:
         for b in bad:
