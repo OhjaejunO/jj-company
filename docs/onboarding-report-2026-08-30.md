@@ -260,12 +260,25 @@ PNG 라 영상 도구 없이 조판되는 카드다.
 
 ---
 
-## 🔴 하지 못한 것 — PR 을 올리지 못한다
+## push 는 됐다 · PR 열기만 사람 손이 필요하다
 
-**`gh` 가 로그인되어 있지 않고, git 자격 도우미도 없다.** 그래서:
+🔴 **처음에 «자격이 없어 push 도 안 된다» 고 적었는데 틀렸다. 실측하니 됐다.**
+`gh auth status` 만 보고 «GitHub 자격이 없다» 로 넘겨짚은 것이고, **`gh` 와 `git` 은
+자격을 다른 데서 가져온다.**
 
-- 브랜치 `onboarding-repo-owner` 와 커밋은 **이 기계에 로컬로만 있다.**
-- `git push` 도 `gh pr create` 도 **안 된다.**
+| 경로 | 자리 | 상태 |
+|---|---|---|
+| `git push` | **Git Credential Manager** (`C:\Program Files\Git\etc\gitconfig` 의 `credential.helper=manager`) | 🟢 **토큰 있음 — push 성공** |
+| `gh pr create` | `gh` 자체 keyring + `hosts.yml` | 🔴 **미로그인** |
+
+- 🟢 브랜치 `onboarding-repo-owner` **원격에 올라갔다** (`origin` 에 새 브랜치).
+- 🔴 **PR 은 못 열었다** — `gh` 가 미로그인이다.
+
+🔴 **자격 문서가 이 갈림을 안 적어 두었다.** `docs\onboarding-credentials.md` 는 GitHub 줄
+하나에 «`gh` OAuth 토큰 · 자격 증명 관리자(gh keyring) + `hosts.yml`» 을 묶어 놓았는데,
+**실제로는 소비자가 둘이고 저장소도 둘이다.** 이 기계가 그 증거다 — GCM 에는 토큰이 있고
+`gh` 에는 없어 **한쪽만 되는 상태**가 나왔다. 「GitHub 자격」 한 칸으로는 이 상태를 적을
+수 없다. 🔴 **자격 문서 정비 후보**로 남긴다.
 
 **사람이 한 번 해야 하는 것** — 터미널에서:
 
@@ -273,7 +286,9 @@ PNG 라 영상 도구 없이 조판되는 카드다.
 gh auth login
 ```
 
-스코프는 자격 문서대로 `repo`·`read:org`·`gist`. 그 뒤 push·PR 은 이어서 낼 수 있다.
+스코프는 자격 문서대로 `repo`·`read:org`·`gist`. 그 뒤 `gh pr create` 로 PR 을 연다.
+브랜치는 이미 올라가 있으므로 **웹에서 바로 열어도 된다**:
+`https://github.com/OhjaejunO/jj-company/pull/new/onboarding-repo-owner`
 
 🔴 **머지는 실장 승인이다** — 지시대로 이 회차는 PR 까지이고, 머지하지 않는다.
 
