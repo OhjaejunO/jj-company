@@ -1,6 +1,6 @@
 # 계획 — 워크숍 소스 사설 레포 (인프라 백로그 21번 ㉮ · **설계만 · 판정 대기**)
 
-> **상태: 경로 A 착수 완료 (2026-08-30).** 레포 `PU3-Lab/tomangchi-workshop`(PRIVATE) 신설,
+> **상태: 경로 A 착수 완료 (2026-08-30).** 레포 `OhjaejunO/tomangchi-workshop`(PRIVATE) 신설,
 > 초기 동기 710개·58.19 MB, 절차는 `docs\workshop-repo-sync.md`. **남은 판정은 «담지 않은
 > 1.74 GB»** 뿐이다(그 문서의 «미결»). 아래는 착수 전 설계 기록으로 남긴다.
 >
