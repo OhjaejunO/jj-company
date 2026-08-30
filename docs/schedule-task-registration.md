@@ -31,6 +31,43 @@ Get-ScheduledTask -TaskPath '\JJ\' | % { '{0}: WakeToRun={1} StartWhenAvailable=
 | ExecutionTimeLimit | `PT1H` (drift 는 미설정) |
 | 트리거 | vault 평일 12:30 · drift 매일 12:30 · scout 매일 08:00 · job 매일 08:30 |
 
+## 2-1. workshop-backup 등록 (2026-08-30 추가 · **사람 자리**)
+
+인프라 백로그 21번 ㉰ 안전판. **에이전트는 등록할 수 없다** — S4U 작업 등록은 관리자
+PowerShell 을 요구하고 일반 셸에서는 `액세스가 거부되었습니다`(0x80070005) 가 난다
+(2026-08-30 실측). 아래를 **관리자 PowerShell** 에 붙여 넣는다.
+
+🔴 **순서가 있다.** ① PR #138 머지 → ② 운영 서버 `git pull` → ③ 등록.
+스크립트가 없는 상태로 등록하면 첫 회차가 **작업 스케줄러 층에서 죽어 로그도 안 남는다** —
+래퍼의 `STATUS: FAIL script-missing` 은 래퍼가 떠야 찍힌다.
+
+```powershell
+$act = New-ScheduledTaskAction -Execute 'powershell.exe' `
+  -Argument '-NoProfile -ExecutionPolicy Bypass -File "C:\Users\ojaej\jj-company\scripts\workshop-backup.ps1" weekly'
+$trg = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At '13:00'
+$set = New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun `
+  -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 1)
+$pri = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType S4U -RunLevel Limited
+Register-ScheduledTask -TaskName 'workshop-backup' -TaskPath '\JJ\' `
+  -Action $act -Trigger $trg -Settings $set -Principal $pri -Force
+```
+
+**일요일 13:00 인 이유**: 12:30 에 vault·drift 둘이 이미 뜬다. 백업은 마감이 없는
+안전망이라 뒤에 세우고, 래퍼가 480초를 더 늦춘다(동시 기동 `git pull` 경쟁 회피 — §4).
+
+**«편 발행 직후» 회차는 등록 대상이 아니다** — `publish-threads.ps1` 이 성공 경로에서
+직접 부른다(best effort · 발행 STATUS 를 바꾸지 않는다).
+
+등록 뒤에는 §3 대로 **실값을 다시 본다.** 아래가 «등록 전» 실측(2026-08-30)이고 대조 기준이다.
+
+```
+hermes-event-watch:   WakeToRun=True StartWhenAvailable=True Multi=IgnoreNew Limit=PT1H  trig=2026-08-26T07:40:00+09:00
+job-scout:            WakeToRun=True StartWhenAvailable=True Multi=IgnoreNew Limit=PT1H  trig=2026-08-10T08:30:00+09:00
+morning-vault-health: WakeToRun=True StartWhenAvailable=True Multi=IgnoreNew Limit=PT1H  trig=2026-08-10T12:30:00 days=62
+skill-drift-audit:    WakeToRun=True StartWhenAvailable=True Multi=IgnoreNew Limit=PT72H trig=2026-08-15T12:30:00
+tomangchi-scout:      WakeToRun=True StartWhenAvailable=True Multi=IgnoreNew Limit=PT1H  trig=2026-08-10T08:00:00+09:00
+```
+
 ## 3. 재등록 후 — 실값 재확인 (건너뛰면 절차를 안 한 것이다)
 
 ```powershell
