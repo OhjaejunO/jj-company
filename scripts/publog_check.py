@@ -9,12 +9,15 @@ r"""발행로그 «기록 시각» 칸 검사 (A등급 · 읽기 전용).
 28 vs 29 사고의 뿌리가 그것이다). 규칙은 이미 「발행 직후 즉시 기록」인데 **그 규칙을 재는
 자가 없었다.** 정관 §0 «조문마다 검사 짝».
 
-🔴 **이 검사기는 칸을 만들지 않는다.** 표 머리를 고치는 것은 «기존 행 수정»이라
-**정관 §2 예외 5번이 열어 주지 않는다**(예외 5는 `append` 만이다). 칸 설치는 사람 손이고,
-이 검사기는 **칸이 없으면 그 사실을 보고**한다 — 없는 것을 FAIL 로 적으면 진짜 실패가 묻힌다.
+**칸 설치도 이 검사기가 뒷받침한다 (2026-08-31 §2 예외 5 개정).** 종전에는 표 머리를 고치는
+것이 «기존 행 수정»이라 예외가 열어 주지 않았고 이 파일도 그렇게 적혀 있었다. 개정으로
+**표 구조 변경이 열렸고, 그 «부여 조건»이 곧 `verify_structure`** 다 — 값 무손실을 기계로
+증명해야 구조를 바꿀 수 있다. 칸이 아직 없으면 이 검사기는 **그 사실을 보고**한다(FAIL 이
+아니다 — 없는 것을 실패로 적으면 진짜 실패가 묻힌다).
 
 돌리기:  py scripts\publog_check.py
 역검증:  py scripts\publog_check.py --self-test
+구조검증: py scripts\publog_check.py --verify-structure <바꾸기 전> <바꾼 뒤>
 """
 import datetime as dt
 import io
@@ -81,6 +84,14 @@ def main_table(text):
     전체 파이프 줄을 한 표로 읽으면 다른 표의 행이 본 표 행인 척 섞인다 — 지금은 그 셋이
     2~3칸이라 길이 가드에 걸려 우연히 빠지지만, **누가 4칸짜리 표를 하나 더 넣으면 조용히
     새어 든다.** 우연에 기대는 것은 검사가 아니다 (2026-08-31 실측으로 발견).
+
+    🔴 **«파이프 줄이 끊기면 표 끝» 으로 자르면 안 된다 (2026-08-31 실측).** 이 표의 행은
+    **줄바꿈을 품는다** — ep15 행의 비고가 네 줄에 걸쳐 있고 행 사이에 빈 줄도 있다.
+    끊기는 자리에서 자르니 **63행 중 14행만** 읽혔고, 검사기는 그것을 «전부 봤다»는 얼굴로
+    `STATUS: OK` 를 냈다. 덜 보는 검사가 통과를 내는 것이 가장 나쁜 꼴이다.
+
+    그래서 **«다음 표가 시작될 때까지»** 로 자른다 — 경계는 **다음 구분선(`|---`)**이다.
+    사이의 빈 줄·산문은 그냥 지나친다(파이프 줄이 아니라 어차피 안 걸린다).
     """
     lines = text.split("\n")
     start = None
@@ -91,12 +102,13 @@ def main_table(text):
             break
     if start is None:
         return text
-    end = start
-    for j in range(start, len(lines)):
-        s = lines[j].strip()
-        if s.startswith("|") and s.endswith("|"):
-            end = j
-        elif s:
+    end = len(lines) - 1
+    for j in range(start + 2, len(lines)):        # 자기 구분선(start+1)은 건너뛴다
+        if lines[j].strip().startswith("|---"):
+            # 🔴 구분선 바로 위는 **다음 표의 머리글**이다 — 그것도 뺀다.
+            #    안 빼면 `| 층 | 값 | 세는 법 |` 이 본 표의 행으로 들어와 상태 칸이
+            #    「세는 법」으로 읽힌다(2026-08-31 실측: 38행 중 1행이 그것이었다).
+            end = j - 2 if lines[j - 1].strip().startswith("|") else j - 1
             break
     return "\n".join(lines[start:end + 1])
 
@@ -369,6 +381,17 @@ def _self_test():
                                       "2026-08-30 10:30 KST")]))
     case("\ud45c\uac00 \ud558\ub098\ubfd0\uc774\uc5b4\ub3c4 \uadf8\ub300\ub85c \uc77d\ub294\ub2e4 (\ubc18\ub300\ucabd)",
          len(res2) == 1)
+    LEAK = "\n".join([
+        H_NEW, SEP, row("ep40", "\ubc1c\ud589", "2026-08-30 10:00 KST",
+                        "2026-08-30 10:30 KST"), "",
+        "| \uce35 | \uac12 | \ubc1c\ud589 | \ub137\uc9f8 | \ub2e4\uc12f\uc9f8 |",
+        "|---|---|---|---|---|",
+        "| \ud3b8\uc218 | 35 | \ubc1c\ud589 | x | y |"])
+    _, res3, _ = audit(LEAK)
+    case("\ub2e4\uc74c \ud45c\uc758 \uba38\ub9ac\uae00\uc774 \uc0c8\uc9c0 \uc54a\ub294\ub2e4 (3\ubc88\uc9f8 \uce78\uc774 \u00ab\ubc1c\ud589\u00bb \uc778 \ud45c)",
+         len(res3) == 1 and res3[0][0] == "ep40",
+         "\ub300\uc0c1 %d\uac74 %s" % (len(res3), [r[0] for r in res3]))
+
 
     print("[R] \uc5ed\uac80\uc99d — \uc2dc\uac04\ub300 \ud658\uc0b0")
     a, _ = parse_ts("2026-08-30 01:38 KST")
