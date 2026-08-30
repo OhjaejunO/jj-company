@@ -193,6 +193,22 @@ try {
         Write-Log ('STATUS: FAIL worker-exit-' + $code)
         exit 1
     }
+    # Backup right after a successful publish (infra backlog 21, option 3).
+    # A published episode is exactly when the workshop sources are worth the
+    # most and have just changed. Best effort ON PURPOSE: a backup failure must
+    # not turn a successful publish into a FAIL - the posts are already live and
+    # rewriting the status would misreport what happened. It gets its own line
+    # in this log instead, so a failure is still visible.
+    $Bk = Join-Path $Hq 'scripts\workshop-backup.ps1'
+    if (Test-Path -LiteralPath $Bk) {
+        Write-Log 'post-publish backup (best effort - does not change publish status)'
+        $bkOut = & powershell -NoProfile -ExecutionPolicy Bypass -File $Bk ('after-publish:' + $Ep) 2>&1
+        foreach ($l in $bkOut) { Write-Log ('  backup| ' + $l) }
+        Write-Log ('post-publish backup exit ' + $LASTEXITCODE)
+    } else {
+        Write-Log 'post-publish backup skipped - workshop-backup.ps1 not found'
+    }
+
     Write-Log 'STATUS: OK'
     exit 0
 }
