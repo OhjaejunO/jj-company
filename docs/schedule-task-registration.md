@@ -41,6 +41,24 @@ PowerShell 을 요구하고 일반 셸에서는 `액세스가 거부되었습니
 스크립트가 없는 상태로 등록하면 첫 회차가 **작업 스케줄러 층에서 죽어 로그도 안 남는다** —
 래퍼의 `STATUS: FAIL script-missing` 은 래퍼가 떠야 찍힌다.
 
+**①·② 는 2026-08-30 에 끝났다** (#138 머지 03:36 · 운영 서버 pull 완료 · 라이브 경로에서
+`--self-test` 통과 확인). **남은 것은 ③ 뿐이고 그것이 사람 자리다.**
+
+### 🔴 이 작업은 `deploy-skill` 을 건너뛴다 — **적어 둔 이탈** (2026-08-30 JJ 확정)
+
+§4 는 모든 스케줄 작업에 «운영 서버 동기화 + 스킬 배포» 둘을 요구한다. 이 작업은
+`git pull` 은 하되 **`deploy-skill.ps1` 은 부르지 않는다.**
+
+- **사유**: 이 작업은 스킬을 한 번도 안 쓴다. 그런데 스킬 배포에 묶으면 **무관한 인증
+  만료가 안전망을 꺼 버린다.** 가정이 아니다 — **2026-08-27 에 `gh` 토큰이 만료돼 세
+  스케줄 작업이 정확히 그 단계에서 죽었고**(`STATUS: FAIL skill-sync`), 원인을 말해 줄
+  검사는 그 뒤에 있어서 돌지도 못했다. 무관한 것이 만료된 날 꺼지는 백업은 백업이 아니라
+  **백업 모양의 구멍**이고, 하필 그런 날이 일이 터지는 날이다.
+- **선례**: `skill-drift-audit.ps1` 이 같은 꼴의 «적어 둔 이탈» 이다(그쪽은 `git pull`
+  자체를 건너뛰고 사유를 주석에 적었다).
+- **면허가 아니다**: **다른 스케줄 작업은 전부 둘 다 그대로 한다.** 이탈은 이 작업 하나이고,
+  세 자리(래퍼 주석 · 이 문서 · 도입 PR)에 같은 사유가 적혀 있다.
+
 ```powershell
 $act = New-ScheduledTaskAction -Execute 'powershell.exe' `
   -Argument '-NoProfile -ExecutionPolicy Bypass -File "C:\Users\ojaej\jj-company\scripts\workshop-backup.ps1" weekly'
