@@ -74,9 +74,36 @@ def split_rows(text):
     return out
 
 
+def main_table(text):
+    """**본 표만** 잘라 낸다 — `| ep | 제목 |` 머리글이 있는 표 하나.
+
+    🔴 **발행로그에는 표가 넷 있다** (본 표 · 편수/게시물 수 · 규칙 변경 이력 · ep14 처리).
+    전체 파이프 줄을 한 표로 읽으면 다른 표의 행이 본 표 행인 척 섞인다 — 지금은 그 셋이
+    2~3칸이라 길이 가드에 걸려 우연히 빠지지만, **누가 4칸짜리 표를 하나 더 넣으면 조용히
+    새어 든다.** 우연에 기대는 것은 검사가 아니다 (2026-08-31 실측으로 발견).
+    """
+    lines = text.split("\n")
+    start = None
+    for i, ln in enumerate(lines):
+        s = ln.strip()
+        if s.startswith("| ep |") and "제목" in s:
+            start = i
+            break
+    if start is None:
+        return text
+    end = start
+    for j in range(start, len(lines)):
+        s = lines[j].strip()
+        if s.startswith("|") and s.endswith("|"):
+            end = j
+        elif s:
+            break
+    return "\n".join(lines[start:end + 1])
+
+
 def audit(text):
     """돌려주는 것은 `(설치됨, 결과행목록, 요약dict)`."""
-    rows = split_rows(text)
+    rows = split_rows(main_table(text))
     if not rows:
         return False, [], {"reason": "\ud45c\uac00 \uc5c6\ub2e4"}
     head = rows[0]
@@ -161,6 +188,24 @@ def verify_structure(before, after):
                 "%+d" % (len(ha) - len(hb))))
     okall &= grew
 
+    # 🔴 **②-1 이 이 검사의 핵심이고, 처음엔 없어서 사고가 났다 (2026-08-31).**
+    #    값이 하나도 안 사라져도 **칸을 가운데 끼우면 옛 행의 «뜻»이 밀린다.** 옛 행은
+    #    물리적으로 8칸이라 5번째 칸이 새 머리글 5번(「기록 시각」) 아래로 렌더되는데
+    #    그 값은 실제로 「트리거」다. 실측으로 잡혔다 — 가운데 끼워 설치한 뒤 검사기를
+    #    돌리니 33행이 「기록 시각 시각 꼴이 아니다: **any word**(키워드 없음…)」로 FAIL
+    #    했다. **값 보존은 참인데 뜻 보존이 거짓인 상태**였다.
+    #
+    #    §0 «감지 장치가 값을 담는지» 의 한 겹 안쪽이다 — 장치는 값을 담았고 그 값이
+    #    참이었는데, **재는 대상이 틀렸다.** 그래서 축을 하나 더 둔다:
+    #    **새 칸은 «맨 뒤에만» 붙인다.** 그러면 옛 행의 1~N번 칸이 그대로 1~N번 머리글에
+    #    붙고, 없는 칸만 빈 칸으로 렌더된다.
+    prefix = ha[:len(hb)] == hb
+    out.append(("②-1 새 칸은 맨 뒤에만 (뜻 보존)", "OK" if prefix else "FAIL",
+                "옛 머리글이 새 머리글의 앞부분이다" if prefix
+                else "🔴 가운데 끼웠다 — 옛 행의 칸이 다른 머리글 아래로 밀린다: %s"
+                     % (ha[:len(hb)])))
+    okall &= prefix
+
     nb, na = len(rb) - 1, len(ra) - 1
     keep = na >= nb
     out.append(("③ 행 수가 줄지 않았다", "OK" if keep else "FAIL", "%d → %d" % (nb, na)))
@@ -199,10 +244,18 @@ def _selftest_structure():
     NEWROW = "| ep3 | 다 | 발행 | 2026-08-03 10:00 KST | 2026-08-03 11:00 KST |"
 
     cases = [
-        ("칸만 늘렸다 (정당한 구조 변경)", "\n".join([H2, S2, R1, R2]), True),
+        ("맨 뒤에 칸을 붙였다 (정당한 구조 변경)", "\n".join([H2, S2, R1, R2]), True),
         ("칸 늘리고 새 행도 붙였다", "\n".join([H2, S2, R1, R2, NEWROW]), True),
-        ("칸을 가운데 끼워도 값은 남는다",
-         "\n".join(["| ep | 기록 시각 | 제목 | 상태 | 발행일 |", S2, R1, R2]), True),
+        # 🔴 **이 케이스는 종전에 `True` 로 적혀 있었고 그것이 사고였다 (2026-08-31).**
+        #    값은 하나도 안 사라지므로 «무손실» 은 참인데, 옛 행의 칸이 다른 머리글 아래로
+        #    밀려 **뜻이 바뀐다.** 실측으로 33행이 오판정됐다. 기대값을 False 로 뒤집는다.
+        ("🔴 칸을 가운데 끼웠다 (값은 남지만 뜻이 밀린다)",
+         "\n".join(["| ep | 기록 시각 | 제목 | 상태 | 발행일 |", S2, R1, R2]), False),
+        ("맨 뒤 칸 둘을 한 번에 붙였다 (반대쪽 — 여러 칸도 통과)",
+         "\n".join(["| ep | 제목 | 상태 | 발행일 | 기록 시각 | 메모 |",
+                    "|---|---|---|---|---|---|", R1, R2]), True),
+        ("🔴 칸 이름을 바꿨다 (개명은 값이 사라지는 것과 같다)",
+         "\n".join(["| ep | 제목 | 상황 | 발행일 | 기록 시각 |", S2, R1, R2]), False),
         ("🔴 행을 하나 지웠다", "\n".join([H2, S2, R1]), False),
         ("🔴 값을 하나 고쳤다",
          "\n".join([H2, S2, R1, "| ep2 | 다른제목 | 발행 | 2026-08-02 10:00 KST |"]), False),
@@ -298,6 +351,24 @@ def _self_test():
                           row("ep41", "\ubc1c\ud589", "2026-08-30 11:00 KST", "2026-09-05 11:00 KST")))
     case("\ud589\uc774 \uc5ec\ub7ec\uac1c\uba74 \uc804\ubd80 \ubcf8\ub2e4", len(res) == 2 and res[1][1] == "FAIL",
          "%d\uac74" % len(res))
+
+    print("[R] \uc5ed\uac80\uc99d \u2014 \ubcf8 \ud45c\ub9cc \uc77d\ub294\uac00 (\ud45c\uac00 \uc5ec\ub7ec\uac1c\uc778 \ud30c\uc77c)")
+    MULTI = "\n".join([
+        "# \uba38\ub9ac\ub9d0", "",
+        H_NEW, SEP, row("ep40", "\ubc1c\ud589", "2026-08-30 10:00 KST",
+                        "2026-08-30 10:30 KST"), "",
+        "## \ub2e4\ub978 \ud45c", "",
+        "| \uce35 | \uac12 | \uc138\ub294 \ubc95 | \ub137\uc9f8 | \ub2e4\uc12f\uc9f8 | \uc5ec\uc12f\uc9f8 |",
+        "|---|---|---|---|---|---|",
+        "| \ud3b8\uc218 | 35\ud3b8 | \ubc1c\ud589 \uc778 \ud589 | \ubc1c\ud589 | \uc544\ubb34\uac70\ub098 | \ub610 |"])
+    _, res, _ = audit(MULTI)
+    case("\ub2e4\ub978 \ud45c\uc758 \ud589\uc774 \uc11e\uc774\uc9c0 \uc54a\ub294\ub2e4 (\ubcf8 \ud45c 1\ud589\ub9cc)",
+         len(res) == 1 and res[0][0] == "ep40", "\ub300\uc0c1 %d\uac74" % len(res))
+    _, res2, _ = audit("\n".join([H_NEW, SEP,
+                                  row("ep40", "\ubc1c\ud589", "2026-08-30 10:00 KST",
+                                      "2026-08-30 10:30 KST")]))
+    case("\ud45c\uac00 \ud558\ub098\ubfd0\uc774\uc5b4\ub3c4 \uadf8\ub300\ub85c \uc77d\ub294\ub2e4 (\ubc18\ub300\ucabd)",
+         len(res2) == 1)
 
     print("[R] \uc5ed\uac80\uc99d — \uc2dc\uac04\ub300 \ud658\uc0b0")
     a, _ = parse_ts("2026-08-30 01:38 KST")
