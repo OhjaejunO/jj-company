@@ -13,16 +13,23 @@
 #   cannot be rebuilt (text sources + _official originals + the scan log and the
 #   publication ledger) and copies that to Google Drive.
 #
-# WHY NO SKILL SYNC (deliberate deviation from charter section 4)
+# WHY NO SKILL SYNC - a WRITTEN-DOWN DEVIATION, confirmed by JJ 2026-08-30
 #   Charter section 4 asks every scheduled job to sync the ops server AND deploy
 #   the skill before running. This job does the git pull - it must run the
-#   current script - but deliberately SKIPS deploy-skill.ps1, because it never
-#   loads the skill. Wiring the backup to skill deployment would mean an
-#   unrelated credential expiry disables the safety net: on 2026-08-27 an expired
-#   gh token killed three jobs at exactly that step. A backup that dies when
-#   something unrelated expires is not a backup. skill-drift-audit.ps1 sets the
-#   precedent for a written-down deviation of this shape.
-#   >> Flagged for JJ. If the answer is "no deviations", add the deploy call.
+#   current script - but deliberately SKIPS deploy-skill.ps1.
+#
+#   Reason: this job never loads the skill, and wiring the backup to skill
+#   deployment means an unrelated credential expiry switches the safety net off.
+#   That is not hypothetical - on 2026-08-27 an expired gh token killed three
+#   scheduled jobs at exactly that step (STATUS: FAIL skill-sync), and the check
+#   that would have named the cause sat behind it. A backup that dies because
+#   something unrelated expired is not a backup; it is a backup-shaped hole that
+#   opens on the days credentials lapse - which are the days things go wrong.
+#
+#   The deviation is deliberate, narrow and written down in three places: here,
+#   docs\schedule-task-registration.md (2-1), and the PR that introduced it.
+#   skill-drift-audit.ps1 sets the precedent for this shape of deviation.
+#   Not a licence: every OTHER scheduled job still does both syncs.
 
 $ErrorActionPreference = 'Continue'
 
