@@ -86,6 +86,32 @@ skill-drift-audit:    WakeToRun=True StartWhenAvailable=True Multi=IgnoreNew Lim
 tomangchi-scout:      WakeToRun=True StartWhenAvailable=True Multi=IgnoreNew Limit=PT1H  trig=2026-08-10T08:00:00+09:00
 ```
 
+## 2-2. 실값 실측 — 2026-08-30
+
+`Get-ScheduledTask -TaskPath '\JJ'` + `Get-ScheduledTaskInfo` 조회 결과.
+
+| 작업 | 트리거(StartBoundary) | 시간대 표기 | Wake | SWA | 마지막 실행 | 결과 |
+|---|---|---|---|---|---|---|
+| morning-vault-health | `2026-08-10T12:30:00` (days=62 평일) | **없음** | True | True | 2026-08-28 12:30:00 | `0x0` |
+| skill-drift-audit | `2026-08-15T12:30:00` | **없음** | True | True | 2026-08-30 12:30:01 | 🔴 `0x1` |
+| tomangchi-scout | `2026-08-10T08:00:00+09:00` | 있음 | True | True | 2026-08-30 11:16:04 | `0x0` |
+| job-scout | `2026-08-10T08:30:00+09:00` | 있음 | True | True | 2026-08-30 11:16:04 | `0x0` |
+| hermes-event-watch | `2026-08-26T07:40:00+09:00` | 있음 | True | True | 2026-08-30 11:16:04 | `0x0` |
+| **workshop-backup** | `2026-08-30T13:00:00+09:00` (days=1 일요일) | 있음 | True | True | (등록 후 첫 회차) | — |
+
+### 시간대 무표기 2건 — **동작에는 영향이 없다** (실측)
+
+`morning-vault-health`·`skill-drift-audit` 의 `StartBoundary` 에는 `+09:00` 이 없다.
+그런데 **둘 다 12:30 정각에 떴다**(12:30:00 · 12:30:01) 그리고 다음 실행도 8/31 12:30 이다 —
+Task Scheduler 가 시간대 없는 값을 **로컬 시각**으로 읽기 때문이다. **표기 차이는 겉이고
+동작은 같다.** 재등록 때 굳이 맞출 필요는 없고, 맞추면 표가 고르게 읽힌다는 정도의 값이다.
+
+🔴 **`skill-drift-audit` 이 오늘 `0x1` 로 끝났다 — 드리프트를 실제로 잡은 것이다.**
+`cardcheck.py` 가 실행 정본(31,640B · mtime 8/25)과 스킬 사본(33,324B · 커밋 8/29 22:26)에서
+갈렸고 **사본이 최근**이다. 즉 스킬 레포의 개정이 **실행 정본으로 안 넘어갔다.**
+`00_브랜드에셋` 쓰기는 §2 예외 어디에도 없어(4번은 `02_제작중\<편>` 한정) **이 회차에서
+고치지 않았다.** 근본은 정본 단일화(`docs\plan-brand-assets-move.md`)이고 그때 같이 닫힌다.
+
 ## 3. 재등록 후 — 실값 재확인 (건너뛰면 절차를 안 한 것이다)
 
 ```powershell
