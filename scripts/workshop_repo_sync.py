@@ -7,7 +7,7 @@ r"""워크숍 소스 → 사설 레포 **단방향 push** (정관 §2 예외 3�
 훅으로 «워크숍으로 pull 하지 마라» 를 막는 방법도 있지만, 그것은 ③층이다. 여기서는
 **워크숍을 그 레포의 작업 트리로 만들지 않는다.**
 
-    워크숍 (읽기만)  ──복사──▶  스테이징 클론  ──push──▶  PU3-Lab/tomangchi-workshop
+    워크숍 (읽기만)  ──복사──▶  스테이징 클론  ──push──▶  OhjaejunO/tomangchi-workshop
     C:\...\workshop              C:\...\tomangchi-workshop
 
 워크숍에는 그 레포의 `.git` 이 **없다.** 그러므로 `git pull`·`checkout`·`reset` 이
@@ -52,7 +52,7 @@ WS = os.environ.get(
     r"C:\Users\ojaej\orca\tomangchi-lab.github.io\workshop")
 STAGE = os.environ.get(
     "TOMANGCHI_WS_REPO", r"C:\Users\ojaej\orca\tomangchi-workshop")
-REMOTE = "https://github.com/PU3-Lab/tomangchi-workshop.git"
+REMOTE = "https://github.com/OhjaejunO/tomangchi-workshop.git"
 
 SRC_EXT = (".py", ".md", ".txt", ".json", ".html")
 MUST_DIRS = ("_official", "\uc2a4\uce94\ub85c\uadf8")

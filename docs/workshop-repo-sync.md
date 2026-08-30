@@ -1,8 +1,14 @@
 # 워크숍 소스 레포 — 동기 절차 (인프라 백로그 21번 ㉮ · 정관 §2 예외 3번)
 
-> **레포**: `PU3-Lab/tomangchi-workshop` (**PRIVATE**)
+> **레포**: `OhjaejunO/tomangchi-workshop` (**PRIVATE**)
 > **도구**: `scripts\workshop_repo_sync.py`
 > **상태**: 초기 동기 완료 (2026-08-30 · 710개 · 58.19 MB)
+>
+> 🔴 **주소가 한 번 바뀌었다 (2026-08-30).** `PU3-Lab/tomangchi-workshop` 에서 위 주소로
+> 이전했다 — `PU3-Lab` 은 팀 조직이라 회사 자산을 둘 자리가 아니다(백로그 22번).
+> **리다이렉트에 기대지 않는다** — 옛 주소로도 `clone`·`push` 가 계속 통과해 틀린 주소가
+> 아무 신호도 내지 않고, 누가 옛 이름을 다시 만들면 그날 끊긴다. 이 문서와
+> `workshop_repo_sync.py` 의 `REMOTE` 를 포함해 **전부 새 주소로 갱신**했다.
 
 ## 왜 단방향이 «구조» 인가
 
@@ -10,7 +16,7 @@
 여기서는 한 겹 아래에서 닫는다(정관 §0 4층 ①) —
 
 ```
-워크숍 (읽기만)  ──복사──▶  스테이징 클론  ──push──▶  PU3-Lab/tomangchi-workshop
+워크숍 (읽기만)  ──복사──▶  스테이징 클론  ──push──▶  OhjaejunO/tomangchi-workshop
 C:\...\workshop              C:\...\tomangchi-workshop
 ```
 
@@ -38,7 +44,7 @@ C:\...\workshop              C:\...\tomangchi-workshop
 git clone https://github.com/OhjaejunO/jj-company.git
 git clone https://github.com/OhjaejunO/tomangchi-skill.git
 git clone https://github.com/tomangchi-lab/tomangchi-lab.github.io.git
-git clone https://github.com/PU3-Lab/tomangchi-workshop.git
+git clone https://github.com/OhjaejunO/tomangchi-workshop.git
 
 # ② 워크숍 소스를 사이트 레포 안으로 편다 (workshop/ 은 사이트 레포에서 gitignore 다)
 #    🔴 복사다. 사이트 레포 안에 워크숍 레포를 «클론» 하지 않는다 — 그러면 그 폴더가
