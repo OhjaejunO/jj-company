@@ -35,6 +35,7 @@ import datetime
 import hashlib
 import io
 import os
+import re
 import sys
 import zipfile
 
@@ -55,6 +56,21 @@ MUST_DIRS = ("_official", "\uc2a4\uce94\ub85c\uadf8")
 MUST_FILES = ("\ubc1c\ud589\ub85c\uadf8.md",)
 SKIP_DIRS = ("__pycache__", ".git")
 
+#: ── ⓒ 자산 — **다시 못 만드는 것** (JJ 판정 2026-08-30) ─────────────────────
+#: `_scenes/` 는 모델이 만든다. 같은 프롬프트로도 같은 그림이 안 나온다.
+#: `_assets/`·`assets/` 는 제공·수집물, `00_브랜드에셋` 이미지는 로고·엔드카드 원본이다.
+ASSET_DIRS = ("_scenes", "_assets")
+ASSET_ROOTS = ("assets", "00_\ube0c\ub79c\ub4dc\uc5d0\uc14b")
+ASSET_EXT = (".png", ".jpg", ".jpeg", ".mp4", ".webp", ".gif", ".mov", ".ttf", ".otf")
+
+#: ── ⓓ 보존분 — **발행 채택본** ────────────────────────────────────────────
+#: 릴스 최종물·채널 광고·릴스 표지 프레임. 덱 번호 체계 밖에서 발행되는 산출물이라
+#: 빌더가 다시 만들지 않는다. 🔴 선행 실측에서 이것들이 «옛 시안» 더미에 있었다.
+FINAL_RE = re.compile(r"(reel[0-9_]*\.mp4$|reel_[a-z0-9_]+\.(mp4|png)$"
+                      r"|cover_frame\.png$|ad_[a-z0-9_]+\.mp4$|01_reel\.mp4$)", re.I)
+#: 🔴 아카이브·폐기 **안의** 최종물 꼴은 최종물이 아니다 — 자리로 먼저 가른다.
+DROP_DIRS = ("_archive", "_retired", "_\ud3d0\uae30")
+
 
 def sha256_file(path, chunk=1 << 20):
     h = hashlib.sha256()
@@ -71,9 +87,21 @@ def collect(root):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
         parts = os.path.relpath(cur, root).replace("\\", "/").split("/")
         in_must = any(p in MUST_DIRS for p in parts)
+        in_asset = any(p in ASSET_DIRS for p in parts) or (parts and parts[0] in ASSET_ROOTS)
+        in_drop = any(p in DROP_DIRS for p in parts)
         for f in files:
             rel = os.path.relpath(os.path.join(cur, f), root).replace("\\", "/")
-            if in_must or f in MUST_FILES or f.lower().endswith(SRC_EXT):
+            low = f.lower()
+            keep = in_must or f in MUST_FILES or low.endswith(SRC_EXT)
+            # ⓒ 자산 — 다시 못 만든다
+            if not keep and in_asset and low.endswith(ASSET_EXT):
+                keep = True
+            # ⓓ 발행 채택본 — **코드가 만드는 덱 산출물은 먼저 뺀다**(순서가 판정을 바꾼다)
+            if (not keep and not in_drop and not f[:1].isdigit()
+                    and not f.startswith("_") and "shots" not in parts
+                    and FINAL_RE.search(f)):
+                keep = True
+            if keep:
                 out.append((rel, os.path.join(cur, f)))
     return sorted(out)
 
@@ -170,6 +198,25 @@ def _self_test():
     assert "\uc2a4\uce94\ub85c\uadf8/s.md" in rels, "스캔로그를 안 담았다"
     # ⓑ 렌더물은 안 담는다 (전부 담는 백업이 아니다)
     assert "b.png" not in rels, "렌더물까지 담고 있다"
+    # ⓑ-2 ⓒ 자산·ⓓ 채택본 (2026-08-30)
+    os.makedirs(os.path.join(root, "ep9", "_scenes"))
+    os.makedirs(os.path.join(root, "ep9", "reel"))
+    os.makedirs(os.path.join(root, "ep9", "_archive"))
+    for rel_, data in (("ep9/_scenes/cover_x.png", "scene"),
+                       ("ep9/reel_ep9.mp4", "reel-final"),
+                       ("ep9/reel/cover_frame.png", "reel-cover"),
+                       ("ep9/08_kit.mp4", "deck-output"),
+                       ("ep9/_archive/reel_old.mp4", "archived")):
+        io.open(os.path.join(root, rel_.replace("/", os.sep)), "w",
+                encoding="utf-8").write(data)
+    rels2 = {r for r, _ in collect(root)}
+    assert "ep9/_scenes/cover_x.png" in rels2, "생성 씬을 안 담았다 (ⓒ)"
+    assert "ep9/reel_ep9.mp4" in rels2, "릴스 최종물을 안 담았다 (ⓓ)"
+    assert "ep9/reel/cover_frame.png" in rels2, "릴스 표지 프레임을 안 담았다 (ⓓ)"
+    # 🔴 순서 검사 — 덱 산출물은 이름이 비슷해도 안 담긴다
+    assert "ep9/08_kit.mp4" not in rels2, "덱 산출물까지 담았다 (순서가 틀렸다)"
+    # 🔴 아카이브 안의 최종물 꼴은 최종물이 아니다
+    assert "ep9/_archive/reel_old.mp4" not in rels2, "아카이브까지 담았다"
 
     z = os.path.join(d, "t.zip")
     build_zip(items, z)
@@ -313,9 +360,11 @@ def main(argv=None):
         print("리포트: %s" % rp)
 
     # 오래된 zip 정리 — **12개만 남긴다.** 지우는 것은 우리가 만든 zip 뿐이다.
+    # 🔴 범위를 넓히며 한 벌이 ~1GB 가 됐다. 12개를 두면 12GB 다 —
+    #    이력은 이제 레포(`tomangchi-workshop`)가 지므로 zip 은 **최근 것만** 둔다.
     zips = sorted(f for f in os.listdir(out_dir)
                   if f.startswith("workshop-source_") and f.endswith(".zip"))
-    for old in zips[:-12]:
+    for old in zips[:-4]:
         os.remove(os.path.join(out_dir, old))
         print("옛 로컬 zip 정리: %s" % old)
 
