@@ -21,7 +21,7 @@ powershell -File scripts\check-repo-guard.ps1 -Fix
 |---|---|---|
 | 작업장 (운영 기계) | `C:\Users\ojaej\orca\jj-company` | 🟢 `scripts/githooks` |
 | 운영 서버 | `C:\Users\ojaej\jj-company` | 🟢 `scripts/githooks` |
-| 작업장 (집 기계 · 2026-08-30 온보딩) | `C:\Users\opjj7\orca\jj-company` | 🟢 `scripts/githooks` |
+| 작업장 (집 기계 · **제작 미개방**) | `C:\Users\opjj7\orca\jj-company` | 🟢 `scripts/githooks` |
 
 **같은 기계의 다른 레포** — `core.hooksPath` 는 레포마다 따로 건다:
 
@@ -37,6 +37,10 @@ powershell -File scripts\check-repo-guard.ps1 -Fix
   같이 적는 이유가 그것이다. 🔴 별개 사안이지만 같은 뿌리로, 워크숍 제작 코드 **100개 파일**이
   `C:\Users\ojaej\…` 를 상수로 박고 있어 집 기계에서 그대로 돌지 않는다
   (`docs\onboarding-report-2026-08-30.md`).
+- 🔴 **«제작 미개방» 은 이 표의 판정이지 예정이 아니다.** 집 기계는 **레포·훅·문서 층까지만**
+  섰다 — 렌더 실측(온보딩 4번 과제)을 **수행하지 못했고, 그래서 «같다» 도 «다르다» 도 적지
+  않는다.** 이 칸을 «작업장» 으로만 적으면 다음 사람이 **제작이 되는 기계로 읽는다.**
+  여는 조건과 재개 조건은 `docs\infra-backlog.md` **23번**이다.
 
 🔴 **새 클론은 이 설정이 필요하다.** `git clone` 만 하면 훅은 파일로 따라오지만 **돌지 않는다.**
 새로 클론했으면 위 `-Fix` 를 한 번 돌려라.
