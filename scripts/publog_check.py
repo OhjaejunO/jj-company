@@ -175,11 +175,42 @@ def row_values(cells):
     return [c for c in cells if c.strip()]
 
 
-def verify_structure(before, after):
+def outside_rows(text):
+    """**본 표 밖**에 있는 편 행(`| ep… |` 또는 `| **ep… |`)을 돌려준다.
+
+    🔴 **이 함수가 축 ⑤ 다 (2026-08-31 신설).** 2026-08-30 에 ep39 두 행을 «append» 했는데
+    그것이 **파일 끝**이었다 — 발행로그에는 표가 넷 있고 본 표는 앞쪽이라, 붙은 자리는
+    마지막 표 **다음**이었다. 갱신 규칙 6이 「발행 여부 판정은 이 표로만 한다」인데
+    **그 표에 ep39 가 없었고**, 검사기도 못 봤다(`발행 행 33`).
+
+    그때 검증은 「두 행 실재 · 기존 본문 무변경 · 추가는 끝에만」 셋 다 참을 냈다 —
+    **셋 다 참이었고 셋 다 엉뚱한 것을 쟀다.** 「파일 끝에 붙인다」와 「표에 붙인다」가
+    다른 일인데 그것을 가르는 축이 없었다.
+    """
+    inside = set()
+    for cells in split_rows(main_table(text))[1:]:
+        if cells:
+            inside.add(tuple(cells))
+    out = []
+    for cells in split_rows(text)[1:]:
+        first = re.sub(r"[*` ]", "", cells[0]) if cells else ""
+        if re.match(r"ep\d+", first) and tuple(cells) not in inside:
+            out.append(cells)
+    return out
+
+
+def verify_structure(before, after, allow_move=False):
     """돌려주는 것은 `(무손실인가, 결과행목록)`.
 
-    검사 축 넷 — ① 머리글의 기존 칸이 하나도 사라지지 않았다 ② 칸은 늘기만 했다
-    ③ 행 수가 줄지 않았다 ④ 기존 행마다 값이 **전수 보존**됐다.
+    검사 축 다섯 — ① 머리글의 기존 칸이 하나도 사라지지 않았다 ②·②-1 칸은 늘기만 했고
+    새 칸은 맨 뒤에만 ③ 행 수가 줄지 않았다 ④ 기존 행마다 값이 **전수 보존**됐다
+    ⑤ **모든 편 행이 본 표 안에 있다**.
+
+    🔴 **`allow_move=True` 는 «자리 정정» 회차 전용이다** (정관 §2 예외 5 조건 ④).
+    행이 옮겨지면 ④ 의 «자리별 앞부분 일치» 가 성립할 수 없다 — 그래서 그때는
+    **값 «집합» 보존**으로 바꿔 재고, 대신 **⑤ 가 나빠지지 않았는지**를 같이 본다.
+    🔴 **집합 비교는 자리를 못 본다** — 그래서 ⑤ 없이 `allow_move` 를 쓰면
+    «값은 다 있는데 여전히 표 밖» 인 상태가 통과한다. **둘은 짝이다.**
     """
     rb, ra = split_rows(before), split_rows(after)
     if not rb or not ra:
@@ -224,19 +255,41 @@ def verify_structure(before, after):
     okall &= keep
 
     bad = []
-    for i, cells in enumerate(rb[1:]):
-        want = row_values(cells)
-        got = row_values(ra[1 + i]) if 1 + i < len(ra) else []
-        # 🔴 «부분집합» 이 아니라 «앞부분 일치» 로 본다. 부분집합이면 값을 하나 지우고
-        #    다른 값을 더해도 통과할 수 있다 — 그것은 무손실이 아니라 교체다.
-        if got[:len(want)] != want:
-            bad.append((i + 1, want, got))
-    out.append(("④ 기존 행 값 전수 보존", "OK" if not bad else "FAIL",
-                "%d행 전부 일치" % nb if not bad
-                else "어긋난 행 %d개 · 첫 번째=%d행" % (len(bad), bad[0][0])))
-    okall &= not bad
-    for i, want, got in bad[:3]:
-        out.append(("   · %d행" % i, "FAIL", "전 %s → 후 %s" % (want[:4], got[:4])))
+    if allow_move:
+        # 🔴 자리 정정 회차 — **값 «집합»** 으로 본다(자리가 바뀌므로 자리별 비교 불가).
+        #    다중집합이라 «같은 값이 둘 있다가 하나로 줄었다» 도 잡힌다.
+        import collections
+        cb = collections.Counter(v for cells in rb[1:] for v in row_values(cells))
+        ca = collections.Counter(v for cells in ra[1:] for v in row_values(cells))
+        lost_v = cb - ca
+        out.append(("④ 값 집합 보존 (이동 허용 모드)", "OK" if not lost_v else "FAIL",
+                    "값 %d개 전부 남음" % sum(cb.values()) if not lost_v
+                    else "사라진 값 %d개 · 예: %s"
+                         % (sum(lost_v.values()), list(lost_v)[0][:40])))
+        okall &= not lost_v
+    else:
+        for i, cells in enumerate(rb[1:]):
+            want = row_values(cells)
+            got = row_values(ra[1 + i]) if 1 + i < len(ra) else []
+            # 🔴 «부분집합» 이 아니라 «앞부분 일치» 로 본다. 부분집합이면 값을 하나 지우고
+            #    다른 값을 더해도 통과할 수 있다 — 그것은 무손실이 아니라 교체다.
+            if got[:len(want)] != want:
+                bad.append((i + 1, want, got))
+        out.append(("④ 기존 행 값 전수 보존", "OK" if not bad else "FAIL",
+                    "%d행 전부 일치" % nb if not bad
+                    else "어긋난 행 %d개 · 첫 번째=%d행" % (len(bad), bad[0][0])))
+        okall &= not bad
+        for i, want, got in bad[:3]:
+            out.append(("   · %d행" % i, "FAIL", "전 %s → 후 %s" % (want[:4], got[:4])))
+
+    ob, oa = outside_rows(before), outside_rows(after)
+    better = len(oa) <= len(ob) and (len(oa) == 0 or not allow_move)
+    out.append(("⑤ 편 행이 본 표 안에 있다", "OK" if better else "FAIL",
+                "표 밖 %d → %d" % (len(ob), len(oa))
+                + ("" if better else " · 🔴 자리 정정 회차인데 표 밖이 남았다")))
+    okall &= better
+    for cells in oa[:3]:
+        out.append(("   · 표 밖", "FAIL", re.sub(r"[*` ]", "", cells[0])[:20]))
     return okall, out
 
 
@@ -278,6 +331,45 @@ def _selftest_structure():
          "\n".join([H2, S2, R1, "| ep2 | 발행 | 2026-08-02 10:00 KST | 새값 |"]), False),
     ]
     bad = 0
+
+    # ── 축 ⑤ · 이동 모드 역검증 (2026-08-31 신설) ──────────────────────────
+    # 🔴 **걸려야 하는 쪽부터 만든다.** 표 밖에 붙은 행이 실제로 걸리는지 먼저 보고,
+    #    그 다음에 «정정하면 통과한다» 를 붙인다 (L-009).
+    OTHER = "\n".join(["", "## 다른 표", "",
+                       "| 층 | 값 | 세는 법 |", "|---|---|---|",
+                       "| 편수 | 35편 | 발행 인 행 |"])
+    BASE5 = "\n".join([H2, S2, R1, R2]) + OTHER
+    R3 = "| ep3 | 다 | 발행 | 2026-08-03 10:00 KST | 2026-08-03 11:00 KST |"
+    STRAY = BASE5 + "\n" + R3
+    FIXED = "\n".join([H2, S2, R1, R2, R3]) + OTHER
+
+    def case5(label, cond, detail=""):
+        nonlocal_bad[0] += 0 if cond else 1
+        print("  %s %-52s %s" % ("OK  " if cond else "FAIL", label, detail))
+
+    nonlocal_bad = [0]
+    print("[R] 역검증 — 축 ⑤ 표 밖 행 (걸려야 하는 쪽 먼저)")
+    n_stray = len(outside_rows(STRAY))
+    case5("🔴 표 밖에 붙은 편 행이 잡힌다 (2026-08-30 사고 재현)",
+          n_stray == 1, "표 밖 %d행" % n_stray)
+    case5("본 표 안의 행은 표 밖으로 세지 않는다 (반대쪽)",
+          len(outside_rows(FIXED)) == 0, "표 밖 %d행" % len(outside_rows(FIXED)))
+    case5("다른 표의 행은 «편 행» 이 아니라 세지 않는다",
+          len(outside_rows(BASE5)) == 0, "표 밖 %d행" % len(outside_rows(BASE5)))
+    case5("🔴 표 밖에 붙이면 구조 검사가 FAIL 한다",
+          verify_structure(BASE5, STRAY)[0] is False)
+    case5("표 밖 행을 본 표로 옮기면 통과한다 (이동 모드)",
+          verify_structure(STRAY, FIXED, allow_move=True)[0] is True)
+    case5("🔴 옮기지 않고 이동 모드만 켜면 통과하지 않는다",
+          verify_structure(STRAY, STRAY, allow_move=True)[0] is False,
+          "집합 보존만으로는 부족 — 축 ⑤ 가 짝이다")
+    case5("🔴 이동 모드에서도 값이 사라지면 FAIL 한다",
+          verify_structure(STRAY, "\n".join([H2, S2, R1]) + OTHER,
+                           allow_move=True)[0] is False)
+    case5("이동 모드는 순서만 바뀐 것을 통과시킨다 (값 집합이 같다)",
+          verify_structure(BASE5, "\n".join([H2, S2, R2, R1]) + OTHER,
+                           allow_move=True)[0] is True)
+    bad += nonlocal_bad[0]
     print("[R] 역검증 — 구조 변경 값 무손실")
     for label, after, want in cases:
         got, _ = verify_structure(BEFORE, after)
@@ -420,7 +512,11 @@ def _run_verify_structure(argv):
     print("  \uc804: %s" % b_path)
     print("  \ud6c4: %s" % a_path)
     print()
-    okall, rows = verify_structure(before, after)
+    mv = "--allow-move" in argv
+    if mv:
+        print("  🔴 이동 허용 모드 — ④ 를 «값 집합 보존» 으로 재고, ⑤ 가 0 이어야 한다")
+        print()
+    okall, rows = verify_structure(before, after, allow_move=mv)
     for label, verdict, why in rows:
         print("  %-4s %-24s %s" % (verdict, label, why))
     print()
@@ -448,6 +544,20 @@ def main():
     print("# \ubc1c\ud589\ub85c\uadf8 «\uae30\ub85d \uc2dc\uac01» \uac80\uc0ac")
     print("  %s" % PUBLOG)
     print()
+    # 🔴 **축 ⑤ 를 본 검사에도 건다 (2026-08-31).** 구조 검증 때만 보면, 평소 실행은
+    #    «표 안의 행» 만 세면서 `STATUS: OK` 를 낸다 — 표 밖에 행이 있어도 조용하다.
+    #    실제로 2026-08-30~31 사이 이 검사기는 ep39 두 행을 못 본 채 OK 를 냈다.
+    stray = outside_rows(text)
+    if stray:
+        print("  FAIL ⑤ 본 표 밖에 편 행이 있다 — %d개: %s"
+              % (len(stray), ", ".join(re.sub(r"[*` ]", "", c[0])[:16] for c in stray[:4])))
+        print("       갱신 규칙 6 은 «발행 여부 판정은 이 표로만» 이다 — 표 밖 행은 "
+              "판정에 안 들어간다. 정정: --verify-structure … --allow-move (정관 §2 예외 5 ④)")
+        print()
+    else:
+        print("  OK   ⑤ 편 행이 전부 본 표 안에 있다")
+        print()
+
     inst, res, meta = audit(text)
     if not inst:
         print("  N/A  \uce78\uc774 \uc5c6\ub2e4 — %s" % meta.get("reason"))
@@ -464,8 +574,19 @@ def main():
     print("  \ubc1c\ud589 \ud589 %d — OK %d · WARN %d · FAIL %d · NA %d"
           % (len(res), n["OK"], n["WARN"], n["FAIL"], n["NA"]))
     print()
-    print("STATUS: %s" % ("OK" if not n["FAIL"] else "FAIL publog %d\uac74" % n["FAIL"]))
-    return 0 if not n["FAIL"] else 1
+    # \ud83d\udd34 **\ucd95 \u2464 \ub97c STATUS \uc5d0 \ubc18\uc601\ud55c\ub2e4.** \ud654\uba74\uc5d0 FAIL \uc744 \ucc0d\uc5b4 \ub193\uace0 `STATUS: OK` \ub97c \ub0b4\uba74
+    #    \uae30\uacc4\ub85c \uc77d\ub294 \ucabd\uc740 \ud1b5\uacfc\ub85c \ubc1b\ub294\ub2e4 \u2014 \uac80\uc0ac\uac00 \uc7a1\uc740 \uac83\uc744 \uc885\uacb0\ubd80\uac00 \ubc84\ub9ac\ub294 \uad6c\uc870\ub2e4
+    #    (\uac8c\uc774\ud2b8\uac00 `[P]` \uc5d0\uc11c \uacaa\uc740 \uac83\uacfc \uac19\uc740 \uaf34).
+    why = []
+    if n["FAIL"]:
+        why.append("\uae30\ub85d\uc2dc\uac01 %d\uac74" % n["FAIL"])
+    if stray:
+        why.append("\ud45c\ubc16\ud589 %d\uac74" % len(stray))
+    if not why:
+        print("STATUS: OK")
+        return 0
+    print("STATUS: FAIL publog %s" % " \u00b7 ".join(why))
+    return 1
 
 
 if __name__ == "__main__":
