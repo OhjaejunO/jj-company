@@ -456,9 +456,18 @@ def pack(ep, posts, rows, gate, media=None):
         a("```")
         a("")
         for m in by_post.get(i, []):
-            a("**첨부** `%s` — %s · 크레딧 `%s` · %s"
-              % (os.path.join(ep["dir"], m["path"].replace("/", os.sep)),
-                 m["shape"], m["credit"], m["tier"]))
+            line = ("**첨부** `%s` — %s · 크레딧 `%s` · %s"
+                    % (os.path.join(ep["dir"], m["path"].replace("/", os.sep)),
+                       m["shape"], m["credit"], m["tier"]))
+            if m.get("url"):
+                # 발행용 공개 URL + 로컬 검증본의 sha256 — 워커가 발행 직전 URL 을 다시
+                # 받아 이 값과 대조한다. 해시는 기계가 센다(사람이 옮겨 적는 값이 아니다).
+                import hashlib as _hl
+                _sha = _hl.sha256(io.open(
+                    os.path.join(ep["dir"], m["path"].replace("/", os.sep)), "rb"
+                ).read()).hexdigest()
+                line += " · URL %s · sha256 %s" % (m["url"], _sha)
+            a(line)
         if by_post.get(i):
             a("")
     a("## 게이트")
