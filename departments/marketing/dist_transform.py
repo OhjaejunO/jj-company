@@ -133,6 +133,22 @@ class _Subst(ast.NodeTransformer):
                 return ast.copy_location(ast.Constant(len(node.args[0].value)), node)
             except TypeError:
                 return node
+        # 셋째 갈래: 경로 조립 (2026-09-02 · ep41/42 실측). 빌더가 카드 shot 을
+        # `p("_official", "og_1200.jpg")`(ep42) 나 `os.path.join("_official", …)`(ep41) 로
+        # 적기 시작해 CARDS 전체가 안 읽혔다. `p(*a)` 는 빌더 공통 헬퍼로 `os.path.join` 의
+        # 별칭이다 — 둘 다 **문자열 상수 인자일 때만** 접는다. len·% 와 같은 꼴로, 인자에
+        # 상수 아닌 것(`p(OF, …)` 의 OF 같은 절대경로 변수)이 섞이면 접지 않고 그대로 둔다.
+        is_p = isinstance(node.func, ast.Name) and node.func.id == "p"
+        is_ospj = (isinstance(node.func, ast.Attribute) and node.func.attr == "join"
+                   and isinstance(node.func.value, ast.Attribute)
+                   and node.func.value.attr == "path"
+                   and isinstance(node.func.value.value, ast.Name)
+                   and node.func.value.value.id == "os")
+        if ((is_p or is_ospj) and node.args and not node.keywords
+                and all(isinstance(a, ast.Constant) and isinstance(a.value, str)
+                        for a in node.args)):
+            return ast.copy_location(
+                ast.Constant(os.path.join(*[a.value for a in node.args])), node)
         return node
 
     def visit_BinOp(self, node):
@@ -422,7 +438,10 @@ def pack(ep, posts, rows, gate, media=None):
     a("# ep%s Threads 발행 복붙 세트 — %s" % (ep["EP"], today))
     a("")
     a("> **JJ 는 이 섹션만 본다.** 포스트를 위에서부터 차례로 올리고, 2번째부터는 **답글로 이어 붙인다.**")
-    a("> 발행은 사람이 한다 — API 자동 게시는 범위 밖(정관 §0 C등급).")
+    # §0 이 Threads 를 승인 장치와 함께 열었다 (2026-08-28) — 종전 «API 자동 게시는 범위 밖» 은
+    # 개정 전 문장이라 2026-09-02 에 갈았다. 워커는 아직 텍스트 전용이라 첨부 편은 사람이 올린다.
+    a("> 발행은 승인 파일(`publish_approval\\<ep>.json`)이 선 뒤에만 — 텍스트 전용 편은 워커")
+    a("> (`publish_threads.py --publish`)가, **첨부가 있는 편은 사람이** 올린다 (§0 · 워커는 텍스트 전용).")
     a("")
     a("## 발행 순서")
     a("")

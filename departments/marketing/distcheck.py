@@ -303,6 +303,16 @@ def check_media(media, posts, facts, ep, r):
         bad_src = []
         for m in media:
             k = m["src_key"]
+            # `OFFICIAL_VIDEO` 특례 (2026-09-02 · ep42 실측). 공식 영상의 URL 정본은
+            # _facts 가 아니라 **편 선언** `OFFICIAL_VIDEO = {url, dur}` 다(SKILL v3.54 §7 이
+            # 거기 두라고 정했다). ep42 는 _facts 에 URL 변수가 하나도 없어 종전 규칙으로는
+            # 공식 영상을 붙일 길이 없었다 — `[5-2]` 의 KIT_URL 특례(편 선언 KIT["url"] 이
+            # 정본)와 같은 꼴로 연다. 선언이 없거나 url 이 없으면 종전대로 걸린다.
+            if k == "OFFICIAL_VIDEO":
+                ov = ep.get("OFFICIAL_VIDEO")
+                if (isinstance(ov, dict) and isinstance(ov.get("url"), str)
+                        and URL_RE.match(ov["url"])):
+                    continue
             v = getattr(facts, k, None) if k and not k.startswith("_") else None
             if not isinstance(v, str) or not URL_RE.match(v):
                 bad_src.append("P%d %s" % (m["post"], k or "(빈칸)"))
@@ -445,6 +455,9 @@ def check(posts, rows, facts, kit_url, caption, cardcheck, media=None, ep=None):
                 if cardcheck.kit_numerals(_strip_urls(s)):
                     numbered.append("P%d-%d «%s»" % (pi, si, s[:28]))
             elif k == "KIT_URL":
+                continue
+            elif k == "OFFICIAL_VIDEO" and isinstance(ep.get("OFFICIAL_VIDEO"), dict):
+                # 편 선언이 정본 — [10-3] 특례와 같은 근거 (2026-09-02 · ep42 실측)
                 continue
             elif not hasattr(facts, k):
                 unknown.append("P%d-%d %s" % (pi, si, k))
