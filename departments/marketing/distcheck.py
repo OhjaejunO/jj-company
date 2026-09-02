@@ -432,8 +432,19 @@ def check(posts, rows, facts, kit_url, caption, cardcheck, media=None, ep=None):
     #     어휘에 더해 **편이 선언한 문자열 값에 실제로 적힌 수치**도 통과시킨다. `numeral_vocab()` 은
     #     킷 HTML 표기(«20,000,000»)를 기준으로 짜여 있어 산문 표기(«2천만 달러» → 토큰 «2»)가 새기 때문이다
     #     — 편이 선언하지 않은 수는 여전히 못 쓴다(새 수치 금지는 그대로).
-    vocab = set(facts.numeral_vocab()) | set(getattr(facts, "NOISE", set()))
-    vocab |= cardcheck.kit_numerals(_strip_urls(declared_text(facts)))
+    # 구세대 facts(ep40 이전)에는 numeral_vocab() 이 없다 — 없으면 빈 집합으로 간다.
+    # 느슨해지는 쪽이 아니다: 허용 어휘가 줄어들 뿐이고, 편이 선언한 문자열 속 수치는
+    # 아래에서 그대로 합산되므로 선언된 사실 수치는 여전히 통과한다.
+    vocab = (set(facts.numeral_vocab()) if hasattr(facts, "numeral_vocab") else set()) \
+        | set(getattr(facts, "NOISE", set()))
+    _decl = _strip_urls(declared_text(facts))
+    # 선언 문자열이 숫자 뒤 마침표로 끝나면(«…became OpenClaw 2.0.») 추출기 ② 의 경계
+    # 규칙에 걸려 그 수치가 어휘에서 빠진다 — ep40 실측(선언에 «2.0» 이 실재하는데
+    # [1] 이 «어휘 밖 2.0» 을 냈다). **수집 쪽에서만** 숫자 뒤 문장 끝 마침표를 공백으로
+    # 바꾼다. 원고 검사 쪽(found)은 그대로라 판정이 느슨해지지 않는다 — 선언에 없는
+    # 수는 여전히 걸린다(역검증 «7천만» 케이스가 그것을 지킨다).
+    _decl = re.sub(r"(?<=\d)\.(?=\s|$)", " ", _decl)
+    vocab |= cardcheck.kit_numerals(_decl)
     found = cardcheck.kit_numerals(_strip_urls(body))
     bad = sorted(found - vocab, key=lambda x: (len(x), x))
     r.ok("[1] FACTS 대조 — 초안 수치가 전부 numeral_vocab() 안", not bad, "어휘 밖 %s" % bad)
