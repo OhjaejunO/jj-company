@@ -196,7 +196,10 @@ def parse_draft(text):
                 continue
             media.append({"post": int(re.match(r"^[Pp](\d+)$", cells[0]).group(1)),
                           "path": cells[1].strip("`"), "src_key": cells[2],
-                          "credit": cells[3], "tier": cells[4], "shape": cells[5]})
+                          "credit": cells[3], "tier": cells[4], "shape": cells[5],
+                          # 7번째 열(선택) — 발행용 공개 URL. 워커가 파일 업로드가 아니라
+                          # «URL 을 주면 Threads 가 받아가는» 방식이라 필요하다 (2026-09-02).
+                          "url": (cells[6] if len(cells) > 6 else "").strip()})
         elif cur is not None:
             buf.append(ln)
     if cur is not None:
@@ -372,6 +375,29 @@ def check_media(media, posts, facts, ep, r):
         # ⓐ 크레딧은 [10-4] 가 이미 본다.
         r.na("[10-7ⓑ] 공식 UI 실물 여부",
              "육안 판정 — 기계가 **못 잡는다**. JJ 가 발행 전에 본다 (SKILL v3.55 §6)")
+
+    # [10-8] 발행 URL 실측 — URL 이 가리키는 바이트 = 편 폴더의 검증본 (2026-09-02 신설).
+    #   워커는 파일 업로드가 아니라 URL 로 발행한다. URL 열이 있으면 **지금 내려받아**
+    #   sha256 을 로컬 검증본과 대조한다 — 다르면 «게이트가 본 것»과 «올라갈 것»이 다른
+    #   상태라 원고를 낼 수 없다. 워커도 발행 직전 같은 대조를 한 번 더 한다(이중).
+    withurl = [m for m in media if m.get("url")]
+    if not withurl:
+        r.na("[10-8] 발행 URL = 검증본 (sha256 실측)", "URL 열 없음 — 텍스트 전용")
+    else:
+        import hashlib as _hl
+        import urllib.request as _ur
+        bad_url = []
+        for m in withurl:
+            local = os.path.join(ep["dir"], m["path"].replace("/", os.sep))
+            try:
+                want = _hl.sha256(io.open(local, "rb").read()).hexdigest()
+                got = _hl.sha256(_ur.urlopen(m["url"], timeout=120).read()).hexdigest()
+                if want != got:
+                    bad_url.append("P%d sha 불일치 (로컬 %s… / URL %s…)"
+                                   % (m["post"], want[:12], got[:12]))
+            except Exception as e:  # noqa: BLE001 — 못 받으면 «확인 불가»고, 확인 불가는 통과가 아니다
+                bad_url.append("P%d 조회 실패: %s" % (m["post"], str(e)[:80]))
+        r.ok("[10-8] 발행 URL = 검증본 (sha256 실측)", not bad_url, " / ".join(bad_url))
 
 
 def _tone_target(s):

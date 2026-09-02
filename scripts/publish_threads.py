@@ -229,6 +229,45 @@ def media_support_state(src=None):
     return vals != {"TEXT"}
 
 
+#: 첨부 줄의 발행 메타 (2026-09-02 미디어 지원). `dist_transform.pack()` 이
+#: `· URL <공개주소> · sha256 <64hex>` 를 덧붙인다 — URL 은 Threads 가 받아갈 곳이고
+#: sha256 은 **게이트가 검증한 로컬 파일**의 지문이다. 발행 직전 URL 을 다시 받아 대조한다.
+ATTACH_META = re.compile(r"·\s*URL\s+(\S+)\s+·\s*sha256\s+([0-9a-f]{64})")
+#: 형상 낱말 → Threads media_type. 이 둘 밖(«알 수 없음» 등)은 지원 안 함으로 막는다.
+ATTACH_KIND = {"영상": "VIDEO", "이미지": "IMAGE"}
+
+
+def parse_attachments(md_path):
+    """seq → 첨부 발행 명세 {kind, url, sha256} · 못 읽는 선언은 값이 None.
+
+    None 을 조용히 버리지 않는다 — «첨부가 없다» 와 «첨부를 못 읽었다» 는 다른 사실이고,
+    뒤쪽은 `attachment_block` 이 발행을 멈추는 근거가 된다(§0).
+    한 포스트에 첨부가 둘 이상이면 역시 None — 이 워커는 포스트당 1건만 싣는다.
+    """
+    out = {}
+    for seq, line in attachment_decls(md_path):
+        if seq is None:
+            continue
+        if seq in out:                      # 둘째 선언 — 포스트당 1건 규격 밖
+            out[seq] = None
+            continue
+        m = ATTACH_META.search(line)
+        kind = next((v for k, v in ATTACH_KIND.items() if ("— " + k) in line), None)
+        out[seq] = ({"kind": kind, "url": m.group(1), "sha256": m.group(2)}
+                    if (m and kind) else None)
+    return out
+
+
+def fetch_sha256(url, timeout=120):
+    """URL 바이트의 sha256. 못 받으면 (None, 사유) — 확인 불가는 통과가 아니다."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return hashlib.sha256(r.read()).hexdigest(), None
+    except Exception as e:  # noqa: BLE001
+        return None, str(e)[:120]
+
+
 def attachment_decls(md_path):
     """원고가 선언한 첨부 — ``[(seq, 줄), …]``. 없으면 빈 목록.
 
@@ -268,15 +307,21 @@ def attachment_block(md_path, support=_AUTO):
         return []
     if support is _AUTO:
         support = media_support_state()
-    if support is True:
-        return []
-    why = ("이 워커는 미디어를 싣지 못한다 (컨테이너 `media_type` 이 리터럴 TEXT 뿐)"
-           if support is False else
-           "미디어 지원 여부를 **판정하지 못했다** (`media_type` 배정을 소스에서 못 찾았다)")
-    lines = ["원고가 첨부 %d건을 선언했는데 %s" % (len(decls), why)]
-    for seq, ln in decls:
-        lines.append("  P%s — %s" % (seq if seq is not None else "?", ln))
-    return lines
+    if support is not True:
+        why = ("이 워커는 미디어를 싣지 못한다 (컨테이너 `media_type` 이 리터럴 TEXT 뿐)"
+               if support is False else
+               "미디어 지원 여부를 **판정하지 못했다** (`media_type` 배정을 소스에서 못 찾았다)")
+        lines = ["원고가 첨부 %d건을 선언했는데 %s" % (len(decls), why)]
+        for seq, ln in decls:
+            lines.append("  P%s — %s" % (seq if seq is not None else "?", ln))
+        return lines
+    # 지원해도 **명세가 온전해야** 간다 (2026-09-02) — URL·sha256·형상(영상/이미지)이
+    # 다 있고 포스트당 1건일 것. 하나라도 비면 «조용히 텍스트만 올리는» 옛 사고(ep39
+    # 영상 소실)로 돌아가므로 발행을 멈춘다.
+    atts = parse_attachments(md_path)
+    bad = ["P%s — 첨부 명세를 못 읽었다 (URL·sha256·형상 확인)" % s
+           for s, v in sorted(atts.items()) if v is None]
+    return (["첨부 %d건 중 명세 불완전 %d건:" % (len(decls), len(bad))] + ["  " + b for b in bad]) if bad else []
 
 
 def build_draft(ep, ms_path, posts):
@@ -300,6 +345,11 @@ def build_draft(ep, ms_path, posts):
         "gate_skill_revision": _rev,
         "body_sha256": sha256_file(ms_path),
         "posts": [{"seq": s, "sha256": sha256_text(posts[s])} for s in sorted(posts)],
+        # 승인은 **미디어까지 서명한다** (2026-09-02). URL 과 그 바이트의 sha256 이 여기
+        # 박히고, 워커는 발행 직전 URL 을 다시 받아 이 값과 대조한다 — 서명 뒤 URL 내용이
+        # 갈리면 발행이 서지 않는다. 첨부 없는 편은 빈 목록이다.
+        "attachments": [dict(seq=s, media_type=v["kind"], url=v["url"], sha256=v["sha256"])
+                        for s, v in sorted(parse_attachments(ms_path).items()) if v],
         "chain": sorted(posts),
         "drafted_by": "publish_threads.py --draft-approval",
         "drafted_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S KST"),
@@ -324,6 +374,16 @@ def check_approval(appr, ep, ms_path, posts):
         bad.append("chain 과 posts 의 seq 집합이 다르다: %s ≠ %s" % (sorted(chain), sorted(declared)))
     if set(declared) != set(posts):
         bad.append("승인 seq %s ≠ 원고 seq %s" % (sorted(declared), sorted(posts)))
+    # 첨부 정합 (2026-09-02) — 원고가 지금 선언한 첨부와 승인이 서명한 첨부가 같아야 한다.
+    # 옛 승인(attachments 필드 없음)에 첨부 원고를 대면 여기서 걸린다 — 승인이 미디어를
+    # 서명하지 않았는데 미디어를 올리는 길은 없다.
+    ms_atts = {(s, v["kind"], v["url"], v["sha256"])
+               for s, v in parse_attachments(ms_path).items() if v}
+    ap_atts = {(int(x["seq"]), x["media_type"], x["url"], x["sha256"])
+               for x in (appr.get("attachments") or [])}
+    if ms_atts != ap_atts:
+        bad.append("attachment-mismatch: 원고 첨부 %d건 ≠ 승인 서명 %d건"
+                   % (len(ms_atts), len(ap_atts)))
     return bad
 
 
@@ -598,7 +658,29 @@ def run_chain(api, uid, ep, ms_path, appr, log, publish,
             return done, "FAIL post-hash-mismatch P%d" % seq
         log("    해시 대조 OK (원고 재읽기)")
 
-        params = {"media_type": "TEXT", "text": body}
+        # ② 첨부도 같은 원칙이다 (2026-09-02 미디어 지원) — 원고를 다시 읽었으니 첨부
+        #    명세도 다시 읽고, 승인이 서명한 것과 대조하고, **URL 바이트를 지금 받아**
+        #    승인 sha256 과 견준다. 서명 뒤 CDN 내용이 갈렸으면 여기서 선다.
+        att = parse_attachments(ms_path).get(seq)
+        appr_att = {int(x["seq"]): x for x in (appr.get("attachments") or [])}.get(seq)
+        if (att or None) != (None if appr_att is None else
+                             {"kind": appr_att["media_type"], "url": appr_att["url"],
+                              "sha256": appr_att["sha256"]}):
+            return done, "FAIL attachment-approval-mismatch P%d" % seq
+        if att:
+            got, err = fetch_sha256(att["url"])
+            if got != att["sha256"]:
+                return done, ("FAIL media-hash-mismatch P%d (URL 바이트 %s ≠ 승인 %s…%s)"
+                              % (seq, (got or "조회 실패")[:12], att["sha256"][:12],
+                                 (" · " + err) if err else ""))
+            log("    첨부 대조 OK (URL 재수신 · sha256 일치 · %s)" % att["kind"])
+
+        if att is None:
+            params = {"media_type": "TEXT", "text": body}
+        elif att["kind"] == "VIDEO":
+            params = {"media_type": "VIDEO", "video_url": att["url"], "text": body}
+        else:
+            params = {"media_type": "IMAGE", "image_url": att["url"], "text": body}
         if parent:
             params["reply_to_id"] = parent
         st, r = api.call("POST", "%s/%s/threads" % (API, uid), params)
@@ -788,8 +870,45 @@ def _selftest():
     #   ⓑ 첨부 0건 → 통과한다 (옛 편이 새로 걸리지 않는다)
     assert attachment_decls(p) == [], "첨부 없는 원고에서 선언을 찾았다"
     assert attachment_block(p, support=False) == [], "첨부 없는 원고를 막았다"
-    #   ⓒ 첨부 선언 + **지원** → 통과한다 (전부 막는 가드가 아니다)
-    assert attachment_block(pa, support=True) == [], "미디어를 실을 수 있어도 막는다"
+    #   ⓒ 첨부 선언 + 지원 + **명세 완비(URL·sha256·형상)** → 통과한다 (전부 막는 가드가 아니다)
+    _sha64 = "a" * 64
+    full_md = ok_md.replace(
+        "```\n첫 줄\n```",
+        "```\n첫 줄\n```\n\n**첨부** `_official/a.mp4` — 영상 1920x1080 · 크레딧 `c` · 공식"
+        " · URL https://example.com/a.mp4 · sha256 " + _sha64)
+    pf = os.path.join(tempfile.gettempdir(), "_pt_attach_full.md")
+    io.open(pf, "w", encoding="utf-8").write(full_md)
+    _pa = parse_attachments(pf)
+    assert _pa == {1: {"kind": "VIDEO", "url": "https://example.com/a.mp4",
+                       "sha256": _sha64}}, "첨부 명세 파싱이 틀렸다: %r" % (_pa,)
+    assert attachment_block(pf, support=True) == [], "명세 완비 첨부를 막았다"
+    #   ⓒ-2 지원해도 **명세가 비면 막는다** (2026-09-02) — URL 없는 옛 꼴은 «조용히
+    #        텍스트만 올리는» ep39 사고 경로라 지원 여부와 무관하게 선다
+    _nou = attachment_block(pa, support=True)
+    assert _nou and any("P1" in x for x in _nou), "URL 없는 첨부를 통과시켰다: %r" % (_nou,)
+    #   ⓒ-3 포스트당 2건 → 막는다 (이 워커는 1건만 싣는다)
+    two_md = full_md.replace("**첨부** `_official/a.mp4`",
+                             "**첨부** `_official/b.mp4` — 영상 1x1 · 크레딧 `c` · 공식"
+                             " · URL https://example.com/b.mp4 · sha256 " + _sha64
+                             + "\n**첨부** `_official/a.mp4`")
+    _patt2 = os.path.join(tempfile.gettempdir(), "_pt_attach_two.md")
+    io.open(_patt2, "w", encoding="utf-8").write(two_md)
+    assert parse_attachments(_patt2) == {1: None}, "포스트당 2건을 명세로 읽었다"
+    assert attachment_block(_patt2, support=True), "포스트당 2건을 통과시켰다"
+    os.remove(_patt2)
+    #   ⓒ-4 승인 정합 — 원고 첨부와 승인 서명이 갈리면 걸린다 (양방향)
+    _appr_ok = dict(base, attachments=[{"seq": 1, "media_type": "VIDEO",
+                                        "url": "https://example.com/a.mp4",
+                                        "sha256": _sha64}])
+    _posts_f = parse_posts(pf)
+    _appr_ok["posts"] = [{"seq": s, "sha256": sha256_text(_posts_f[s])} for s in sorted(_posts_f)]
+    _appr_ok["chain"] = sorted(_posts_f)
+    _appr_ok["body_sha256"] = sha256_file(pf)
+    assert check_approval(_appr_ok, "ep39", pf, _posts_f) == [], "정합한 첨부 승인을 걸렀다"
+    _appr_bad = dict(_appr_ok, attachments=[])
+    assert any("attachment-mismatch" in x for x in
+               check_approval(_appr_bad, "ep39", pf, _posts_f)), "첨부 미서명 승인을 통과시켰다"
+    os.remove(pf)
     #   ⓓ **판정 불가는 통과가 아니다** — 모르면 멈춘다
     _unk = attachment_block(pa, support=None)
     assert _unk and "판정하지" in _unk[0], "판정 불가를 통과시켰다: %r" % (_unk,)
@@ -799,9 +918,12 @@ def _selftest():
     os.remove(pa)
 
     # ③-a2 지원 여부 판정기 — 깃발이 아니라 **소스**를 읽는다
-    #   ⓕ 지금 이 파일은 TEXT 전용으로 읽혀야 한다 (깃발 ↔ 실물 대조)
-    assert media_support_state() is False, \
-        "이 워커가 미디어를 실을 수 있다고 읽었다 — 실제로 붙었거나 판정기가 틀렸다"
+    #   ⓕ 지금 이 파일은 **미디어 지원**으로 읽혀야 한다 (깃발 ↔ 실물 대조).
+    #      2026-09-02 에 VIDEO/IMAGE 리터럴 컨테이너가 실제로 붙었다 — 종전 «TEXT 전용»
+    #      단정은 그날 사실이 바뀌며 같이 뒤집었다. 이 줄이 False 로 돌아가면
+    #      리팩터가 미디어 경로를 지운 것이니 첨부 편 발행을 멈춰야 한다.
+    assert media_support_state() is True, \
+        "이 워커가 미디어를 못 싣는 것으로 읽혔다 — 미디어 경로가 지워졌거나 판정기가 틀렸다"
     #   ⓖ 변수로 바뀐 소스는 «지원» 으로 읽어야 한다 — 안 그러면 가드가 조용히 낡는다
     assert media_support_state("x = {" + repr("media_type") + ": kind}") is True, \
         "미디어 경로가 생겨도 못 알아챈다"
