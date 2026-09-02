@@ -21,3 +21,6 @@ reports/*
 
 __pycache__/
 *.pyc
+
+# Obsidian vault workspace files
+.obsidian/
