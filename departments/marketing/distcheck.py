@@ -432,8 +432,19 @@ def check(posts, rows, facts, kit_url, caption, cardcheck, media=None, ep=None):
     #     어휘에 더해 **편이 선언한 문자열 값에 실제로 적힌 수치**도 통과시킨다. `numeral_vocab()` 은
     #     킷 HTML 표기(«20,000,000»)를 기준으로 짜여 있어 산문 표기(«2천만 달러» → 토큰 «2»)가 새기 때문이다
     #     — 편이 선언하지 않은 수는 여전히 못 쓴다(새 수치 금지는 그대로).
-    vocab = set(facts.numeral_vocab()) | set(getattr(facts, "NOISE", set()))
-    vocab |= cardcheck.kit_numerals(_strip_urls(declared_text(facts)))
+    # 구세대 facts(ep40 이전)에는 numeral_vocab() 이 없다 — 없으면 빈 집합으로 간다.
+    # 느슨해지는 쪽이 아니다: 허용 어휘가 줄어들 뿐이고, 편이 선언한 문자열 속 수치는
+    # 아래에서 그대로 합산되므로 선언된 사실 수치는 여전히 통과한다.
+    vocab = (set(facts.numeral_vocab()) if hasattr(facts, "numeral_vocab") else set()) \
+        | set(getattr(facts, "NOISE", set()))
+    _decl = _strip_urls(declared_text(facts))
+    # 선언 문자열이 숫자 뒤 마침표로 끝나면(«…became OpenClaw 2.0.») 추출기 ② 의 경계
+    # 규칙에 걸려 그 수치가 어휘에서 빠진다 — ep40 실측(선언에 «2.0» 이 실재하는데
+    # [1] 이 «어휘 밖 2.0» 을 냈다). **수집 쪽에서만** 숫자 뒤 문장 끝 마침표를 공백으로
+    # 바꾼다. 원고 검사 쪽(found)은 그대로라 판정이 느슨해지지 않는다 — 선언에 없는
+    # 수는 여전히 걸린다(역검증 «7천만» 케이스가 그것을 지킨다).
+    _decl = re.sub(r"(?<=\d)\.(?=\s|$)", " ", _decl)
+    vocab |= cardcheck.kit_numerals(_decl)
     found = cardcheck.kit_numerals(_strip_urls(body))
     bad = sorted(found - vocab, key=lambda x: (len(x), x))
     r.ok("[1] FACTS 대조 — 초안 수치가 전부 numeral_vocab() 안", not bad, "어휘 밖 %s" % bad)
@@ -461,8 +472,17 @@ def check(posts, rows, facts, kit_url, caption, cardcheck, media=None, ep=None):
     early = ["P%d %s" % (i, u) for i, u in urls if i != len(posts)]
     last_urls = [u.rstrip(".,)»") for i, u in urls if i == len(posts)]
     r.ok("[4-1] 마지막 포스트 앞에는 URL 0건", not early, " / ".join(early))
-    r.ok("[4-2] 마지막 포스트에 킷 URL 1건 · 편 선언과 일치",
-         last_urls == [kit_url], "발견 %s / 선언 %s" % (last_urls, kit_url))
+    if kit_url:
+        r.ok("[4-2] 마지막 포스트에 킷 URL 1건 · 편 선언과 일치",
+             last_urls == [kit_url], "발견 %s / 선언 %s" % (last_urls, kit_url))
+    else:
+        # 킷 없는 편 규격 (2026-09-02 JJ 확정 · ep40 계기) — 마지막 포스트는 **원류 안내**다:
+        # 본편 인스타 게시물 URL 1건, 값의 정본은 발행로그(load_ep 이 읽어 ep["post_url"] 로
+        # 넘긴다). 로그에 없으면 post_url 이 아예 안 만들어져 여기까지 오지도 않는다.
+        pu = (ep or {}).get("post_url") or ""
+        r.ok("[4-2b] 킷 없는 편 — 마지막 포스트에 본편 인스타 URL 1건 (정본: 발행로그)",
+             bool(pu) and [u.rstrip("/") for u in last_urls] == [pu.rstrip("/")],
+             "발견 %s / 발행로그 %s" % (last_urls, pu or "(없음)"))
 
     # [5] 소스 맵 완결 — 설계 ⓔ. 문장 수 = 행 수 · 키 실재 · 무주장 행에는 수치 0개.
     cnt_s = {i: len(sentences(p)) for i, p in enumerate(posts, 1)}
@@ -481,6 +501,9 @@ def check(posts, rows, facts, kit_url, caption, cardcheck, media=None, ep=None):
                 if cardcheck.kit_numerals(_strip_urls(s)):
                     numbered.append("P%d-%d «%s»" % (pi, si, s[:28]))
             elif k == "KIT_URL":
+                continue
+            elif k == "POST_URL" and (ep or {}).get("post_url"):
+                # 킷 없는 편의 원류 URL — 정본은 발행로그, load_ep 이 실재를 이미 확인했다
                 continue
             elif k == "OFFICIAL_VIDEO" and isinstance(ep.get("OFFICIAL_VIDEO"), dict):
                 # 편 선언이 정본 — [10-3] 특례와 같은 근거 (2026-09-02 · ep42 실측)
@@ -920,6 +943,32 @@ def _attrib_selftest():
     return bad
 
 
+def _nokit_selftest(cc):
+    """킷 없는 편 규격 `[4-2b]` 의 역검증 — 세 면을 따로 본다 (2026-09-02 신설).
+
+    ⓐ 원류 URL 일치 → 통과 (전부 막는 검사가 아니다)
+    ⓑ 마지막 URL 이 발행로그 값과 다르면 걸린다
+    ⓒ 정본(post_url)이 안 넘어오면 걸린다 — «모르면 통과» 가 아니다
+    """
+    pu = "https://www.instagram.com/p/TESTPOST123/"
+    posts = [p.replace(_BASE_KIT, pu) for p in _BASE_POSTS]
+    rows = [(a, b, "POST_URL" if k == "KIT_URL" else k) for a, b, k in _BASE_ROWS]
+    wrong = [p.replace(pu, "https://www.instagram.com/p/WRONGPOST/") for p in posts]
+    bad = 0
+    for why, ps, ep, want_ok in [
+            ("원류 URL 일치는 통과한다", posts, {"post_url": pu, "dir": "."}, True),
+            ("마지막 URL 이 다르면 걸린다", wrong, {"post_url": pu, "dir": "."}, False),
+            ("정본(post_url) 부재는 걸린다", posts, {"dir": "."}, False)]:
+        r = check(ps, rows, _Facts(), None, _BASE_CAPTION, cc, ep=ep)
+        got_ok = not any(i[0].startswith(("[4-2b]", "[5-2]")) for i in r.failed)
+        if got_ok == want_ok:
+            print("[  OK  ] [4-2b] 킷 없는 편 — %s" % why)
+        else:
+            bad += 1
+            print("[ FAIL ] [4-2b] 킷 없는 편 — %s (실제 %s)" % (why, "통과" if got_ok else "걸림"))
+    return bad
+
+
 def selftest():
     cc = load_cardcheck()
     quote_bad = _quote_tone_selftest()
@@ -967,6 +1016,7 @@ def selftest():
             bad += 1
             print("[ FAIL ] 문장 분할 — %s (%d개로 갈렸다)" % (why, got))
     bad += _media_selftest(cc)
+    bad += _nokit_selftest(cc)
     # 규격 추출 자체의 역검증 — 못 찾으면 던져야 한다.
     try:
         skill_regex("__NOT_A_REAL_REGEX__")

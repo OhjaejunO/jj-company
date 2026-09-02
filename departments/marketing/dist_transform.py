@@ -199,6 +199,28 @@ def _module_literals(path, tables=None):
     return out
 
 
+def publog_post_url(ep_no):
+    """발행로그 본 표에서 그 편의 인스타 게시물 URL 을 읽는다 — 킷 없는 편의 마감 URL 정본.
+
+    행 첫 칸이 정확히 `**ep<n>**`/`ep<n>` 인 행만 본다 — `**ep40-Threads**` 같은
+    게시물 행이 `startswith` 로 걸려들면 안 된다. 없으면 **소리 내고 죽는다**:
+    «로그에 없다» 는 «아직 인스타에 안 나갔다» 이고, 안 나간 편은 재유통할 원류가 없다.
+    """
+    p = os.path.join(os.path.dirname(PUBLISHED), "발행로그.md")
+    key = "ep%s" % ep_no
+    for ln in io.open(p, encoding="utf-8").read().split("\n"):
+        if not ln.startswith("|"):
+            continue
+        cells = [c.strip() for c in ln.strip("|").split("|")]
+        if not cells or cells[0].strip("*") != key:
+            continue
+        m = re.search(r"https://www\.instagram\.com/p/[A-Za-z0-9_-]+/?", ln)
+        if m:
+            return m.group(0)
+        raise RuntimeError("발행로그 %s 행에 인스타 게시물 URL 이 없다 — 원류 없이 재유통할 수 없다" % key)
+    raise RuntimeError("발행로그 본문에 %s 행이 없다 — 인스타 발행 전에는 재유통하지 않는다" % key)
+
+
 def load_ep(ep_dir):
     builds = [f for f in os.listdir(ep_dir) if re.match(r"^build_ep\d+\.py$", f)]
     if not builds:
@@ -214,8 +236,15 @@ def load_ep(ep_dir):
             "편 선언에서 CARDS 를 읽지 못했다: %s — 리터럴이 아닌 참조가 들어 있으면 "
             "`_facts.py` 에 올리거나 `_Subst` 에 그 모듈을 더해라" % ep_dir)
     kit = decl.get("KIT") or {}
-    if not kit.get("url"):
-        raise RuntimeError("편 선언에 KIT['url'] 이 없다 — 마지막 포스트에 무엇을 넣을지 정할 수 없다")
+    if kit and not kit.get("url"):
+        raise RuntimeError("편 선언 KIT 에 url 이 없다 — 킷이 있으면 url 을 적고, 킷 없는 편이면 KIT 선언 자체를 빼라")
+    post_url = None
+    if not kit:
+        # 킷 없는 편 규격 (2026-09-02 JJ 확정 · ep40 계기): 마지막 포스트는 킷 대신
+        # **원류 안내** — 본편 인스타 게시물 URL 1건으로 닫는다. URL 의 정본은 발행로그다
+        # (§0 실물 정본). 로그에 그 편 인스타 URL 이 없으면 여기서 선다 — «인스타 발행 전
+        # 재유통 금지» 가 별도 검사 없이 이 정본 선택에서 공짜로 따라온다.
+        post_url = publog_post_url(decl.get("EP"))
 
     def _read(name):
         p = os.path.join(ep_dir, name)
@@ -237,7 +266,8 @@ def load_ep(ep_dir):
         # v3.60 `[12]` — 발표 행위 서술의 «주체» 를 편 선언 고유명사로 잡는다.
         # 이것이 없으면 «xAI 가 열었어요» 의 주체를 못 읽어 검사가 조용히 헛돈다.
         "COVER_NOUNS": list(decl.get("COVER_NOUNS") or ()),
-        "kit_url": kit["url"],
+        "kit_url": kit.get("url"),          # None = 킷 없는 편 — [4-2] 가 post_url 분기로 간다
+        "post_url": post_url,
         "caption": _read("caption.txt"),
         "pinned": _read("pinned_comment.txt"),
         "verify_log": _read("검증로그.md"),      # 서드파티 영상 4조건 ⓒ 대조용
@@ -365,7 +395,11 @@ def brief(ep):
     a("- 포스트 %d~%d개, 스레드로 이어 붙인다." % (distcheck.POSTS_MIN, distcheck.POSTS_MAX))
     a("- 포스트당 %d자 이하 (Threads 공표값 — 우리 실측 아님, `유통확장_설계안.md` §3)."
       % distcheck.THREADS_CHAR_MAX)
-    a("- 킷 URL 은 **마지막 포스트에만** 1건: `%s`" % ep["kit_url"])
+    if ep["kit_url"]:
+        a("- 킷 URL 은 **마지막 포스트에만** 1건: `%s`" % ep["kit_url"])
+    else:
+        a("- 🔴 **킷 없는 편** — 마지막 포스트는 **원류 안내**로 닫는다: 본편 인스타 게시물 URL"
+          " **1건만** `%s` (정본: 발행로그 · 소스 맵 근거 키는 `POST_URL`)" % ep["post_url"])
     a("- 어미는 **해요체**. 자기 언급·제작 과정 서사 0건. 부정 톤 금지.")
     a("- 벤치 수치를 실은 포스트에는 «%s» 라벨을 단다." % distcheck.OFFICIAL_LABEL)
     a("- **인스타 캡션을 복붙하지 않는다** — 같은 사실을 텍스트 매체 문법으로 다시 쓴다.")
