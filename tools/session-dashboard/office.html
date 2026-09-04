@@ -21,9 +21,9 @@
   .chip.warn { color:#FCD34D; background:rgba(245,158,11,0.12); border-color:rgba(245,158,11,0.3); }
 
   /* ── 장면: 배경 한 장 + 절대 좌표 ── */
-  .stage-wrap { display:flex; justify-content:center; padding:12px; }
-  .stage { position:relative; width:min(100%, 1600px); aspect-ratio:1920/1072; border-radius:18px; overflow:hidden; background:#0b1020 url(/assets/office_bg.jpg) center/cover no-repeat; box-shadow:0 40px 80px -40px rgba(0,0,0,.9); user-select:none; }
-  .unit { position:absolute; transform:translate(-50%, -100%); width:calc(var(--s, 1) * 12.5%); cursor:default; transition: left .4s, top .4s; }
+  .stage-wrap { display:flex; justify-content:center; padding:8px; }
+  .stage { position:relative; width:min(100%, 2000px); aspect-ratio:2752/1536; border-radius:18px; overflow:hidden; background:#0b1020 url(/assets/office_bg.jpg) center/cover no-repeat; box-shadow:0 40px 80px -40px rgba(0,0,0,.9); user-select:none; }
+  .unit { position:absolute; transform:translate(-50%, -100%); width:calc(var(--s, 1) * 10.5%); cursor:default; transition: left .4s, top .4s; }
   .unit.click { cursor:pointer; }
   .unit img.fig { width:100%; display:block; filter: drop-shadow(0 10px 10px rgba(0,0,0,.5)); transition: filter .3s, opacity .3s; }
   .unit.idle img.fig { filter: drop-shadow(0 10px 10px rgba(0,0,0,.5)) saturate(.85); }
@@ -76,16 +76,16 @@ const esc = s => (s ?? "").toString().replace(/[&<>"]/g, c => ({"&":"&amp;","<":
 const POSE = {running: "typing", waiting: "hand", idle: "idle", sleep: "idle"};
 // 책상 자리 — 배경 그림(office_bg.jpg) 위의 % 좌표. `?edit` 로 드래그해 잡고 콘솔에 찍히는 값을 여기 옮긴다.
 const SLOTS = {
-  "jj":            {x: 48.0, y: 33.0, s: 1},
-  "dev-grok":      {x: 29.5, y: 50.0, s: 0.68},
-  "dev-codex":     {x: 39.0, y: 55.5, s: 0.72},
-  "dev-claude":    {x: 57.0, y: 55.0, s: 0.78},
-  "sagun":         {x: 66.5, y: 63.5, s: 0.84},
-  "gumsu":         {x: 76.5, y: 71.0, s: 0.90},
-  "ops-auditor":   {x: 19.5, y: 66.0, s: 0.88},
-  "content-scout": {x: 30.0, y: 74.0, s: 0.94},
-  "job-scout":     {x: 41.0, y: 82.0, s: 1.00},
-  "cross-verify":  {x: 53.5, y: 89.0, s: 1.04},
+  "jj":            {x: 50.0, y: 43.0, s: 1},
+  "dev-grok":      {x: 21.0, y: 52.0, s: 0.72},
+  "dev-codex":     {x: 33.0, y: 58.0, s: 0.78},
+  "sagun":         {x: 67.0, y: 58.0, s: 0.78},
+  "gumsu":         {x: 79.0, y: 52.0, s: 0.72},
+  "ops-auditor":   {x: 13.0, y: 72.0, s: 0.94},
+  "content-scout": {x: 26.0, y: 80.0, s: 1.00},
+  "job-scout":     {x: 39.0, y: 88.0, s: 1.06},
+  "cross-verify":  {x: 61.0, y: 88.0, s: 1.06},
+  "dev-claude":    {x: 74.0, y: 80.0, s: 1.00},
 };
 let fallbackSlot = 0;
 const FALLBACK = [{x: 20, y: 50, s: .9}, {x: 84, y: 82, s: 1}, {x: 44, y: 86, s: 1.1}];
