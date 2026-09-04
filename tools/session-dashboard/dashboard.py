@@ -352,7 +352,9 @@ def scheduled_today():
         status = next((l for l in reversed(lines) if "STATUS:" in l), None)
         cards.append({"kind": "scheduled", "name": name, "status": status, "last_line": (lines[-1] if lines else "")[-160:],
                       "mtime": os.path.getmtime(f), "log": f,
-                      "agent": "hermes" if "hermes" in name else "claude",
+                      # 정관 §1 조직도 — cross-verify 는 codex 감리, hermes-event-watch 는 헤르메스 sagun, 결정적 작업(백업·드리프트·발행 래퍼)은 에이전트 없음
+                      "agent": ("hermes" if "hermes" in name else "codex" if "cross-verify" in name
+                                else "script" if name in ("workshop-backup", "skill-drift-audit", "publish-threads") else "claude"),
                       "running": status is None and (time.time() - os.path.getmtime(f)) < 120})
     return cards
 
