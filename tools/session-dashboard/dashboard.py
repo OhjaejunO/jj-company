@@ -367,14 +367,16 @@ def snapshot():
     for t in terms:
         wt = t.get("worktreePath") or ""
         ident = (t.get("agentIdentity") or "").lower() or None
-        s = session_for(wt, ident)
+        # 🔴 identity 가 없는 터미널은 «맨 셸» 이다 — 같은 폴더의 세션 기록을 갖다 붙이면 남의 세션이 된다
+        #    (2026-09-04 실측: 대시보드 서버를 띄운 셸이 이 세션의 «클로드» 로 둔갑해 책상이 하나 더 생겼다).
+        s = session_for(wt, ident) if ident else None
         age_s = (now_ms - (t.get("lastOutputAt") or 0)) / 1000.0
         wait = t.get("agentWait")
         cards.append({
             "kind": "terminal", "handle": t.get("handle"), "title": t.get("title"),
             "repo": os.path.basename(wt.rstrip("/\\")) or wt, "path": wt,
             "branch": (t.get("branch") or "").replace("refs/heads/", ""),
-            "agent": ident or (s or {}).get("agent") or "unknown",
+            "agent": ident or "shell",
             "writable": t.get("writable"), "connected": t.get("connected"),
             "preview": t.get("preview"), "last_output_age_s": round(age_s, 1),
             "waiting": bool(wait), "wait": wait,
@@ -464,8 +466,10 @@ def office():
             else:
                 d["note"] = "호출 대기 (xreview 는 편 제작 때만)"
         desks.append(d)
-    # 명부 밖 방문 세션 — 빠뜨리지 않는다
+    # 명부 밖 방문 세션 — 빠뜨리지 않는다. 단 맨 셸(agent=shell · 서버·빌드 창)은 사람이 아니라 책상을 주지 않는다.
     for t in terms:
+        if t["agent"] not in AGENTS:
+            continue
         s = t.get("session") or {}
         desks.append({"id": "visit-" + (t["handle"] or "")[-6:], "name": "방문 세션 (" + (t["agent"] or "?") + ")", "dept": "개발팀",
                       "role": t["repo"], "agent": t["agent"] if t["agent"] in AGENTS else "claude",
