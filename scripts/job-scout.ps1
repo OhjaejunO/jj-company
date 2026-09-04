@@ -20,6 +20,8 @@ $StartDelayMinutes = 6
 
 $Hq         = 'C:\Users\ojaej\jj-company'
 $Claude     = 'C:\Users\ojaej\.local\bin\claude.exe'
+# ponytail plugin trial (2026-09-04, dev sessions only): user default is lite; scheduled agents must not get the ruleset -> off here.
+$env:PONYTAIL_DEFAULT_MODE = 'off'
 $PromptFile = Join-Path $Hq 'scripts\prompts\job-scout.md'
 
 $Stamp    = Get-Date -Format 'yyyyMMdd'
