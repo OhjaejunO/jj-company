@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JJ 세션</title>
+<style>
+  :root { --bg:#f3f5f7; --card:#fff; --ink:#1b2430; --mute:#6b7785; --line:#e1e6eb; --teal:#0f766e; --teal-bg:#e6f4f2; --amber:#b45309; --amber-bg:#fef3c7; --gray-bg:#eef1f4; --term:#0d1117; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 -apple-system, "Segoe UI", "Malgun Gothic", sans-serif; }
+  header { position:sticky; top:0; background:#fff; border-bottom:1px solid var(--line); padding:12px 16px; display:flex; gap:10px; align-items:center; z-index:2; }
+  header h1 { font-size:17px; margin:0; }
+  header .at { color:var(--mute); font-size:12px; margin-left:auto; }
+  .err { background:#fee2e2; color:#991b1b; padding:8px 16px; font-size:13px; }
+  main { display:grid; grid-template-columns:repeat(auto-fill, minmax(360px,1fr)); gap:14px; padding:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; display:flex; flex-direction:column; gap:8px; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .pill { font:600 12px/1 ui-monospace, Consolas, monospace; padding:6px 9px; border-radius:8px; background:var(--gray-bg); color:var(--ink); }
+  .pill.teal { background:var(--teal-bg); color:var(--teal); }
+  .pill.amber { background:var(--amber-bg); color:var(--amber); }
+  .pill.run { background:#dcfce7; color:#166534; }
+  .pill.run::before { content:""; display:inline-block; width:8px; height:8px; border-radius:50%; background:#16a34a; margin-right:6px; animation:blink 1s infinite; }
+  @keyframes blink { 50% { opacity:.25; } }
+  .title { font-size:16px; font-weight:700; cursor:pointer; }
+  .title:hover { color:var(--teal); text-decoration:underline; }
+  .meta { color:var(--mute); font-size:12.5px; font-family: ui-monospace, Consolas, monospace; }
+  .label { color:var(--mute); font-size:12px; margin-top:4px; }
+  .prompt { white-space:pre-wrap; max-height:6.5em; overflow:hidden; }
+  .reply { white-space:pre-wrap; max-height:9em; overflow:hidden; color:#2a3440; font-size:14px; }
+  pre.term { background:var(--term); color:#d7dde3; border-radius:10px; padding:10px 12px; margin:0; font:12.5px/1.45 ui-monospace, Consolas, monospace; white-space:pre-wrap; word-break:break-all; max-height:5.5em; overflow:hidden; }
+  .send { display:flex; gap:8px; margin-top:4px; }
+  .send textarea { flex:1; min-height:44px; border:1.5px solid var(--line); border-radius:10px; padding:8px 10px; font:14px/1.4 inherit; resize:vertical; }
+  .send textarea:focus { outline:none; border-color:var(--teal); }
+  .send button, .btn { background:var(--teal); color:#fff; border:0; border-radius:10px; padding:0 16px; font-weight:700; cursor:pointer; }
+  .btn.ghost { background:#fff; color:var(--ink); border:1px solid var(--line); padding:6px 10px; font-size:12.5px; }
+  .card.sched { border-style:dashed; }
+  .toast { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:#111; color:#fff; padding:10px 14px; border-radius:10px; font-size:13px; opacity:0; transition:opacity .2s; }
+  .toast.on { opacity:1; }
+  .empty { color:var(--mute); padding:30px; text-align:center; grid-column:1/-1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>JJ 세션</h1>
+  <span class="pill" id="count">–</span>
+  <span class="at" id="at">불러오는 중…</span>
+</header>
+<div class="err" id="err" hidden></div>
+<main id="main"></main>
+<div class="toast" id="toast"></div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => (s ?? "").toString().replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const ago = s => s < 60 ? `${Math.round(s)}초 전` : s < 3600 ? `${Math.round(s/60)}분 전` : `${(s/3600).toFixed(1)}시간 전`;
+const kfmt = n => n == null ? "" : n >= 1000 ? `${(n/1000).toFixed(n>=100000?0:1)}k` : `${n}`;
+const drafts = {};   // 카드가 다시 그려져도 입력 중인 글은 남긴다
+
+function toast(t){ const e=$("#toast"); e.textContent=t; e.classList.add("on"); setTimeout(()=>e.classList.remove("on"),1800); }
+
+async function post(url, body){
+  const r = await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  return r.json();
+}
+
+function termCard(c){
+  const s = c.session || {};
+  const state = c.running ? `<span class="pill run">작업 중</span>` : `<span class="pill">대기 · ${ago(c.last_output_age_s)}</span>`;
+  const model = s.model ? `<span class="pill teal">${esc(s.model.replace("claude-",""))}${s.effort?" · "+esc(s.effort):""}</span>` : "";
+  const ctx = s.context_tokens ? `<span class="pill">ctx ${kfmt(s.context_tokens)}</span>` : "";
+  const guess = s.guess ? `<span class="pill amber">짝 추정</span>` : "";
+  const pr = s.pr && s.pr.url ? `<a class="btn ghost" href="${esc(s.pr.url)}" target="_blank">PR #${esc(s.pr.n)}</a>` : "";
+  return `<div class="card" data-h="${esc(c.handle)}">
+    <div class="row"><span class="pill teal">orca · ${esc(c.repo)}</span><span class="pill">${esc(c.branch||"")}</span><span class="pill">${esc(c.agent||"")}</span>${state}</div>
+    <div class="row">${model}${ctx}${guess}${pr}<button class="btn ghost" data-act="switch">↗ 세션으로</button></div>
+    <div class="title" data-act="switch" title="클릭하면 Orca 의 그 탭으로 갑니다">✳ ${esc(s.title || c.title || "(제목 없음)")}</div>
+    <div class="meta">${esc(c.path)}</div>
+    <div class="label">마지막 지시</div>
+    <div class="prompt">${esc(s.last_prompt || "—")}</div>
+    <div class="label">마지막 답</div>
+    <div class="reply">${esc((s.last_reply||"—").slice(0,600))}</div>
+    <pre class="term">${esc(c.preview||"")}</pre>
+    <div class="send"><textarea placeholder="지시 전송 (Enter=전송 · Shift+Enter=줄바꿈)" ${c.writable?"":"disabled"}>${esc(drafts[c.handle]||"")}</textarea><button data-act="send" ${c.writable?"":"disabled"}>전송</button></div>
+  </div>`;
+}
+
+function schedCard(c){
+  const st = c.running ? `<span class="pill run">실행 중</span>` : c.status ? `<span class="pill ${/FAIL/.test(c.status)?"amber":"teal"}">${esc(c.status.replace(/^.*STATUS:/,"STATUS:").trim())}</span>` : `<span class="pill">STATUS 없음</span>`;
+  return `<div class="card sched">
+    <div class="row"><span class="pill">스케줄 · ${esc(c.name)}</span>${st}</div>
+    <div class="meta">${esc(c.log)}</div>
+    <pre class="term">${esc(c.last_line||"")}</pre>
+  </div>`;
+}
+
+let busy = false;
+async function refresh(){
+  if (busy) return; busy = true;
+  try {
+    const j = await (await fetch("/api/snapshot")).json();
+    $("#at").textContent = `갱신 ${j.at?.slice(11,19) ?? ""}`;
+    $("#err").hidden = !!j.ok; $("#err").textContent = j.error || "";
+    $("#count").textContent = `${j.terminals.length} 세션 · ${j.scheduled.length} 스케줄`;
+    // 입력 중인 글 보존
+    document.querySelectorAll(".card[data-h] textarea").forEach(t => { drafts[t.closest(".card").dataset.h] = t.value; });
+    const focused = document.activeElement && document.activeElement.tagName === "TEXTAREA";
+    if (focused) return;   // 타이핑 중엔 다시 그리지 않는다
+    const html = [...j.terminals.map(termCard), ...j.scheduled.map(schedCard)].join("") || `<div class="empty">살아 있는 세션이 없습니다.</div>`;
+    $("#main").innerHTML = html;
+  } catch (e) { $("#err").hidden = false; $("#err").textContent = "대시보드 서버에 못 붙었습니다: " + e; }
+  finally { busy = false; }
+}
+
+document.addEventListener("click", async e => {
+  const act = e.target.closest("[data-act]"); if (!act) return;
+  const card = act.closest(".card"); const h = card.dataset.h;
+  if (act.dataset.act === "switch") { const r = await post("/api/switch",{handle:h}); toast(r.ok ? "Orca 탭으로 이동" : "이동 실패: "+(r.error||"")); }
+  if (act.dataset.act === "send") sendFrom(card);
+});
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "TEXTAREA" && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendFrom(e.target.closest(".card")); }
+});
+async function sendFrom(card){
+  const ta = card.querySelector("textarea"); const text = ta.value.trim(); if (!text) return;
+  const r = await post("/api/send",{handle:card.dataset.h, text});
+  if (r.ok) { ta.value = ""; drafts[card.dataset.h] = ""; toast("보냈습니다"); setTimeout(refresh, 800); }
+  else toast("전송 실패: " + (r.error||JSON.stringify(r)).slice(0,80));
+}
+refresh(); setInterval(refresh, 3000);
+</script>
+</body>
+</html>
