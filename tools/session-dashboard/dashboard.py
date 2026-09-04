@@ -340,8 +340,17 @@ def session_for(cwd, identity):
 
 
 # ── ③ 스케줄 에이전트 로그 ───────────────────────────────────────────────────
-def scheduled_today():
-    today = datetime.now(KST).strftime("%Y%m%d")
+def _day(day=None):
+    """'YYYY-MM-DD' · 'yesterday' · None(오늘) → date. 자정 넘어 어제 회차를 보려는 자리(2026-09-05 JJ)."""
+    if day in (None, "", "today"):
+        return datetime.now(KST).date()
+    if day == "yesterday":
+        return datetime.now(KST).date() - timedelta(days=1)
+    return datetime.strptime(day, "%Y-%m-%d").date()
+
+
+def scheduled_today(day=None):
+    today = _day(day).strftime("%Y%m%d")
     cards = []
     for f in sorted(glob.glob(os.path.join(HQ_LOGS, "*_%s.log" % today))):
         name = os.path.basename(f).rsplit("_", 1)[0]
@@ -423,8 +432,9 @@ def _sched_state(card):
     return "idle", "로그만 있음 · " + t
 
 
-def office():
+def office(day=None):
     snap = snapshot()
+    snap["scheduled"] = scheduled_today(day)
     sched = {c["name"]: c for c in snap["scheduled"]}
     terms = list(snap["terminals"])
     desks = []
@@ -458,7 +468,7 @@ def office():
                 d["title"] = c["last_line"][:80]
         elif src.get("hermes"):
             # gumsu 는 스케줄이 아니라 편 제작 때 xreview 로 불린다 — 오늘 리포트가 있으면 «오늘 N회 검수»
-            today = datetime.now(KST).strftime("%Y-%m-%d")
+            today = _day(day).strftime("%Y-%m-%d")
             xr = sorted(glob.glob(os.path.join(os.path.dirname(HQ_LOGS), "..", "reports", today + "_xreview_*.md")), key=os.path.getmtime)
             if xr:
                 d.update({"state": "idle", "note": "오늘 검수 %d회 · 마지막 %s" % (len(xr), datetime.fromtimestamp(os.path.getmtime(xr[-1]), KST).strftime("%H:%M")),
@@ -480,7 +490,7 @@ def office():
         c = sched.get(name)
         st, note = _sched_state(c)
         machines.append({"name": name, "label": label, "state": st, "note": note})
-    return {"ok": snap["ok"], "error": snap["error"], "at": snap["at"], "dept_order": DEPT_ORDER, "desks": desks, "machines": machines}
+    return {"ok": snap["ok"], "error": snap["error"], "at": snap["at"], "day": _day(day).isoformat(), "dept_order": DEPT_ORDER, "desks": desks, "machines": machines}
 
 
 #: 리포트 파일명 → (만든 에이전트, 받는 사람). 오늘 `reports\` 에 생기는 파일이 곧 «전달» 이벤트다 — 캐릭터가 걸어가 건네준다.
@@ -492,9 +502,9 @@ REPORT_ROUTES = [
 HQ_REPORTS = os.path.join(os.path.dirname(HQ_LOGS), "..", "reports")
 
 
-def events_today():
-    """오늘 생긴 리포트를 시각순으로 — 프런트가 «걸어가서 건네주기» 로 재생한다. 파일 존재가 근거다(추측 없음)."""
-    today = datetime.now(KST).strftime("%Y-%m-%d")
+def events_today(day=None):
+    """그날 생긴 리포트를 시각순으로 — 프런트가 «걸어가서 건네주기» 로 재생한다. 파일 존재가 근거다(추측 없음)."""
+    today = _day(day).strftime("%Y-%m-%d")
     out = []
     for f in glob.glob(os.path.join(HQ_REPORTS, today + "*")):
         name = os.path.basename(f)
@@ -535,7 +545,12 @@ class H(BaseHTTPRequestHandler):
         self.wfile.write(b)
 
     def do_GET(self):
-        p = urlparse(self.path).path
+        u = urlparse(self.path)
+        p = u.path
+        qs = dict(x.split("=", 1) for x in u.query.split("&") if "=" in x)
+        day = qs.get("date") or None
+        if day and day not in ("today", "yesterday") and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+            return self._json({"ok": False, "error": "bad date"}, 400)
         if p == "/":
             self._file(os.path.join(HERE, "index.html"), "text/html; charset=utf-8")
         elif p == "/office":
@@ -556,12 +571,12 @@ class H(BaseHTTPRequestHandler):
                 self._json({"ok": False, "error": repr(e), "terminals": [], "scheduled": []}, 500)
         elif p == "/api/events":
             try:
-                self._json({"ok": True, "events": events_today()})
+                self._json({"ok": True, "day": _day(day).isoformat(), "events": events_today(day)})
             except Exception as e:  # noqa: BLE001
                 self._json({"ok": False, "error": repr(e), "events": []}, 500)
         elif p == "/api/office":
             try:
-                self._json(office())
+                self._json(office(day))
             except Exception as e:  # noqa: BLE001
                 self._json({"ok": False, "error": repr(e), "desks": [], "machines": [], "dept_order": DEPT_ORDER}, 500)
         else:
