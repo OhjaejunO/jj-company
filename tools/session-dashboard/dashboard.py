@@ -403,15 +403,30 @@ class H(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b)
 
+    def _file(self, path, ctype):
+        b = io.open(path, "rb").read()
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(b)))
+        self.send_header("Cache-Control", "max-age=3600" if ctype.startswith("image/") else "no-cache")
+        self.end_headers()
+        self.wfile.write(b)
+
     def do_GET(self):
         p = urlparse(self.path).path
         if p == "/":
-            b = io.open(os.path.join(HERE, "index.html"), "rb").read()
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(b)))
-            self.end_headers()
-            self.wfile.write(b)
+            self._file(os.path.join(HERE, "index.html"), "text/html; charset=utf-8")
+        elif p == "/office":
+            self._file(os.path.join(HERE, "office.html"), "text/html; charset=utf-8")
+        elif p.startswith("/assets/"):
+            # 오피스 뷰 컷아웃 — 이름은 <agent>_<pose>.png 꼴만. 경로 탈출 차단.
+            name = p[len("/assets/"):]
+            if not re.fullmatch(r"(claude|codex|grok|hermes)_(typing|idle|hand)\.png", name):
+                return self._json({"ok": False, "error": "not found"}, 404)
+            fp = os.path.join(HERE, "assets", name)
+            if not os.path.exists(fp):
+                return self._json({"ok": False, "error": "asset missing: " + name}, 404)
+            self._file(fp, "image/png")
         elif p == "/api/snapshot":
             try:
                 self._json(snapshot())
