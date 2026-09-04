@@ -9,129 +9,173 @@
   :root { --bg:#0F172A; --fg:#F8FAFC; --muted:#94A3B8; --muted-2:#64748B; --border:rgba(255,255,255,0.12); --accent:#22C55E; --amber:#F59E0B; --red:#EF4444;
           --font:"Inter","Pretendard","Malgun Gothic",system-ui,sans-serif; --mono:"JetBrains Mono",Consolas,monospace; }
   * { box-sizing:border-box; } html { color-scheme:dark; }
-  body { margin:0; min-height:100dvh; background:var(--bg); color:var(--fg); font:14px/1.5 var(--font);
-         background-image: radial-gradient(900px 500px at 10% -10%, rgba(34,197,94,0.14), transparent 60%), radial-gradient(800px 500px at 100% 0%, rgba(96,165,250,0.12), transparent 60%); background-attachment:fixed; }
-  header { position:sticky; top:0; z-index:5; display:flex; align-items:center; gap:12px; padding:12px 20px; border-bottom:1px solid var(--border); background:rgba(15,23,42,0.72); backdrop-filter:blur(14px); }
+  body { margin:0; min-height:100dvh; background:#0b1020; color:var(--fg); font:14px/1.5 var(--font); }
+  header { position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:12px; padding:10px 18px; border-bottom:1px solid var(--border); background:rgba(11,16,32,0.8); backdrop-filter:blur(14px); }
   header .brand { font-weight:700; display:flex; align-items:center; gap:8px; white-space:nowrap; }
   header .brand .dot { width:9px; height:9px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 4px rgba(34,197,94,0.18); }
-  header a { color:var(--muted); font:500 12px var(--mono); text-decoration:none; padding:6px 10px; border:1px solid var(--border); border-radius:999px; white-space:nowrap; }
-  header a:hover { color:var(--fg); }
+  header a, header button.lnk { color:var(--muted); font:500 12px var(--mono); text-decoration:none; padding:6px 10px; border:1px solid var(--border); border-radius:999px; white-space:nowrap; background:none; cursor:pointer; }
+  header a:hover, header button.lnk:hover { color:var(--fg); }
   header .at { margin-left:auto; color:var(--muted); font:500 12px var(--mono); }
-  @media (max-width:480px) { header { flex-wrap:wrap; padding:10px 12px; } header #stats { order:3; width:100%; } }
   .chip { display:inline-flex; align-items:center; gap:6px; height:26px; padding:0 10px; border-radius:999px; font:500 12px/1 var(--mono); color:var(--muted); background:rgba(255,255,255,0.06); border:1px solid var(--border); }
   .chip.ok { color:#86EFAC; background:rgba(34,197,94,0.12); border-color:rgba(34,197,94,0.28); }
   .chip.warn { color:#FCD34D; background:rgba(245,158,11,0.12); border-color:rgba(245,158,11,0.3); }
-  .chip.bad { color:#FCA5A5; background:rgba(239,68,68,0.12); border-color:rgba(239,68,68,0.3); }
 
-  /* ── 사무실 바닥 ── */
-  .office { position:relative; margin:20px auto; max-width:1500px; padding:22px 24px 34px; border-radius:24px; border:1px solid var(--border);
-            background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)),
-              repeating-linear-gradient(0deg, transparent 0 46px, rgba(255,255,255,0.045) 46px 47px),
-              repeating-linear-gradient(90deg, transparent 0 46px, rgba(255,255,255,0.045) 46px 47px);
-            box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 30px 60px -30px rgba(0,0,0,0.7); }
-  .zones { display:flex; flex-wrap:wrap; gap:18px; }
-  .zone { flex:0 1 auto; min-width:250px; }
-  .zone { border:1px dashed rgba(255,255,255,0.14); border-radius:18px; padding:14px 12px 12px; background:rgba(255,255,255,0.02); }
-  .zone.wide { flex:1 1 100%; }
-  .zone h2 { display:flex; align-items:center; gap:10px; margin:0 0 10px; font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--muted-2); }
-  .zone h2 .cnt { margin-left:auto; color:var(--muted-2); letter-spacing:0; }
-  .row { display:flex; flex-wrap:wrap; gap:14px 12px; align-items:flex-end; }
-  .desk { width:218px; }
-  @media (max-width:480px) { .desk { width:calc(50% - 6px); } }
-  .desk { position:relative; display:flex; flex-direction:column; align-items:center; gap:6px; border-radius:16px; padding:8px 6px 8px; transition:transform .25s cubic-bezier(.2,.8,.2,1), background .2s; }
-  .desk.click { cursor:pointer; }
-  .desk.click:hover { transform:translateY(-4px); background:rgba(255,255,255,0.04); }
-  .desk:focus-visible { outline:2px solid #fff; outline-offset:3px; }
-  .fig { position:relative; width:100%; aspect-ratio:1/1; display:flex; align-items:flex-end; justify-content:center; }
-  .fig img { width:100%; height:100%; object-fit:contain; filter: drop-shadow(0 16px 16px rgba(0,0,0,0.45)); transition:filter .3s, opacity .3s; }
-  .desk.idle .fig img { filter: drop-shadow(0 16px 16px rgba(0,0,0,0.45)) saturate(.8) brightness(.94); }
-  .desk.sleep .fig img { filter: drop-shadow(0 12px 12px rgba(0,0,0,0.35)) saturate(.35) brightness(.7); opacity:.75; }
-  .fig::after { position:absolute; left:50%; bottom:6%; width:56%; height:10px; transform:translateX(-50%); border-radius:50%; }
-  .desk.running .fig::after { content:""; background:radial-gradient(closest-side, rgba(34,197,94,0.55), transparent); animation:glow 1.6s ease-in-out infinite; }
-  .desk.waiting .fig::after { content:""; background:radial-gradient(closest-side, rgba(245,158,11,0.7), transparent); animation:glow 1s ease-in-out infinite; }
-  @keyframes glow { 50% { opacity:.35; } }
-  @media (prefers-reduced-motion: reduce) { .fig::after { animation:none !important; } .desk { transition:none; } }
-  .bubble { position:absolute; top:3%; right:4%; max-width:74%; padding:5px 9px; border-radius:12px 12px 12px 2px; background:rgba(255,255,255,0.93); color:#0F172A; font:600 11px/1.35 var(--font); box-shadow:0 8px 20px -8px rgba(0,0,0,.6); display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
-  .bubble.wait { background:#FDE68A; }
-  .bubble.zz { background:rgba(148,163,184,0.25); color:#CBD5E1; font-family:var(--mono); }
-  .plate { width:100%; padding:7px 9px; border-radius:12px; background:rgba(255,255,255,0.06); border:1px solid var(--border); backdrop-filter:blur(10px); }
-  .plate .name { display:flex; align-items:center; gap:6px; font:600 12.5px/1.2 var(--font); min-width:0; }
-  .plate .name > span:nth-child(2) { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .plate .name .st { margin-left:auto; flex:none; width:8px; height:8px; border-radius:50%; background:var(--muted-2); }
-  .plate .name .st.run { background:var(--accent); box-shadow:0 0 0 3px rgba(34,197,94,0.25); }
-  .plate .name .st.wait { background:var(--amber); box-shadow:0 0 0 3px rgba(245,158,11,0.25); }
-  .plate .sub { color:var(--muted); font:400 11px/1.4 var(--mono); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .plate .sub.n { color:var(--muted-2); }
-  .ag { flex:none; font:600 10px/1 var(--mono); letter-spacing:.08em; text-transform:uppercase; padding:3px 6px; border-radius:6px; }
-  .ag-claude { color:#FDBA74; background:rgba(249,115,22,0.16); } .ag-codex { color:#99F6E4; background:rgba(20,184,166,0.16); }
-  .ag-grok { color:#E2E8F0; background:rgba(148,163,184,0.18); } .ag-hermes { color:#FCD34D; background:rgba(245,158,11,0.16); }
-  .server { margin-top:16px; padding-top:14px; border-top:1px dashed var(--border); }
-  .server h2 { margin:0 0 10px; font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--muted-2); }
-  .server .row { display:flex; flex-wrap:wrap; gap:10px; }
-  .lamp { display:inline-flex; align-items:center; gap:8px; padding:7px 11px; border-radius:12px; background:rgba(255,255,255,0.05); border:1px solid var(--border); font:500 12px var(--mono); color:var(--muted); }
-  .lamp i { width:9px; height:9px; border-radius:50%; background:var(--muted-2); flex:none; }
-  .lamp.idle i { background:var(--accent); } .lamp.waiting i { background:var(--red); box-shadow:0 0 0 3px rgba(239,68,68,0.25); } .lamp.running i { background:var(--accent); animation:glow 1.2s infinite; }
-  .toast { position:fixed; left:50%; bottom:20px; transform:translate(-50%,12px); padding:10px 14px; border-radius:12px; background:rgba(15,23,42,.9); border:1px solid rgba(255,255,255,.2); opacity:0; transition:opacity .2s, transform .2s; font-size:13px; pointer-events:none; }
+  /* ── 장면: 배경 한 장 + 절대 좌표 ── */
+  .stage-wrap { display:flex; justify-content:center; padding:12px; }
+  .stage { position:relative; width:min(100%, 1600px); aspect-ratio:1920/1072; border-radius:18px; overflow:hidden; background:#0b1020 url(/assets/office_bg.jpg) center/cover no-repeat; box-shadow:0 40px 80px -40px rgba(0,0,0,.9); user-select:none; }
+  .unit { position:absolute; transform:translate(-50%, -100%); width:calc(var(--s, 1) * 12.5%); cursor:default; transition: left .4s, top .4s; }
+  .unit.click { cursor:pointer; }
+  .unit img.fig { width:100%; display:block; filter: drop-shadow(0 10px 10px rgba(0,0,0,.5)); transition: filter .3s, opacity .3s; }
+  .unit.idle img.fig { filter: drop-shadow(0 10px 10px rgba(0,0,0,.5)) saturate(.85); }
+  .unit.sleep img.fig { filter: drop-shadow(0 8px 8px rgba(0,0,0,.4)) saturate(.3) brightness(.62); opacity:.8; }
+  .unit.away img.fig { opacity:0; }
+  .unit .glow { position:absolute; left:50%; bottom:2%; width:60%; height:8%; transform:translateX(-50%); border-radius:50%; pointer-events:none; }
+  .unit.running .glow { background:radial-gradient(closest-side, rgba(34,197,94,.6), transparent); animation:glow 1.6s ease-in-out infinite; }
+  .unit.waiting .glow { background:radial-gradient(closest-side, rgba(245,158,11,.75), transparent); animation:glow 1s ease-in-out infinite; }
+  @keyframes glow { 50% { opacity:.3; } }
+  .tag { position:absolute; left:50%; bottom:-4px; transform:translate(-50%, 100%); white-space:nowrap; display:flex; align-items:center; gap:5px; padding:3px 8px; border-radius:8px; background:rgba(11,16,32,.82); border:1px solid rgba(255,255,255,.14); backdrop-filter:blur(8px); font:600 11px/1.2 var(--font); }
+  .tag .st { width:7px; height:7px; border-radius:50%; background:var(--muted-2); }
+  .tag .st.run { background:var(--accent); } .tag .st.wait { background:var(--amber); }
+  .tag small { color:var(--muted); font:400 10px var(--mono); }
+  .bubble { position:absolute; left:60%; top:-6%; max-width:150%; padding:4px 8px; border-radius:10px 10px 10px 2px; background:rgba(255,255,255,.94); color:#0F172A; font:600 10.5px/1.3 var(--font); box-shadow:0 8px 20px -8px rgba(0,0,0,.6); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; pointer-events:none; }
+  .bubble.wait { background:#FDE68A; } .bubble.zz { background:rgba(148,163,184,.3); color:#E2E8F0; font-family:var(--mono); }
+  .jj { position:absolute; transform:translate(-50%, -50%); text-align:center; pointer-events:none; }
+  .jj .plate { display:inline-block; padding:5px 12px; border-radius:10px; background:rgba(11,16,32,.85); border:1px solid rgba(255,255,255,.18); font:700 12px var(--font); }
+  .jj .plate small { display:block; color:var(--muted); font:400 10px var(--mono); }
+  .jj .inbox { display:inline-flex; gap:4px; margin-top:4px; flex-wrap:wrap; justify-content:center; max-width:220px; }
+  .jj .inbox span { font-size:14px; filter: drop-shadow(0 2px 2px rgba(0,0,0,.6)); animation: pop .4s cubic-bezier(.2,.8,.2,1); }
+  @keyframes pop { from { transform:scale(.2); opacity:0; } }
+  /* 걷는 캐릭터 */
+  .walker { position:absolute; transform:translate(-50%, -100%); width:calc(var(--s, 1) * 6.5%); pointer-events:none; z-index:10; transition: left var(--d, 2.4s) cubic-bezier(.45,.05,.55,.95), top var(--d, 2.4s) cubic-bezier(.45,.05,.55,.95); }
+  .walker img { width:100%; display:block; filter: drop-shadow(0 8px 8px rgba(0,0,0,.5)); animation: bob .42s ease-in-out infinite; transform-origin:50% 100%; }
+  @keyframes bob { 0%,100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-6%) rotate(2deg); } }
+  .walker .doc { position:absolute; right:-18%; top:20%; padding:3px 6px; border-radius:8px; background:#fff; color:#0F172A; font:700 10px var(--mono); box-shadow:0 6px 14px -6px rgba(0,0,0,.7); white-space:nowrap; }
+  @media (prefers-reduced-motion: reduce) { .walker img { animation:none; } .unit .glow { animation:none !important; } }
+  .log { max-width:1600px; margin:0 auto; padding:0 12px 24px; color:var(--muted); font:400 12px/1.6 var(--mono); }
+  .log b { color:var(--fg); font-weight:600; }
+  .edit .unit { outline:1px dashed rgba(255,255,255,.4); cursor:move; }
+  .toast { position:fixed; left:50%; bottom:20px; transform:translate(-50%,12px); padding:10px 14px; border-radius:12px; background:rgba(15,23,42,.9); border:1px solid rgba(255,255,255,.2); opacity:0; transition:opacity .2s, transform .2s; font-size:13px; pointer-events:none; z-index:30; }
   .toast.on { opacity:1; transform:translate(-50%,0); }
-  .err { margin:12px 20px 0; padding:10px 14px; border-radius:10px; background:rgba(239,68,68,0.14); border:1px solid rgba(239,68,68,0.35); color:#FECACA; font-size:13px; }
+  @media (max-width:640px) { .unit { width:calc(var(--s,1) * 17%); } .tag { font-size:9.5px; } .bubble { display:none; } }
 </style>
 </head>
 <body>
 <header>
   <div class="brand"><span class="dot" aria-hidden="true"></span>JJ Office</div>
   <a href="/">카드 보기</a>
+  <button class="lnk" id="replay" type="button">오늘 전달 다시 보기</button>
   <span id="stats" role="status" aria-atomic="true"></span>
   <span class="at" id="at">불러오는 중…</span>
 </header>
-<div class="err" id="err" hidden></div>
-<section class="office">
-  <div class="zones" id="zones"></div>
-  <div class="server"><h2>Server room · 에이전트 없는 결정적 작업</h2><div class="row" id="machines"></div></div>
-</section>
+<div class="stage-wrap"><div class="stage" id="stage"></div></div>
+<div class="log" id="log"></div>
 <div class="toast" id="toast" role="status"></div>
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => (s ?? "").toString().replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const POSE = {running: "typing", waiting: "hand", idle: "idle", sleep: "idle"};
+// 책상 자리 — 배경 그림(office_bg.jpg) 위의 % 좌표. `?edit` 로 드래그해 잡고 콘솔에 찍히는 값을 여기 옮긴다.
+const SLOTS = {
+  "jj":            {x: 48.0, y: 33.0, s: 1},
+  "dev-grok":      {x: 29.5, y: 50.0, s: 0.68},
+  "dev-codex":     {x: 39.0, y: 55.5, s: 0.72},
+  "dev-claude":    {x: 57.0, y: 55.0, s: 0.78},
+  "sagun":         {x: 66.5, y: 63.5, s: 0.84},
+  "gumsu":         {x: 76.5, y: 71.0, s: 0.90},
+  "ops-auditor":   {x: 19.5, y: 66.0, s: 0.88},
+  "content-scout": {x: 30.0, y: 74.0, s: 0.94},
+  "job-scout":     {x: 41.0, y: 82.0, s: 1.00},
+  "cross-verify":  {x: 53.5, y: 89.0, s: 1.04},
+};
+let fallbackSlot = 0;
+const FALLBACK = [{x: 20, y: 50, s: .9}, {x: 84, y: 82, s: 1}, {x: 44, y: 86, s: 1.1}];
+const stage = $("#stage"); const units = new Map(); let deskData = new Map();
+function slotOf(id){ if (SLOTS[id]) return SLOTS[id]; SLOTS[id] = FALLBACK[fallbackSlot++ % FALLBACK.length]; return SLOTS[id]; }
 function toast(t){ const e=$("#toast"); e.textContent=t; e.classList.add("on"); clearTimeout(e._t); e._t=setTimeout(()=>e.classList.remove("on"),2000); }
 async function post(url, body){ const r = await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); return r.json(); }
 
-function desk(d){
-  const click = !!d.handle;
-  const bubble = d.state === "waiting" ? `<div class="bubble wait">${esc(d.note || "확인이 필요해요")}</div>`
-    : d.state === "running" && d.prompt ? `<div class="bubble">${esc(d.prompt.slice(0, 80))}</div>`
-    : d.state === "sleep" ? `<div class="bubble zz">z z z</div>` : "";
-  return `<div class="desk ${d.state} ${click ? "click" : ""}" ${click ? `data-h="${esc(d.handle)}" role="button" tabindex="0" title="클릭하면 Orca 의 이 탭으로 갑니다"` : ""}>
-    <div class="fig"><img src="/assets/${esc(d.agent)}_${POSE[d.state] || "idle"}.png" alt="${esc(d.name)}" loading="lazy">${bubble}</div>
-    <div class="plate">
-      <div class="name"><span class="ag ag-${esc(d.agent)}">${esc(d.agent)}</span><span>${esc(d.name)}</span><span class="st ${d.state === "waiting" ? "wait" : d.state === "running" ? "run" : ""}"></span></div>
-      <div class="sub">${esc(d.title || d.role)}</div>
-      <div class="sub n">${esc(d.note || d.role)}</div>
-    </div>
-  </div>`;
+function renderJJ(){
+  if ($("#jj")) return;
+  const s = SLOTS.jj; const el = document.createElement("div"); el.className = "jj"; el.id = "jj";
+  el.style.left = s.x + "%"; el.style.top = s.y + "%";
+  el.innerHTML = `<div class="plate">JJ<small>대표실 · 받은 리포트</small></div><div class="inbox" id="inbox"></div>`;
+  stage.appendChild(el);
 }
-const lamp = m => `<span class="lamp ${esc(m.state)}" title="${esc(m.label)}"><i></i>${esc(m.name)} · ${esc(m.note)}</span>`;
+function upsert(d){
+  const slot = slotOf(d.id);
+  let el = units.get(d.id);
+  if (!el) {
+    el = document.createElement("div"); el.dataset.id = d.id; units.set(d.id, el); stage.appendChild(el);
+    el.addEventListener("click", () => { if (el.dataset.h && !stage.classList.contains("edit")) post("/api/switch", {handle: el.dataset.h}).then(r => toast(r.ok ? "Orca 탭으로 이동했습니다" : "이동 실패")); });
+  }
+  el.className = `unit ${d.state} ${d.handle ? "click" : ""}`; el.dataset.h = d.handle || "";
+  el.style.setProperty("--s", slot.s); el.style.left = slot.x + "%"; el.style.top = slot.y + "%"; el.style.zIndex = Math.round(slot.y);
+  const bubble = d.state === "waiting" ? `<div class="bubble wait">${esc(d.note || "확인 필요")}</div>`
+    : d.state === "running" && d.prompt ? `<div class="bubble">${esc(d.prompt.slice(0, 60))}</div>`
+    : d.state === "sleep" ? `<div class="bubble zz">z z z</div>` : "";
+  el.innerHTML = `<img class="fig" src="/assets/${esc(d.agent)}_${POSE[d.state] || "idle"}.png" alt="${esc(d.name)}"><div class="glow"></div>${bubble}
+    <div class="tag"><span class="st ${d.state === "waiting" ? "wait" : d.state === "running" ? "run" : ""}"></span>${esc(d.name)}<small>${esc((d.note || d.role || "").slice(0, 26))}</small></div>`;
+  el.title = `${d.name} · ${d.role}\n${d.note || ""}${d.handle ? "\n클릭: Orca 탭으로" : ""}`;
+}
 
-let busy = false;
+// ── 전달 애니메이션: from 자리에서 to 자리로 걸어가 서류를 건네고 돌아온다 ──
+const queue = []; let walking = false; const seen = new Set();
+function walk(ev){ queue.push(ev); pump(); }
+async function pump(){
+  if (walking || !queue.length) return; walking = true;
+  const ev = queue.shift();
+  const from = slotOf(ev.from), to = slotOf(ev.to); const d = deskData.get(ev.from);
+  const agent = d ? d.agent : "claude"; const unit = units.get(ev.from);
+  const w = document.createElement("div"); w.className = "walker"; w.style.setProperty("--s", from.s);
+  w.style.left = from.x + "%"; w.style.top = from.y + "%"; w.style.zIndex = 50;
+  w.innerHTML = `<img src="/assets/${esc(agent)}_stand.png" alt=""><div class="doc">📄 ${esc(ev.label)}</div>`;
+  stage.appendChild(w); if (unit) unit.classList.add("away");
+  logLine(`<b>${esc(d ? d.name : ev.from)}</b> → ${esc(ev.to === "jj" ? "JJ" : (deskData.get(ev.to)?.name || ev.to))} · ${esc(ev.label)} · ${new Date(ev.ts * 1000).toTimeString().slice(0,5)}`);
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const dist = Math.hypot(to.x - from.x, (to.y - from.y) * 0.56); const dur = Math.max(1.4, Math.min(3.2, dist / 18));
+  w.style.setProperty("--d", dur + "s"); w.style.left = (to.x + (ev.to === "jj" ? -4 : -5)) + "%"; w.style.top = (to.y + (ev.to === "jj" ? 8 : 1)) + "%";
+  await wait(dur * 1000 + 100);
+  w.querySelector(".doc")?.remove();
+  if (ev.to === "jj") { const s = document.createElement("span"); s.textContent = "📄"; s.title = ev.label; $("#inbox")?.appendChild(s); }
+  await wait(700);
+  w.style.left = from.x + "%"; w.style.top = from.y + "%";
+  await wait(dur * 1000 + 100);
+  w.remove(); if (unit) unit.classList.remove("away");
+  walking = false; pump();
+}
+const wait = ms => new Promise(r => setTimeout(r, ms));
+function logLine(html){ const l = $("#log"); l.insertAdjacentHTML("afterbegin", `<div>${html}</div>`); while (l.children.length > 12) l.lastChild.remove(); }
+
+let busy = false, firstEvents = true;
 async function refresh(){
   if (busy) return; busy = true;
   try {
     const j = await (await fetch("/api/office")).json();
     $("#at").textContent = `갱신 ${j.at?.slice(11,19) ?? ""}`;
-    $("#err").hidden = !!j.ok; $("#err").textContent = j.error || "";
+    renderJJ();
+    deskData = new Map(j.desks.map(d => [d.id, d]));
+    for (const d of j.desks) upsert(d);
+    for (const [id, el] of units) if (!deskData.has(id)) { el.remove(); units.delete(id); }
     const n = s => j.desks.filter(d => d.state === s).length;
     $("#stats").innerHTML = `${n("waiting") ? `<span class="chip warn">확인 필요 ${n("waiting")}</span> ` : ""}<span class="chip ok">작업 중 ${n("running")}</span> <span class="chip">대기 ${n("idle")}</span> <span class="chip">출근 전 ${n("sleep")}</span>`;
-    const byDept = {};
-    for (const d of j.desks) (byDept[d.dept] = byDept[d.dept] || []).push(d);
-    const order = [...j.dept_order, ...Object.keys(byDept).filter(k => !j.dept_order.includes(k))];
-    $("#zones").innerHTML = order.filter(k => byDept[k]).map(k => `<section class="zone ${k === "개발팀" ? "wide" : ""}"><h2>${esc(k)}<span class="cnt">${byDept[k].length}</span></h2><div class="row">${byDept[k].map(desk).join("")}</div></section>`).join("");
-    $("#machines").innerHTML = j.machines.map(lamp).join("");
-  } catch (e) { $("#err").hidden = false; $("#err").textContent = "서버에 못 붙었습니다: " + e; }
+    const ev = await (await fetch("/api/events")).json();
+    for (const e of ev.events) { if (seen.has(e.id)) continue; seen.add(e.id); if (firstEvents) $("#inbox")?.insertAdjacentHTML("beforeend", `<span title="${esc(e.label)}">📄</span>`); else walk(e); }
+    firstEvents = false;
+  } catch (e) { $("#stats").textContent = "서버에 못 붙었습니다"; }
   finally { busy = false; }
 }
-async function go(el){ const r = await post("/api/switch", {handle: el.dataset.h}); toast(r.ok ? "Orca 탭으로 이동했습니다" : "이동 실패"); }
-document.addEventListener("click", e => { const d = e.target.closest(".desk.click"); if (d) go(d); });
-document.addEventListener("keydown", e => { if ((e.key === "Enter" || e.key === " ") && e.target.classList.contains("click")) { e.preventDefault(); go(e.target); } });
+$("#replay").addEventListener("click", async () => {
+  const ev = await (await fetch("/api/events")).json(); $("#inbox").innerHTML = ""; queue.length = 0;
+  for (const e of ev.events) walk(e);
+});
+// ── 편집 모드: ?edit 로 책상을 드래그해 좌표를 잡는다 (콘솔에 SLOTS 출력) ──
+if (location.search.includes("edit")) {
+  stage.classList.add("edit"); let drag = null;
+  stage.addEventListener("pointerdown", e => { const u = e.target.closest(".unit"); if (!u) return; drag = u; u.setPointerCapture(e.pointerId); });
+  stage.addEventListener("pointermove", e => { if (!drag) return; const r = stage.getBoundingClientRect(); const x = (e.clientX - r.left) / r.width * 100, y = (e.clientY - r.top) / r.height * 100; drag.style.left = x + "%"; drag.style.top = y + "%"; SLOTS[drag.dataset.id] = Object.assign(SLOTS[drag.dataset.id] || {s: 1}, {x: +x.toFixed(1), y: +y.toFixed(1)}); });
+  stage.addEventListener("pointerup", () => { if (drag) { console.log(JSON.stringify(SLOTS, null, 1)); drag = null; } });
+  stage.addEventListener("wheel", e => { const u = e.target.closest(".unit"); if (!u) return; e.preventDefault(); const s = SLOTS[u.dataset.id]; s.s = +Math.max(.4, Math.min(1.6, s.s + (e.deltaY < 0 ? .04 : -.04))).toFixed(2); u.style.setProperty("--s", s.s); console.log(JSON.stringify(SLOTS, null, 1)); }, {passive: false});
+}
 refresh(); setInterval(refresh, 3000);
 </script>
 </body>

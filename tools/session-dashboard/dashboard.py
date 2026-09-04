@@ -479,6 +479,30 @@ def office():
     return {"ok": snap["ok"], "error": snap["error"], "at": snap["at"], "dept_order": DEPT_ORDER, "desks": desks, "machines": machines}
 
 
+#: 리포트 파일명 → (만든 에이전트, 받는 사람). 오늘 `reports\` 에 생기는 파일이 곧 «전달» 이벤트다 — 캐릭터가 걸어가 건네준다.
+REPORT_ROUTES = [
+    (r"_vault-health", "ops-auditor", "jj"), (r"_tomangchi-scout", "content-scout", "jj"), (r"_job-scout", "job-scout", "jj"),
+    (r"_cross-verify", "cross-verify", "jj"), (r"_xreview_", "gumsu", "dev-claude"), (r"hermes-event|_event-watch", "sagun", "jj"),
+    (r"_dist_|_publish_|_oss-|_workshop-backup", "dev-claude", "jj"),
+]
+HQ_REPORTS = os.path.join(os.path.dirname(HQ_LOGS), "..", "reports")
+
+
+def events_today():
+    """오늘 생긴 리포트를 시각순으로 — 프런트가 «걸어가서 건네주기» 로 재생한다. 파일 존재가 근거다(추측 없음)."""
+    today = datetime.now(KST).strftime("%Y-%m-%d")
+    out = []
+    for f in glob.glob(os.path.join(HQ_REPORTS, today + "*")):
+        name = os.path.basename(f)
+        for pat, frm, to in REPORT_ROUTES:
+            if re.search(pat, name):
+                out.append({"id": name, "ts": os.path.getmtime(f), "from": frm, "to": to,
+                            "label": name.replace(today + "_", "").rsplit(".", 1)[0][:40]})
+                break
+    out.sort(key=lambda e: e["ts"])
+    return out
+
+
 def send_text(handle, text):
     return orca_json("terminal", "send", "--terminal", handle, "--text", text, "--enter")
 
@@ -515,7 +539,7 @@ class H(BaseHTTPRequestHandler):
         elif p.startswith("/assets/"):
             # 오피스 뷰 컷아웃 — 이름은 <agent>_<pose>.png 꼴만. 경로 탈출 차단.
             name = p[len("/assets/"):]
-            if not re.fullmatch(r"(claude|codex|grok|hermes)_(typing|idle|hand)\.png", name):
+            if not re.fullmatch(r"(claude|codex|grok|hermes)_(typing|idle|hand|stand)\.png|office_bg\.(png|jpg)", name):
                 return self._json({"ok": False, "error": "not found"}, 404)
             fp = os.path.join(HERE, "assets", name)
             if not os.path.exists(fp):
@@ -526,6 +550,11 @@ class H(BaseHTTPRequestHandler):
                 self._json(snapshot())
             except Exception as e:  # noqa: BLE001 — 실패를 화면에 보인다 (조용히 빈 판을 내지 않는다)
                 self._json({"ok": False, "error": repr(e), "terminals": [], "scheduled": []}, 500)
+        elif p == "/api/events":
+            try:
+                self._json({"ok": True, "events": events_today()})
+            except Exception as e:  # noqa: BLE001
+                self._json({"ok": False, "error": repr(e), "events": []}, 500)
         elif p == "/api/office":
             try:
                 self._json(office())
