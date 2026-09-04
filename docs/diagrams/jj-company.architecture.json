@@ -1,0 +1,662 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "JJ Company OS — 회사 구조",
+    "quality_profile": "showcase",
+    "animation": "none",
+    "views": [
+      {
+        "id": "morning",
+        "label": "아침 회차",
+        "focus": [
+          "scheduler",
+          "wrapper",
+          "ops",
+          "scout",
+          "job",
+          "verify",
+          "sagun",
+          "reports",
+          "jj"
+        ],
+        "note": "스케줄러가 래퍼를 띄우고, 래퍼가 동기화·프로브를 지나 에이전트를 부르며, 리포트가 JJ 에게 간다."
+      },
+      {
+        "id": "publish",
+        "label": "발행 장치",
+        "focus": [
+          "jj",
+          "approval",
+          "publisher",
+          "threads",
+          "instagram",
+          "kit"
+        ],
+        "note": "승인은 채팅이 아니라 파일이다. JJ 가 옮긴 승인 파일만 워커가 믿고, 인스타그램은 사람이 올린다."
+      },
+      {
+        "id": "boundaries",
+        "label": "경계와 정본",
+        "focus": [
+          "workshop",
+          "github",
+          "hq",
+          "skill",
+          "vault",
+          "lab",
+          "blog"
+        ],
+        "note": "작업장은 worktree 와 PR 로만 main 에 닿고, 운영 서버는 pull 로만 갱신되며, 출장지는 읽기 전용이다."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "jj",
+      "type": "external",
+      "label": "JJ · 대표실",
+      "sublabel": "방향·결정·승인",
+      "pos": [
+        40,
+        330
+      ],
+      "size": [
+        136,
+        62
+      ]
+    },
+    {
+      "id": "workshop",
+      "type": "backend",
+      "label": "작업장 레포",
+      "sublabel": "orca · worktree",
+      "pos": [
+        210,
+        190
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "tag": "개발팀"
+    },
+    {
+      "id": "dashboard",
+      "type": "backend",
+      "label": "세션 대시보드 · 오피스",
+      "sublabel": "session-dashboard",
+      "pos": [
+        210,
+        470
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "tag": "개발팀"
+    },
+    {
+      "id": "github",
+      "type": "cloud",
+      "label": "GitHub origin/main",
+      "sublabel": "PR · 머지 4조건",
+      "pos": [
+        210,
+        330
+      ],
+      "size": [
+        150,
+        62
+      ]
+    },
+    {
+      "id": "hq",
+      "type": "cloud",
+      "label": "운영 서버",
+      "sublabel": "main 전용 · pull",
+      "pos": [
+        390,
+        190
+      ],
+      "size": [
+        140,
+        62
+      ]
+    },
+    {
+      "id": "scheduler",
+      "type": "cloud",
+      "label": "작업 스케줄러",
+      "sublabel": "07:40 ~ 12:30",
+      "pos": [
+        390,
+        330
+      ],
+      "size": [
+        140,
+        62
+      ]
+    },
+    {
+      "id": "wrapper",
+      "type": "security",
+      "label": "래퍼 (.ps1)",
+      "sublabel": "sync · probe · headroom",
+      "pos": [
+        570,
+        330
+      ],
+      "size": [
+        150,
+        62
+      ]
+    },
+    {
+      "id": "ops",
+      "type": "backend",
+      "label": "ops-auditor",
+      "sublabel": "운영팀 · vault 감사",
+      "pos": [
+        760,
+        110
+      ],
+      "size": [
+        140,
+        62
+      ],
+      "tag": "claude"
+    },
+    {
+      "id": "scout",
+      "type": "backend",
+      "label": "content-scout",
+      "sublabel": "마케팅팀 · 아침 스캔",
+      "pos": [
+        760,
+        220
+      ],
+      "size": [
+        140,
+        62
+      ],
+      "tag": "claude"
+    },
+    {
+      "id": "job",
+      "type": "backend",
+      "label": "job-scout",
+      "sublabel": "영업팀 · 채용 발굴",
+      "pos": [
+        760,
+        330
+      ],
+      "size": [
+        140,
+        62
+      ],
+      "tag": "claude"
+    },
+    {
+      "id": "verify",
+      "type": "backend",
+      "label": "교차검증",
+      "sublabel": "감리 · codex",
+      "pos": [
+        760,
+        440
+      ],
+      "size": [
+        140,
+        62
+      ],
+      "tag": "codex"
+    },
+    {
+      "id": "sagun",
+      "type": "backend",
+      "label": "헤르메스",
+      "sublabel": "sagun · gumsu",
+      "pos": [
+        760,
+        550
+      ],
+      "size": [
+        140,
+        62
+      ],
+      "tag": "hermes"
+    },
+    {
+      "id": "reports",
+      "type": "database",
+      "label": "reports\\",
+      "sublabel": "리포트 · STATUS",
+      "pos": [
+        940,
+        330
+      ],
+      "size": [
+        140,
+        62
+      ]
+    },
+    {
+      "id": "approval",
+      "type": "security",
+      "label": "publish_approval\\",
+      "sublabel": "JJ 서명 = 이동",
+      "pos": [
+        760,
+        700
+      ],
+      "size": [
+        140,
+        62
+      ]
+    },
+    {
+      "id": "publisher",
+      "type": "security",
+      "label": "publish_threads",
+      "sublabel": "3확인 · 순차",
+      "pos": [
+        940,
+        700
+      ],
+      "size": [
+        140,
+        62
+      ]
+    },
+    {
+      "id": "skill",
+      "type": "cloud",
+      "label": "토망치 SKILL 정본",
+      "sublabel": "v3.68 · 게이트",
+      "pos": [
+        570,
+        550
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "tag": "자회사"
+    },
+    {
+      "id": "vault",
+      "type": "database",
+      "label": "JJ-Brain vault",
+      "sublabel": "Obsidian · 읽기",
+      "pos": [
+        1120,
+        110
+      ],
+      "size": [
+        140,
+        62
+      ]
+    },
+    {
+      "id": "lab",
+      "type": "database",
+      "label": "토망치랩 워크숍",
+      "sublabel": "스캔로그 append",
+      "pos": [
+        1120,
+        220
+      ],
+      "size": [
+        140,
+        62
+      ]
+    },
+    {
+      "id": "blog",
+      "type": "database",
+      "label": "블로그 레포",
+      "sublabel": "읽기 전용",
+      "pos": [
+        1120,
+        330
+      ],
+      "size": [
+        140,
+        62
+      ]
+    },
+    {
+      "id": "kit",
+      "type": "external",
+      "label": "킷 (github.io)",
+      "sublabel": "DM 킷 HTML",
+      "pos": [
+        1120,
+        440
+      ],
+      "size": [
+        140,
+        62
+      ]
+    },
+    {
+      "id": "threads",
+      "type": "external",
+      "label": "Threads",
+      "sublabel": "에이전트 발행",
+      "pos": [
+        1120,
+        700
+      ],
+      "size": [
+        140,
+        62
+      ]
+    },
+    {
+      "id": "instagram",
+      "type": "external",
+      "label": "Instagram",
+      "sublabel": "사람 발행 (C)",
+      "pos": [
+        1120,
+        810
+      ],
+      "size": [
+        140,
+        62
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "security-group",
+      "label": "작업장 — main 고정 · 커밋 금지 · worktree → PR",
+      "wraps": [
+        "workshop",
+        "github",
+        "dashboard"
+      ],
+      "pad": 18
+    },
+    {
+      "kind": "region",
+      "label": "운영 서버 — git pull 로만 갱신 · 스케줄 CWD",
+      "wraps": [
+        "hq",
+        "scheduler",
+        "wrapper",
+        "ops",
+        "scout",
+        "job",
+        "verify",
+        "sagun",
+        "reports",
+        "approval",
+        "publisher",
+        "skill"
+      ],
+      "pad": 22
+    },
+    {
+      "kind": "security-group",
+      "label": "에이전트 (A/B 등급) — default 모드 · 매 회차 프로브",
+      "wraps": [
+        "ops",
+        "scout",
+        "job",
+        "verify",
+        "sagun"
+      ],
+      "pad": 14
+    },
+    {
+      "kind": "region",
+      "label": "출장지 · 외부 — 읽기 전용 (예외는 지정 목록 · 단방향)",
+      "wraps": [
+        "vault",
+        "lab",
+        "blog",
+        "kit",
+        "threads",
+        "instagram"
+      ],
+      "pad": 18
+    }
+  ],
+  "connections": [
+    {
+      "from": "jj",
+      "to": "workshop",
+      "label": "지시 · 제작",
+      "variant": "emphasis",
+      "route": "orthogonal-h",
+      "labelAt": [
+        165,
+        255
+      ]
+    },
+    {
+      "from": "workshop",
+      "to": "github",
+      "label": "PR",
+      "route": "straight",
+      "labelAt": [
+        285,
+        272
+      ]
+    },
+    {
+      "from": "github",
+      "to": "hq",
+      "label": "git pull",
+      "variant": "security",
+      "route": "orthogonal-h",
+      "labelAt": [
+        365,
+        270
+      ]
+    },
+    {
+      "from": "hq",
+      "to": "scheduler",
+      "route": "straight"
+    },
+    {
+      "from": "scheduler",
+      "to": "wrapper",
+      "label": "트리거",
+      "variant": "emphasis"
+    },
+    {
+      "from": "skill",
+      "to": "wrapper",
+      "label": "deploy-skill 사본",
+      "variant": "dashed",
+      "route": "orthogonal-v",
+      "labelAt": [
+        650,
+        470
+      ],
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "from": "wrapper",
+      "to": "ops",
+      "label": "claude -p",
+      "variant": "emphasis",
+      "route": "orthogonal-h",
+      "labelAt": [
+        735,
+        200
+      ]
+    },
+    {
+      "from": "wrapper",
+      "to": "scout",
+      "variant": "emphasis",
+      "route": "orthogonal-h"
+    },
+    {
+      "from": "wrapper",
+      "to": "job",
+      "variant": "emphasis",
+      "route": "orthogonal-h"
+    },
+    {
+      "from": "wrapper",
+      "to": "verify",
+      "variant": "emphasis",
+      "route": "orthogonal-h"
+    },
+    {
+      "from": "wrapper",
+      "to": "sagun",
+      "variant": "emphasis",
+      "route": "orthogonal-h"
+    },
+    {
+      "from": "ops",
+      "to": "reports",
+      "label": "STATUS",
+      "route": "orthogonal-h"
+    },
+    {
+      "from": "scout",
+      "to": "reports",
+      "route": "orthogonal-h"
+    },
+    {
+      "from": "job",
+      "to": "reports",
+      "route": "orthogonal-h"
+    },
+    {
+      "from": "verify",
+      "to": "reports",
+      "route": "orthogonal-h"
+    },
+    {
+      "from": "sagun",
+      "to": "reports",
+      "route": "orthogonal-h"
+    },
+    {
+      "from": "ops",
+      "to": "vault",
+      "label": "read-only",
+      "variant": "dashed",
+      "route": "straight",
+      "fromSide": "top",
+      "toSide": "top",
+      "via": [
+        [
+          830,
+          80
+        ],
+        [
+          1190,
+          80
+        ]
+      ],
+      "labelAt": [
+        1010,
+        72
+      ]
+    },
+    {
+      "from": "jj",
+      "to": "approval",
+      "label": "승인 파일 이동 = 서명",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "left",
+      "via": [
+        [
+          108,
+          731
+        ]
+      ],
+      "labelAt": [
+        430,
+        722
+      ]
+    },
+    {
+      "from": "approval",
+      "to": "publisher",
+      "label": "3확인",
+      "variant": "security",
+      "route": "straight",
+      "labelAt": [
+        920,
+        694
+      ]
+    },
+    {
+      "from": "publisher",
+      "to": "threads",
+      "label": "5포스트",
+      "variant": "emphasis",
+      "route": "straight",
+      "labelAt": [
+        1100,
+        694
+      ]
+    },
+    {
+      "from": "jj",
+      "to": "instagram",
+      "label": "발행 (C등급 · 사람)",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "bottom",
+      "via": [
+        [
+          108,
+          900
+        ],
+        [
+          1190,
+          900
+        ]
+      ],
+      "labelAt": [
+        640,
+        892
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "자동화 3등급",
+      "items": [
+        "A 완전 자동 — 읽기 감사 · 리포트",
+        "B 제안까지 — 초안 · 카드 · 커밋 준비",
+        "C 사람 필수 — 인스타 발행 · 외부 발송 · 결제 · 되돌리기 어려운 git"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "정본은 실물",
+      "items": [
+        "스케줄 트리거는 Get-ScheduledTask",
+        "배포 상태는 git fetch 뒤 origin/main",
+        "승인은 채팅이 아니라 publish_approval 파일"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "경계 규칙",
+      "items": [
+        "작업장은 worktree → PR → 머지 4조건",
+        "운영 서버는 pull 로만, 직접 편집 금지",
+        "출장지 쓰기는 지정 목록 · 단방향 예외뿐",
+        "킷은 작업장에서 PR 로 github.io 에 배포"
+      ]
+    }
+  ]
+}
