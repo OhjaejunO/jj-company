@@ -3,93 +3,205 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>JJ 세션</title>
+<title>JJ Sessions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-  :root { --bg:#f3f5f7; --card:#fff; --ink:#1b2430; --mute:#6b7785; --line:#e1e6eb; --teal:#0f766e; --teal-bg:#e6f4f2; --amber:#b45309; --amber-bg:#fef3c7; --gray-bg:#eef1f4; --term:#0d1117; }
-  * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 -apple-system, "Segoe UI", "Malgun Gothic", sans-serif; }
-  header { position:sticky; top:0; background:#fff; border-bottom:1px solid var(--line); padding:12px 16px; display:flex; gap:10px; align-items:center; z-index:2; }
-  header h1 { font-size:17px; margin:0; }
-  header .at { color:var(--mute); font-size:12px; margin-left:auto; }
-  .err { background:#fee2e2; color:#991b1b; padding:8px 16px; font-size:13px; }
-  main { display:grid; grid-template-columns:repeat(auto-fill, minmax(360px,1fr)); gap:14px; padding:14px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; display:flex; flex-direction:column; gap:8px; }
-  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-  .pill { font:600 12px/1 ui-monospace, Consolas, monospace; padding:6px 9px; border-radius:8px; background:var(--gray-bg); color:var(--ink); }
-  .pill.teal { background:var(--teal-bg); color:var(--teal); }
-  .pill.amber { background:var(--amber-bg); color:var(--amber); }
-  .pill.run { background:#dcfce7; color:#166534; }
-  .pill.run::before { content:""; display:inline-block; width:8px; height:8px; border-radius:50%; background:#16a34a; margin-right:6px; animation:blink 1s infinite; }
-  @keyframes blink { 50% { opacity:.25; } }
-  .title { font-size:16px; font-weight:700; cursor:pointer; }
-  .title:hover { color:var(--teal); text-decoration:underline; }
-  .meta { color:var(--mute); font-size:12.5px; font-family: ui-monospace, Consolas, monospace; }
-  .label { color:var(--mute); font-size:12px; margin-top:4px; }
-  .prompt { white-space:pre-wrap; max-height:6.5em; overflow:hidden; }
-  .reply { white-space:pre-wrap; max-height:9em; overflow:hidden; color:#2a3440; font-size:14px; }
-  pre.term { background:var(--term); color:#d7dde3; border-radius:10px; padding:10px 12px; margin:0; font:12.5px/1.45 ui-monospace, Consolas, monospace; white-space:pre-wrap; word-break:break-all; max-height:5.5em; overflow:hidden; }
-  .send { display:flex; gap:8px; margin-top:4px; }
-  .send textarea { flex:1; min-height:44px; border:1.5px solid var(--line); border-radius:10px; padding:8px 10px; font:14px/1.4 inherit; resize:vertical; }
-  .send textarea:focus { outline:none; border-color:var(--teal); }
-  .send button, .btn { background:var(--teal); color:#fff; border:0; border-radius:10px; padding:0 16px; font-weight:700; cursor:pointer; }
-  .btn.ghost { background:#fff; color:var(--ink); border:1px solid var(--line); padding:6px 10px; font-size:12.5px; }
-  .card.sched { border-style:dashed; }
-  .toast { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:#111; color:#fff; padding:10px 14px; border-radius:10px; font-size:13px; opacity:0; transition:opacity .2s; }
-  .toast.on { opacity:1; }
-  .empty { color:var(--mute); padding:30px; text-align:center; grid-column:1/-1; }
+  /* ── 디자인 토큰 (ui-ux-pro-max «JJ Sessions» 디자인 시스템 · 다크 슬레이트 + 상태 초록 · 글래스 · 밀도 8) ── */
+  :root {
+    --bg: #0F172A; --fg: #F8FAFC; --card: rgba(255,255,255,0.055); --card-solid: #1B2336;
+    --muted: #94A3B8; --muted-2: #64748B; --border: rgba(255,255,255,0.11); --border-strong: rgba(255,255,255,0.2);
+    --accent: #22C55E; --on-accent: #0F172A; --amber: #F59E0B; --red: #EF4444; --blue: #60A5FA;
+    --term: #0B1120; --ring: #FFFFFF;
+    --font: "Inter", "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+    --mono: "JetBrains Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
+    --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s8: 32px;
+    --r: 16px; --r-sm: 10px; --blur: 14px;
+    --t-fast: 150ms; --t: 240ms; --ease: cubic-bezier(.2,.8,.2,1);
+  }
+  * { box-sizing: border-box; }
+  html { color-scheme: dark; }
+  body {
+    margin: 0; min-height: 100dvh; background: var(--bg); color: var(--fg);
+    font: 15px/1.55 var(--font); -webkit-font-smoothing: antialiased; font-feature-settings: "tnum" 1, "cv11" 1;
+    background-image:
+      radial-gradient(900px 500px at 8% -10%, rgba(34,197,94,0.16), transparent 60%),
+      radial-gradient(800px 500px at 100% 0%, rgba(96,165,250,0.14), transparent 60%),
+      radial-gradient(700px 600px at 50% 120%, rgba(168,85,247,0.10), transparent 60%);
+    background-attachment: fixed;
+  }
+  a { color: inherit; }
+  button { font: inherit; cursor: pointer; }
+  svg.i { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+  /* ── 헤더 ── */
+  header {
+    position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: var(--s3);
+    padding: var(--s3) var(--s5); border-bottom: 1px solid var(--border);
+    background: rgba(15,23,42,0.72); backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur));
+  }
+  header .brand { display: flex; align-items: center; gap: var(--s2); font-weight: 700; letter-spacing: -0.01em; font-size: 16px; white-space: nowrap; }
+  header .brand .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px rgba(34,197,94,0.18); }
+  header .stats { display: flex; gap: var(--s2); flex-wrap: wrap; }
+  header .at { margin-left: auto; color: var(--muted); font: 500 12px/1 var(--mono); }
+  .chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 999px; font: 500 12px/1 var(--mono); color: var(--muted); background: rgba(255,255,255,0.06); border: 1px solid var(--border); white-space: nowrap; }
+  .chip.fg { color: var(--fg); }
+  .chip.ok { color: #86EFAC; background: rgba(34,197,94,0.12); border-color: rgba(34,197,94,0.28); }
+  .chip.warn { color: #FCD34D; background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.3); }
+  .chip.bad { color: #FCA5A5; background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.3); }
+  .chip.blue { color: #BFDBFE; background: rgba(96,165,250,0.12); border-color: rgba(96,165,250,0.3); }
+
+  .err { margin: var(--s3) var(--s5) 0; padding: var(--s3) var(--s4); border-radius: var(--r-sm); background: rgba(239,68,68,0.14); border: 1px solid rgba(239,68,68,0.35); color: #FECACA; font-size: 13px; }
+
+  /* ── 격자 ── */
+  main { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: var(--s4); padding: var(--s4) var(--s5) var(--s8); }
+  @media (max-width: 480px) { main { grid-template-columns: 1fr; padding: var(--s3); gap: var(--s3); } header { padding: var(--s3) var(--s3); flex-wrap: wrap; } header .at { margin-left: auto; } header .stats { order: 3; width: 100%; } }
+  h2.sec { grid-column: 1 / -1; margin: var(--s2) 0 calc(-1 * var(--s2)); font: 600 11px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted-2); }
+
+  /* ── 카드 (글래스) ── */
+  .card {
+    position: relative; display: flex; flex-direction: column; gap: var(--s3); padding: var(--s4);
+    border-radius: var(--r); background: var(--card); border: 1px solid var(--border);
+    backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur));
+    box-shadow: 0 1px 0 rgba(255,255,255,0.05) inset, 0 20px 40px -24px rgba(0,0,0,0.6);
+    transition: border-color var(--t) var(--ease), transform var(--t) var(--ease);
+    animation: rise 380ms var(--ease) both;
+  }
+  .card:hover { border-color: var(--border-strong); }
+  .card.running { border-color: rgba(34,197,94,0.35); }
+  .card.running::before { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: linear-gradient(180deg, rgba(34,197,94,0.07), transparent 40%); }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px) scale(0.985); } }
+  @media (prefers-reduced-motion: reduce) { .card { animation: none; } .pulse { animation: none !important; } * { transition-duration: 0ms !important; } }
+
+  .row { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; min-width: 0; }
+  .row .grow { flex: 1; }
+  .state { display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 10px 0 8px; border-radius: 999px; font: 600 12px/1 var(--font); }
+  .state.run { color: #86EFAC; background: rgba(34,197,94,0.14); border: 1px solid rgba(34,197,94,0.3); }
+  .state.run .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.55); } 60% { box-shadow: 0 0 0 6px rgba(34,197,94,0); } }
+  .state.idle { color: var(--muted); background: rgba(255,255,255,0.05); border: 1px solid var(--border); }
+
+  .title { display: flex; align-items: flex-start; gap: var(--s2); margin: 0; font: 600 17px/1.3 var(--font); letter-spacing: -0.01em; }
+  .title > button:first-child { all: unset; cursor: pointer; flex: 1; min-width: 0; border-radius: 6px; overflow-wrap: anywhere; }
+  .title > button:first-child:hover { color: #BBF7D0; }
+  .title > button:first-child:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+  .title .btn.ghost { flex: none; align-self: center; }
+  .path { color: var(--muted-2); font: 400 12px/1.4 var(--mono); overflow-wrap: anywhere; }
+
+  .lbl { display: flex; align-items: center; gap: 6px; margin-top: 2px; font: 600 11px/1 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted-2); }
+  .txt { white-space: pre-wrap; overflow-wrap: anywhere; color: #E2E8F0; font-size: 14.5px; max-height: 6.4em; overflow: hidden; position: relative; }
+  .txt.reply { color: #CBD5E1; max-height: 9.6em; }
+  .txt::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1.6em; background: linear-gradient(transparent, var(--card-solid)); opacity: .0; }
+  .term { margin: 0; padding: var(--s3) var(--s4); border-radius: var(--r-sm); background: var(--term); border: 1px solid rgba(255,255,255,0.08); color: #CBD5E1; font: 12.5px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 5.4em; overflow: hidden; }
+  .term .k { color: var(--muted-2); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; display: block; margin-bottom: 4px; }
+
+  .composer { display: flex; gap: var(--s2); align-items: stretch; }
+  .composer textarea {
+    flex: 1; min-height: 46px; max-height: 160px; resize: vertical; padding: 11px 12px; border-radius: var(--r-sm);
+    background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--fg); font: 14.5px/1.45 var(--font);
+    transition: border-color var(--t-fast), background var(--t-fast);
+  }
+  .composer textarea::placeholder { color: var(--muted-2); }
+  .composer textarea:focus { outline: none; border-color: rgba(34,197,94,0.6); background: rgba(255,255,255,0.07); box-shadow: 0 0 0 3px rgba(34,197,94,0.18); }
+  .composer textarea:disabled { opacity: .45; cursor: not-allowed; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; min-width: 44px; padding: 0 14px; border-radius: var(--r-sm); border: 1px solid transparent; font-weight: 600; transition: transform var(--t-fast) var(--ease), background var(--t-fast), border-color var(--t-fast); }
+  .btn:active { transform: scale(0.97); }
+  .btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  .btn.primary { background: var(--accent); color: var(--on-accent); }
+  .btn.primary:hover { background: #4ADE80; }
+  .btn.primary:disabled { opacity: .4; cursor: not-allowed; }
+  .btn.ghost { min-height: 32px; padding: 0 10px; font-size: 12.5px; color: var(--fg); background: rgba(255,255,255,0.06); border-color: var(--border); }
+  .btn.ghost:hover { background: rgba(255,255,255,0.1); border-color: var(--border-strong); }
+
+  /* 스케줄 카드 */
+  .card.sched { gap: var(--s2); background: rgba(255,255,255,0.035); border-style: dashed; animation-delay: var(--d, 0ms); }
+  .card.sched .name { font: 600 14px/1.3 var(--font); }
+  .card.sched .path { font-size: 11.5px; }
+
+  .toast { position: fixed; left: 50%; bottom: 20px; transform: translate(-50%, 12px); z-index: 20; padding: 10px 14px; border-radius: 12px; background: rgba(15,23,42,0.9); border: 1px solid var(--border-strong); backdrop-filter: blur(var(--blur)); color: var(--fg); font-size: 13px; opacity: 0; pointer-events: none; transition: opacity var(--t), transform var(--t) var(--ease); }
+  .toast.on { opacity: 1; transform: translate(-50%, 0); }
+  .empty { grid-column: 1/-1; padding: 48px; text-align: center; color: var(--muted); }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 </style>
 </head>
 <body>
 <header>
-  <h1>JJ 세션</h1>
-  <span class="pill" id="count">–</span>
+  <div class="brand"><span class="dot" aria-hidden="true"></span>JJ Sessions</div>
+  <div class="stats" id="stats" role="status" aria-atomic="true"></div>
   <span class="at" id="at">불러오는 중…</span>
 </header>
-<div class="err" id="err" hidden></div>
-<main id="main"></main>
-<div class="toast" id="toast"></div>
+<div class="err" id="err" hidden role="alert"></div>
+<main id="main" aria-live="off"></main>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<svg hidden aria-hidden="true">
+  <symbol id="i-branch" viewBox="0 0 24 24"><circle cx="6" cy="4" r="2.2"/><circle cx="6" cy="20" r="2.2"/><circle cx="18" cy="8" r="2.2"/><path d="M6 6.2v11.6M18 10.2c0 3.5-3 5-7 5.3-2.5.2-4 1-5 2.3"/></symbol>
+  <symbol id="i-term" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M7 9l3 3-3 3M12 15h5"/></symbol>
+  <symbol id="i-open" viewBox="0 0 24 24"><path d="M7 17L17 7M9 7h8v8"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M4 12l16-8-4 16-4-6-8-2z"/><path d="M12 14l8-10"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></symbol>
+  <symbol id="i-pr" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2.2"/><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="19" r="2.2"/><path d="M6 7.2v9.6M18 16.8V11a3 3 0 0 0-3-3h-3M14.5 5.5L12 8l2.5 2.5"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3H10l-5 4v-4a3 3 0 0 1-1-2.2V6z"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></symbol>
+</svg>
+
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => (s ?? "").toString().replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const ico = id => `<svg class="i" aria-hidden="true"><use href="#${id}"/></svg>`;
 const ago = s => s < 60 ? `${Math.round(s)}초 전` : s < 3600 ? `${Math.round(s/60)}분 전` : `${(s/3600).toFixed(1)}시간 전`;
-const kfmt = n => n == null ? "" : n >= 1000 ? `${(n/1000).toFixed(n>=100000?0:1)}k` : `${n}`;
-const drafts = {};   // 카드가 다시 그려져도 입력 중인 글은 남긴다
+const kfmt = n => n == null ? "" : n >= 1000 ? `${(n/1000).toFixed(n >= 100000 ? 0 : 1)}k` : `${n}`;
+const drafts = {};
+let firstPaint = true;
 
-function toast(t){ const e=$("#toast"); e.textContent=t; e.classList.add("on"); setTimeout(()=>e.classList.remove("on"),1800); }
+function toast(t){ const e = $("#toast"); e.textContent = t; e.classList.add("on"); clearTimeout(e._t); e._t = setTimeout(() => e.classList.remove("on"), 2200); }
+async function post(url, body){ const r = await fetch(url, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)}); return r.json(); }
 
-async function post(url, body){
-  const r = await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-  return r.json();
-}
-
-function termCard(c){
+function termCard(c, i){
   const s = c.session || {};
-  const state = c.running ? `<span class="pill run">작업 중</span>` : `<span class="pill">대기 · ${ago(c.last_output_age_s)}</span>`;
-  const model = s.model ? `<span class="pill teal">${esc(s.model.replace("claude-",""))}${s.effort?" · "+esc(s.effort):""}</span>` : "";
-  const ctx = s.context_tokens ? `<span class="pill">ctx ${kfmt(s.context_tokens)}</span>` : "";
-  const guess = s.guess ? `<span class="pill amber">짝 추정</span>` : "";
-  const pr = s.pr && s.pr.url ? `<a class="btn ghost" href="${esc(s.pr.url)}" target="_blank">PR #${esc(s.pr.n)}</a>` : "";
-  return `<div class="card" data-h="${esc(c.handle)}">
-    <div class="row"><span class="pill teal">orca · ${esc(c.repo)}</span><span class="pill">${esc(c.branch||"")}</span><span class="pill">${esc(c.agent||"")}</span>${state}</div>
-    <div class="row">${model}${ctx}${guess}${pr}<button class="btn ghost" data-act="switch">↗ 세션으로</button></div>
-    <div class="title" data-act="switch" title="클릭하면 Orca 의 그 탭으로 갑니다">✳ ${esc(s.title || c.title || "(제목 없음)")}</div>
-    <div class="meta">${esc(c.path)}</div>
-    <div class="label">마지막 지시</div>
-    <div class="prompt">${esc(s.last_prompt || "—")}</div>
-    <div class="label">마지막 답</div>
-    <div class="reply">${esc((s.last_reply||"—").slice(0,600))}</div>
-    <pre class="term">${esc(c.preview||"")}</pre>
-    <div class="send"><textarea placeholder="지시 전송 (Enter=전송 · Shift+Enter=줄바꿈)" ${c.writable?"":"disabled"}>${esc(drafts[c.handle]||"")}</textarea><button data-act="send" ${c.writable?"":"disabled"}>전송</button></div>
-  </div>`;
+  const state = c.running
+    ? `<span class="state run"><span class="pulse" aria-hidden="true"></span>작업 중</span>`
+    : `<span class="state idle">${ico("i-clock")}${ago(c.last_output_age_s)}</span>`;
+  const model = s.model ? `<span class="chip fg">${ico("i-cpu")}${esc(s.model.replace("claude-", ""))}${s.effort ? " · " + esc(s.effort) : ""}</span>` : "";
+  const ctx = s.context_tokens ? `<span class="chip" title="컨텍스트 토큰 (마지막 응답 기준)">ctx ${kfmt(s.context_tokens)}</span>` : "";
+  const guess = s.guess ? `<span class="chip warn" title="같은 폴더에 최근 세션이 둘 이상이라 가장 최근 기록을 골랐습니다">짝 추정</span>` : "";
+  const pr = s.pr && s.pr.url ? `<a class="chip blue" href="${esc(s.pr.url)}" target="_blank" rel="noopener">${ico("i-pr")}PR #${esc(s.pr.n)}</a>` : "";
+  const tools = (s.tools_recent || []).length ? `<span class="chip" title="최근 도구 호출">${esc(s.tools_recent.slice(-4).join(" · "))}</span>` : "";
+  return `<article class="card ${c.running ? "running" : ""}" data-h="${esc(c.handle)}" style="animation-delay:${i*45}ms">
+    <div class="row">
+      <span class="chip fg">${ico("i-term")}${esc(c.repo)}</span>
+      <span class="chip">${ico("i-branch")}${esc(c.branch || "?")}</span>
+      <span class="chip">${esc(c.agent || "")}</span>
+      <span class="grow"></span>${state}
+    </div>
+    <h3 class="title"><button type="button" data-act="switch" title="Orca 의 이 탭으로 이동">${esc(s.title || c.title || "(제목 없음)")}</button>
+      <button type="button" class="btn ghost" data-act="switch" aria-label="세션으로 이동">${ico("i-open")}열기</button></h3>
+    <div class="path">${esc(c.path)}</div>
+    <div class="row">${model}${ctx}${pr}${guess}${tools}</div>
+    <div class="lbl">${ico("i-chat")}마지막 지시</div>
+    <div class="txt">${esc(s.last_prompt || "—")}</div>
+    <div class="lbl">${ico("i-bolt")}마지막 답</div>
+    <div class="txt reply">${esc((s.last_reply || "—").slice(0, 700))}</div>
+    <pre class="term"><span class="k">terminal</span>${esc(c.preview || "")}</pre>
+    <form class="composer" data-act="form">
+      <label class="sr" for="ta-${i}">지시 전송</label>
+      <textarea id="ta-${i}" placeholder="이 세션에 지시 보내기 — Enter 전송 · Shift+Enter 줄바꿈" ${c.writable ? "" : "disabled"}>${esc(drafts[c.handle] || "")}</textarea>
+      <button class="btn primary" type="submit" aria-label="전송" ${c.writable ? "" : "disabled"}>${ico("i-send")}</button>
+    </form>
+  </article>`;
 }
 
-function schedCard(c){
-  const st = c.running ? `<span class="pill run">실행 중</span>` : c.status ? `<span class="pill ${/FAIL/.test(c.status)?"amber":"teal"}">${esc(c.status.replace(/^.*STATUS:/,"STATUS:").trim())}</span>` : `<span class="pill">STATUS 없음</span>`;
-  return `<div class="card sched">
-    <div class="row"><span class="pill">스케줄 · ${esc(c.name)}</span>${st}</div>
-    <div class="meta">${esc(c.log)}</div>
-    <pre class="term">${esc(c.last_line||"")}</pre>
-  </div>`;
+function schedCard(c, i){
+  const st = c.running ? `<span class="state run"><span class="pulse" aria-hidden="true"></span>실행 중</span>`
+    : c.status ? `<span class="chip ${/FAIL/.test(c.status) ? "bad" : "ok"}">${esc(c.status.replace(/^.*STATUS:/, "STATUS:").trim())}</span>`
+    : `<span class="chip">STATUS 없음</span>`;
+  return `<article class="card sched" style="--d:${i*40}ms">
+    <div class="row"><span class="chip fg">${ico("i-cal")}${esc(c.name)}</span><span class="grow"></span>${st}</div>
+    <pre class="term"><span class="k">log</span>${esc(c.last_line || "")}</pre>
+    <div class="path">${esc(c.log)}</div>
+  </article>`;
 }
 
 let busy = false;
@@ -97,33 +209,42 @@ async function refresh(){
   if (busy) return; busy = true;
   try {
     const j = await (await fetch("/api/snapshot")).json();
-    $("#at").textContent = `갱신 ${j.at?.slice(11,19) ?? ""}`;
+    $("#at").textContent = `갱신 ${j.at?.slice(11, 19) ?? ""}`;
     $("#err").hidden = !!j.ok; $("#err").textContent = j.error || "";
-    $("#count").textContent = `${j.terminals.length} 세션 · ${j.scheduled.length} 스케줄`;
-    // 입력 중인 글 보존
+    const running = j.terminals.filter(t => t.running).length;
+    const fails = j.scheduled.filter(s => s.status && /FAIL/.test(s.status)).length;
+    $("#stats").innerHTML = `<span class="chip ok">작업 중 ${running}</span><span class="chip">대기 ${j.terminals.length - running}</span><span class="chip ${fails ? "bad" : ""}">스케줄 ${j.scheduled.length}${fails ? ` · FAIL ${fails}` : ""}</span>`;
     document.querySelectorAll(".card[data-h] textarea").forEach(t => { drafts[t.closest(".card").dataset.h] = t.value; });
-    const focused = document.activeElement && document.activeElement.tagName === "TEXTAREA";
-    if (focused) return;   // 타이핑 중엔 다시 그리지 않는다
-    const html = [...j.terminals.map(termCard), ...j.scheduled.map(schedCard)].join("") || `<div class="empty">살아 있는 세션이 없습니다.</div>`;
-    $("#main").innerHTML = html;
+    if (document.activeElement && document.activeElement.tagName === "TEXTAREA") return;   // 타이핑 중엔 다시 그리지 않는다
+    const cards = [...j.terminals.map(termCard)];
+    const sched = j.scheduled.map(schedCard);
+    $("#main").innerHTML = (cards.length ? `<h2 class="sec">Live sessions</h2>` + cards.join("") : `<div class="empty">살아 있는 세션이 없습니다.</div>`)
+      + (sched.length ? `<h2 class="sec">Scheduled agents · today</h2>` + sched.join("") : "");
+    if (!firstPaint) document.querySelectorAll(".card").forEach(c => { c.style.animation = "none"; });
+    firstPaint = false;
   } catch (e) { $("#err").hidden = false; $("#err").textContent = "대시보드 서버에 못 붙었습니다: " + e; }
   finally { busy = false; }
 }
 
 document.addEventListener("click", async e => {
-  const act = e.target.closest("[data-act]"); if (!act) return;
-  const card = act.closest(".card"); const h = card.dataset.h;
-  if (act.dataset.act === "switch") { const r = await post("/api/switch",{handle:h}); toast(r.ok ? "Orca 탭으로 이동" : "이동 실패: "+(r.error||"")); }
-  if (act.dataset.act === "send") sendFrom(card);
+  const act = e.target.closest("[data-act='switch']"); if (!act) return;
+  const h = act.closest(".card").dataset.h;
+  const r = await post("/api/switch", {handle: h});
+  toast(r.ok ? "Orca 탭으로 이동했습니다" : "이동 실패: " + (r.error || ""));
 });
+document.addEventListener("submit", e => { if (e.target.matches("[data-act='form']")) { e.preventDefault(); sendFrom(e.target.closest(".card")); } });
 document.addEventListener("keydown", e => {
   if (e.target.tagName === "TEXTAREA" && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendFrom(e.target.closest(".card")); }
 });
 async function sendFrom(card){
-  const ta = card.querySelector("textarea"); const text = ta.value.trim(); if (!text) return;
-  const r = await post("/api/send",{handle:card.dataset.h, text});
-  if (r.ok) { ta.value = ""; drafts[card.dataset.h] = ""; toast("보냈습니다"); setTimeout(refresh, 800); }
-  else toast("전송 실패: " + (r.error||JSON.stringify(r)).slice(0,80));
+  const ta = card.querySelector("textarea"); const btn = card.querySelector(".btn.primary");
+  const text = ta.value.trim(); if (!text) return;
+  btn.disabled = true;
+  try {
+    const r = await post("/api/send", {handle: card.dataset.h, text});
+    if (r.ok) { ta.value = ""; drafts[card.dataset.h] = ""; toast("보냈습니다"); ta.blur(); setTimeout(refresh, 800); }
+    else toast("전송 실패: " + (r.error || JSON.stringify(r)).slice(0, 80));
+  } finally { btn.disabled = false; }
 }
 refresh(); setInterval(refresh, 3000);
 </script>
