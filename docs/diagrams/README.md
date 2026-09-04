@@ -4,6 +4,7 @@
 
 | 파일 | 무엇 | 검증 |
 |---|---|---|
+| `jj-company.architecture.json` / `.html` | **회사 구조** — 대표실 · 작업장(worktree→PR) · 운영 서버(스케줄러→래퍼→에이전트 5·리포트·승인 파일·발행 워커) · 자회사 SKILL 정본 · 출장지(읽기 전용)·외부 채널. 뷰 3개(아침 회차 · 발행 장치 · 경계와 정본) | `archify validate architecture … --quality showcase` 9항 통과 · 오류 0 (2026-09-04) |
 | `schedule-pipeline.workflow.json` / `.html` | 스케줄 회차 파이프라인 — 작업 스케줄러 → lock → git-sync → auth_check → deploy-skill → permission_probe → `claude -p` → 리포트, 실패 분기 셋 | `archify validate workflow … --quality showcase` 9항 통과 · 오류 0 |
 
 - 고치려면 JSON 을 고치고 `node bin\archify.mjs deliver workflow <json> <html> --quality showcase` 로 다시 낸다 — 검증을 못 넘으면 HTML 이 안 바뀐다.
