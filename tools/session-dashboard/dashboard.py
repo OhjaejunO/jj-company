@@ -539,7 +539,7 @@ class H(BaseHTTPRequestHandler):
         elif p.startswith("/assets/"):
             # 오피스 뷰 컷아웃 — 이름은 <agent>_<pose>.png 꼴만. 경로 탈출 차단.
             name = p[len("/assets/"):]
-            if not re.fullmatch(r"(claude|codex|grok|hermes)_(typing|idle|hand|stand)\.png|office_bg\.(png|jpg)", name):
+            if not re.fullmatch(r"(claude|codex|grok|hermes)_(typing|idle|hand|stand)\.png|office_bg\.(png|jpg)|desk_empty\.png|jj_(sit|stand)\.png", name):
                 return self._json({"ok": False, "error": "not found"}, 404)
             fp = os.path.join(HERE, "assets", name)
             if not os.path.exists(fp):
