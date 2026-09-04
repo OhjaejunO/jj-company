@@ -385,6 +385,100 @@ def snapshot():
             "terminals": cards, "scheduled": scheduled_today()}
 
 
+# ── 오피스 명부 — «JJ 가 쓰는 에이전트 전부» 가 항상 자기 책상을 갖는다 (2026-09-04 JJ 지시) ──────────
+#: 근거는 정관 §1 조직도 + §4 스케줄 현황판. 상태 출처는 셋 — 스케줄 로그(오늘) · Orca 터미널 · 헤르메스 state.db.
+#: 🔴 명부에 없는 살아 있는 터미널은 «방문 세션» 으로 개발팀 구역에 임시 책상을 받는다 — 빠뜨리지 않는다.
+ROSTER = [
+    {"id": "dev-claude", "name": "클로드", "dept": "개발팀", "role": "구현·검증 (대화 세션)", "agent": "claude", "src": {"identity": "claude"}},
+    {"id": "dev-codex", "name": "코덱스", "dept": "개발팀", "role": "구현 (대화 세션)", "agent": "codex", "src": {"identity": "codex"}},
+    {"id": "dev-grok", "name": "그록", "dept": "개발팀", "role": "실험 (대화 세션)", "agent": "grok", "src": {"identity": "grok"}},
+    {"id": "ops-auditor", "name": "ops-auditor", "dept": "운영팀", "role": "vault 건강 감사 · 평일 12:30", "agent": "claude", "src": {"scheduled": "morning-vault-health"}},
+    {"id": "content-scout", "name": "content-scout", "dept": "마케팅팀", "role": "토망치랩 아침 스캔 · 08:00", "agent": "claude", "src": {"scheduled": "tomangchi-scout"}},
+    {"id": "job-scout", "name": "job-scout", "dept": "영업팀", "role": "채용 공고 발굴 · 08:30", "agent": "claude", "src": {"scheduled": "job-scout"}},
+    {"id": "cross-verify", "name": "교차검증", "dept": "감리", "role": "타모델 감리 (codex)", "agent": "codex", "src": {"scheduled": "cross-verify"}},
+    {"id": "sagun", "name": "사건 (sagun)", "dept": "헤르메스", "role": "사건 감시 · 07:40", "agent": "hermes", "src": {"scheduled": "hermes-event-watch"}},
+    {"id": "gumsu", "name": "검수 (gumsu)", "dept": "헤르메스", "role": "크로스 모델 검수 (xreview)", "agent": "hermes", "src": {"hermes": True}},
+]
+MACHINES = [  # 에이전트 없는 결정적 작업 — 서버실 램프
+    ("workshop-backup", "워크숍 백업 · 일 13:00 + 발행 직후"), ("skill-drift-audit", "스킬 드리프트 감사 · 12:30"),
+    ("publish-threads", "Threads 발행 래퍼"),
+]
+DEPT_ORDER = ["개발팀", "운영팀", "마케팅팀", "영업팀", "감리", "헤르메스"]
+
+
+def _sched_state(card):
+    """스케줄 로그 → (state, note). 오늘 로그 없음 = sleep(출근 전) · STATUS 없음+최근 = running · FAIL = waiting · OK = idle."""
+    if card is None:
+        return "sleep", "오늘 아직 안 돌았어요"
+    if card["running"]:
+        return "running", "실행 중"
+    st = card["status"] or ""
+    t = datetime.fromtimestamp(card["mtime"], KST).strftime("%H:%M")
+    if "FAIL" in st:
+        return "waiting", "FAIL · " + st.split("STATUS:")[-1].strip()[:40]
+    if "STATUS:" in st:
+        return "idle", "완료 " + t + " · " + st.split("STATUS:")[-1].strip()[:30]
+    return "idle", "로그만 있음 · " + t
+
+
+def office():
+    snap = snapshot()
+    sched = {c["name"]: c for c in snap["scheduled"]}
+    terms = list(snap["terminals"])
+    desks = []
+    for r in ROSTER:
+        src = r["src"]
+        d = {"id": r["id"], "name": r["name"], "dept": r["dept"], "role": r["role"], "agent": r["agent"],
+             "state": "sleep", "note": "", "handle": None, "title": None, "prompt": None, "repo": None}
+        if "identity" in src:
+            mine = [t for t in terms if t["agent"] == src["identity"]]
+            if mine:
+                t = mine.pop(0); terms.remove(t)
+                s = t.get("session") or {}
+                d.update({"state": "waiting" if t["waiting"] else "running" if t["running"] else "idle",
+                          "handle": t["handle"], "title": s.get("title") or t.get("title"), "prompt": s.get("last_prompt"),
+                          "repo": t["repo"] + " · " + (t["branch"] or ""),
+                          "note": "확인 필요" if t["waiting"] else ("작업 중" if t["running"] else "대기 · %d분 전" % (t["last_output_age_s"] // 60))})
+                # 같은 종류의 터미널이 더 있으면 옆자리에 하나씩
+                for extra in list(mine):
+                    terms.remove(extra)
+                    s2 = extra.get("session") or {}
+                    desks.append(dict(d, id=r["id"] + "-" + extra["handle"][-6:], name=r["name"] + " (" + extra["repo"] + ")",
+                                      state="waiting" if extra["waiting"] else "running" if extra["running"] else "idle",
+                                      handle=extra["handle"], title=s2.get("title") or extra.get("title"), prompt=s2.get("last_prompt"),
+                                      repo=extra["repo"] + " · " + (extra["branch"] or ""), note="작업 중" if extra["running"] else "대기"))
+            else:
+                d["note"] = "자리 비움 — Orca 탭 없음"
+        elif "scheduled" in src:
+            c = sched.get(src["scheduled"])
+            d["state"], d["note"] = _sched_state(c)
+            if c and c["running"]:
+                d["title"] = c["last_line"][:80]
+        elif src.get("hermes"):
+            # gumsu 는 스케줄이 아니라 편 제작 때 xreview 로 불린다 — 오늘 리포트가 있으면 «오늘 N회 검수»
+            today = datetime.now(KST).strftime("%Y-%m-%d")
+            xr = sorted(glob.glob(os.path.join(os.path.dirname(HQ_LOGS), "..", "reports", today + "_xreview_*.md")), key=os.path.getmtime)
+            if xr:
+                d.update({"state": "idle", "note": "오늘 검수 %d회 · 마지막 %s" % (len(xr), datetime.fromtimestamp(os.path.getmtime(xr[-1]), KST).strftime("%H:%M")),
+                          "title": os.path.basename(xr[-1]).replace(today + "_xreview_", "").replace(".md", "") + " 검수"})
+            else:
+                d["note"] = "호출 대기 (xreview 는 편 제작 때만)"
+        desks.append(d)
+    # 명부 밖 방문 세션 — 빠뜨리지 않는다
+    for t in terms:
+        s = t.get("session") or {}
+        desks.append({"id": "visit-" + (t["handle"] or "")[-6:], "name": "방문 세션 (" + (t["agent"] or "?") + ")", "dept": "개발팀",
+                      "role": t["repo"], "agent": t["agent"] if t["agent"] in AGENTS else "claude",
+                      "state": "waiting" if t["waiting"] else "running" if t["running"] else "idle", "note": "명부 밖",
+                      "handle": t["handle"], "title": s.get("title") or t.get("title"), "prompt": s.get("last_prompt"), "repo": t["repo"]})
+    machines = []
+    for name, label in MACHINES:
+        c = sched.get(name)
+        st, note = _sched_state(c)
+        machines.append({"name": name, "label": label, "state": st, "note": note})
+    return {"ok": snap["ok"], "error": snap["error"], "at": snap["at"], "dept_order": DEPT_ORDER, "desks": desks, "machines": machines}
+
+
 def send_text(handle, text):
     return orca_json("terminal", "send", "--terminal", handle, "--text", text, "--enter")
 
@@ -432,6 +526,11 @@ class H(BaseHTTPRequestHandler):
                 self._json(snapshot())
             except Exception as e:  # noqa: BLE001 — 실패를 화면에 보인다 (조용히 빈 판을 내지 않는다)
                 self._json({"ok": False, "error": repr(e), "terminals": [], "scheduled": []}, 500)
+        elif p == "/api/office":
+            try:
+                self._json(office())
+            except Exception as e:  # noqa: BLE001
+                self._json({"ok": False, "error": repr(e), "desks": [], "machines": [], "dept_order": DEPT_ORDER}, 500)
         else:
             self._json({"ok": False, "error": "not found"}, 404)
 

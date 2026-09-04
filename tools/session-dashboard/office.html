@@ -13,54 +13,65 @@
          background-image: radial-gradient(900px 500px at 10% -10%, rgba(34,197,94,0.14), transparent 60%), radial-gradient(800px 500px at 100% 0%, rgba(96,165,250,0.12), transparent 60%); background-attachment:fixed; }
   header { position:sticky; top:0; z-index:5; display:flex; align-items:center; gap:12px; padding:12px 20px; border-bottom:1px solid var(--border); background:rgba(15,23,42,0.72); backdrop-filter:blur(14px); }
   header .brand { font-weight:700; display:flex; align-items:center; gap:8px; white-space:nowrap; }
-  header a { white-space:nowrap; }
-  @media (max-width:480px) { header { flex-wrap:wrap; padding:10px 12px; } header #stats { order:3; width:100%; } }
   header .brand .dot { width:9px; height:9px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 4px rgba(34,197,94,0.18); }
-  header a { color:var(--muted); font:500 12px var(--mono); text-decoration:none; padding:6px 10px; border:1px solid var(--border); border-radius:999px; }
+  header a { color:var(--muted); font:500 12px var(--mono); text-decoration:none; padding:6px 10px; border:1px solid var(--border); border-radius:999px; white-space:nowrap; }
   header a:hover { color:var(--fg); }
   header .at { margin-left:auto; color:var(--muted); font:500 12px var(--mono); }
+  @media (max-width:480px) { header { flex-wrap:wrap; padding:10px 12px; } header #stats { order:3; width:100%; } }
   .chip { display:inline-flex; align-items:center; gap:6px; height:26px; padding:0 10px; border-radius:999px; font:500 12px/1 var(--mono); color:var(--muted); background:rgba(255,255,255,0.06); border:1px solid var(--border); }
   .chip.ok { color:#86EFAC; background:rgba(34,197,94,0.12); border-color:rgba(34,197,94,0.28); }
   .chip.warn { color:#FCD34D; background:rgba(245,158,11,0.12); border-color:rgba(245,158,11,0.3); }
   .chip.bad { color:#FCA5A5; background:rgba(239,68,68,0.12); border-color:rgba(239,68,68,0.3); }
 
-  /* ── 사무실 바닥: 등각 느낌의 격자 위에 책상 유닛을 앉힌다 ── */
-  .office { position:relative; margin:20px auto; max-width:1400px; padding:28px 24px 40px; border-radius:24px; border:1px solid var(--border);
+  /* ── 사무실 바닥 ── */
+  .office { position:relative; margin:20px auto; max-width:1500px; padding:22px 24px 34px; border-radius:24px; border:1px solid var(--border);
             background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)),
               repeating-linear-gradient(0deg, transparent 0 46px, rgba(255,255,255,0.045) 46px 47px),
               repeating-linear-gradient(90deg, transparent 0 46px, rgba(255,255,255,0.045) 46px 47px);
             box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 30px 60px -30px rgba(0,0,0,0.7); }
-  .office h2 { margin:0 0 14px; font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--muted-2); }
-  .floor { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:26px 22px; align-items:end; }
-  .desk { position:relative; display:flex; flex-direction:column; align-items:center; gap:8px; cursor:pointer; border-radius:18px; padding:10px 8px 12px; transition:transform .25s cubic-bezier(.2,.8,.2,1), background .2s; }
-  .desk:hover { transform:translateY(-4px); background:rgba(255,255,255,0.04); }
+  .zones { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:18px; }
+  .zone { border:1px dashed rgba(255,255,255,0.14); border-radius:18px; padding:14px 12px 12px; background:rgba(255,255,255,0.02); }
+  .zone.wide { grid-column:1 / -1; }
+  .zone h2 { display:flex; align-items:center; gap:10px; margin:0 0 10px; font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--muted-2); }
+  .zone h2 .cnt { margin-left:auto; color:var(--muted-2); letter-spacing:0; }
+  .row { display:grid; grid-template-columns:repeat(auto-fill, minmax(210px, 1fr)); gap:14px 12px; align-items:end; }
+  .zone.wide .row { grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); }
+  .desk { position:relative; display:flex; flex-direction:column; align-items:center; gap:6px; border-radius:16px; padding:8px 6px 8px; transition:transform .25s cubic-bezier(.2,.8,.2,1), background .2s; }
+  .desk.click { cursor:pointer; }
+  .desk.click:hover { transform:translateY(-4px); background:rgba(255,255,255,0.04); }
   .desk:focus-visible { outline:2px solid #fff; outline-offset:3px; }
-  .desk .fig { position:relative; width:100%; aspect-ratio:1/1; display:flex; align-items:flex-end; justify-content:center; }
-  .desk .fig img { width:100%; height:100%; object-fit:contain; filter: drop-shadow(0 18px 18px rgba(0,0,0,0.45)); transition: filter .3s; }
-  .desk.idle .fig img { filter: drop-shadow(0 18px 18px rgba(0,0,0,0.45)) saturate(.75) brightness(.92); }
-  .desk.running .fig::after { content:""; position:absolute; left:50%; bottom:6%; width:56%; height:10px; transform:translateX(-50%); border-radius:50%; background:radial-gradient(closest-side, rgba(34,197,94,0.55), transparent); animation:glow 1.6s ease-in-out infinite; }
-  .desk.waiting .fig::after { content:""; position:absolute; left:50%; bottom:6%; width:56%; height:10px; transform:translateX(-50%); border-radius:50%; background:radial-gradient(closest-side, rgba(245,158,11,0.7), transparent); animation:glow 1s ease-in-out infinite; }
+  .fig { position:relative; width:100%; aspect-ratio:1/1; display:flex; align-items:flex-end; justify-content:center; }
+  .fig img { width:100%; height:100%; object-fit:contain; filter: drop-shadow(0 16px 16px rgba(0,0,0,0.45)); transition:filter .3s, opacity .3s; }
+  .desk.idle .fig img { filter: drop-shadow(0 16px 16px rgba(0,0,0,0.45)) saturate(.8) brightness(.94); }
+  .desk.sleep .fig img { filter: drop-shadow(0 12px 12px rgba(0,0,0,0.35)) saturate(.35) brightness(.7); opacity:.75; }
+  .fig::after { position:absolute; left:50%; bottom:6%; width:56%; height:10px; transform:translateX(-50%); border-radius:50%; }
+  .desk.running .fig::after { content:""; background:radial-gradient(closest-side, rgba(34,197,94,0.55), transparent); animation:glow 1.6s ease-in-out infinite; }
+  .desk.waiting .fig::after { content:""; background:radial-gradient(closest-side, rgba(245,158,11,0.7), transparent); animation:glow 1s ease-in-out infinite; }
   @keyframes glow { 50% { opacity:.35; } }
-  @media (prefers-reduced-motion: reduce) { .desk .fig::after { animation:none !important; } .desk { transition:none; } }
-  .desk .fig .bubble { position:absolute; top:4%; right:6%; max-width:70%; padding:6px 10px; border-radius:12px 12px 12px 2px; background:rgba(255,255,255,0.92); color:#0F172A; font:600 11.5px/1.35 var(--font); box-shadow:0 8px 20px -8px rgba(0,0,0,.6); display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
-  .desk .fig .bubble.wait { background:#FDE68A; }
-  .plate { width:100%; padding:8px 10px; border-radius:12px; background:rgba(255,255,255,0.06); border:1px solid var(--border); backdrop-filter:blur(10px); }
-  .plate .name { display:flex; align-items:center; gap:6px; font:600 13px/1.2 var(--font); }
-  .plate .name .st { margin-left:auto; width:8px; height:8px; border-radius:50%; background:var(--muted-2); }
+  @media (prefers-reduced-motion: reduce) { .fig::after { animation:none !important; } .desk { transition:none; } }
+  .bubble { position:absolute; top:3%; right:4%; max-width:74%; padding:5px 9px; border-radius:12px 12px 12px 2px; background:rgba(255,255,255,0.93); color:#0F172A; font:600 11px/1.35 var(--font); box-shadow:0 8px 20px -8px rgba(0,0,0,.6); display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+  .bubble.wait { background:#FDE68A; }
+  .bubble.zz { background:rgba(148,163,184,0.25); color:#CBD5E1; font-family:var(--mono); }
+  .plate { width:100%; padding:7px 9px; border-radius:12px; background:rgba(255,255,255,0.06); border:1px solid var(--border); backdrop-filter:blur(10px); }
+  .plate .name { display:flex; align-items:center; gap:6px; font:600 12.5px/1.2 var(--font); min-width:0; }
+  .plate .name > span:nth-child(2) { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .plate .name .st { margin-left:auto; flex:none; width:8px; height:8px; border-radius:50%; background:var(--muted-2); }
   .plate .name .st.run { background:var(--accent); box-shadow:0 0 0 3px rgba(34,197,94,0.25); }
   .plate .name .st.wait { background:var(--amber); box-shadow:0 0 0 3px rgba(245,158,11,0.25); }
-  .plate .sub { color:var(--muted); font:400 11.5px/1.4 var(--mono); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .ag { font:600 10.5px/1 var(--mono); letter-spacing:.08em; text-transform:uppercase; padding:3px 6px; border-radius:6px; }
+  .plate .sub { color:var(--muted); font:400 11px/1.4 var(--mono); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .plate .sub.n { color:var(--muted-2); }
+  .ag { flex:none; font:600 10px/1 var(--mono); letter-spacing:.08em; text-transform:uppercase; padding:3px 6px; border-radius:6px; }
   .ag-claude { color:#FDBA74; background:rgba(249,115,22,0.16); } .ag-codex { color:#99F6E4; background:rgba(20,184,166,0.16); }
-  .ag-grok { color:#E2E8F0; background:rgba(148,163,184,0.18); } .ag-hermes { color:#FCD34D; background:rgba(245,158,11,0.16); } .ag-script { color:var(--muted); background:rgba(255,255,255,0.06); }
-  .night { margin-top:26px; padding-top:18px; border-top:1px dashed var(--border); }
-  .night .row { display:flex; flex-wrap:wrap; gap:10px; }
+  .ag-grok { color:#E2E8F0; background:rgba(148,163,184,0.18); } .ag-hermes { color:#FCD34D; background:rgba(245,158,11,0.16); }
+  .server { margin-top:16px; padding-top:14px; border-top:1px dashed var(--border); }
+  .server h2 { margin:0 0 10px; font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--muted-2); }
+  .server .row { display:flex; flex-wrap:wrap; gap:10px; }
   .lamp { display:inline-flex; align-items:center; gap:8px; padding:7px 11px; border-radius:12px; background:rgba(255,255,255,0.05); border:1px solid var(--border); font:500 12px var(--mono); color:var(--muted); }
-  .lamp i { width:9px; height:9px; border-radius:50%; background:var(--muted-2); }
-  .lamp.ok i { background:var(--accent); } .lamp.bad i { background:var(--red); box-shadow:0 0 0 3px rgba(239,68,68,0.25); } .lamp.run i { background:var(--accent); animation:glow 1.2s infinite; }
-  .empty { padding:40px; text-align:center; color:var(--muted); }
+  .lamp i { width:9px; height:9px; border-radius:50%; background:var(--muted-2); flex:none; }
+  .lamp.idle i { background:var(--accent); } .lamp.waiting i { background:var(--red); box-shadow:0 0 0 3px rgba(239,68,68,0.25); } .lamp.running i { background:var(--accent); animation:glow 1.2s infinite; }
   .toast { position:fixed; left:50%; bottom:20px; transform:translate(-50%,12px); padding:10px 14px; border-radius:12px; background:rgba(15,23,42,.9); border:1px solid rgba(255,255,255,.2); opacity:0; transition:opacity .2s, transform .2s; font-size:13px; pointer-events:none; }
   .toast.on { opacity:1; transform:translate(-50%,0); }
+  .err { margin:12px 20px 0; padding:10px 14px; border-radius:10px; background:rgba(239,68,68,0.14); border:1px solid rgba(239,68,68,0.35); color:#FECACA; font-size:13px; }
 </style>
 </head>
 <body>
@@ -70,64 +81,55 @@
   <span id="stats" role="status" aria-atomic="true"></span>
   <span class="at" id="at">불러오는 중…</span>
 </header>
+<div class="err" id="err" hidden></div>
 <section class="office">
-  <h2>Floor · live sessions</h2>
-  <div class="floor" id="floor"></div>
-  <div class="night"><h2>Night shift · scheduled agents (today)</h2><div class="row" id="night"></div></div>
+  <div class="zones" id="zones"></div>
+  <div class="server"><h2>Server room · 에이전트 없는 결정적 작업</h2><div class="row" id="machines"></div></div>
 </section>
 <div class="toast" id="toast" role="status"></div>
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => (s ?? "").toString().replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const KNOWN = new Set(["claude", "codex", "grok", "hermes"]);
-const ago = s => s < 60 ? `${Math.round(s)}초 전` : s < 3600 ? `${Math.round(s/60)}분 전` : `${(s/3600).toFixed(1)}시간 전`;
+const POSE = {running: "typing", waiting: "hand", idle: "idle", sleep: "idle"};
 function toast(t){ const e=$("#toast"); e.textContent=t; e.classList.add("on"); clearTimeout(e._t); e._t=setTimeout(()=>e.classList.remove("on"),2000); }
 async function post(url, body){ const r = await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); return r.json(); }
 
-function desk(c){
-  const agent = KNOWN.has(c.agent) ? c.agent : "claude";     // 모르는 종류는 클로디 자리로 — 칩에는 실제 값을 적는다
-  const pose = c.waiting ? "hand" : c.running ? "typing" : "idle";
-  const state = c.waiting ? "waiting" : c.running ? "running" : "idle";
-  const s = c.session || {};
-  const title = s.title || c.title || "(제목 없음)";
-  const bubble = c.waiting ? `<div class="bubble wait">확인이 필요해요</div>` : (c.running && s.last_prompt ? `<div class="bubble">${esc(s.last_prompt.slice(0,80))}</div>` : "");
-  return `<div class="desk ${state}" data-h="${esc(c.handle)}" role="button" tabindex="0" title="클릭하면 Orca 의 이 탭으로 갑니다">
-    <div class="fig"><img src="/assets/${agent}_${pose}.png" alt="${esc(agent)} ${pose}" loading="lazy">${bubble}</div>
+function desk(d){
+  const click = !!d.handle;
+  const bubble = d.state === "waiting" ? `<div class="bubble wait">${esc(d.note || "확인이 필요해요")}</div>`
+    : d.state === "running" && d.prompt ? `<div class="bubble">${esc(d.prompt.slice(0, 80))}</div>`
+    : d.state === "sleep" ? `<div class="bubble zz">z z z</div>` : "";
+  return `<div class="desk ${d.state} ${click ? "click" : ""}" ${click ? `data-h="${esc(d.handle)}" role="button" tabindex="0" title="클릭하면 Orca 의 이 탭으로 갑니다"` : ""}>
+    <div class="fig"><img src="/assets/${esc(d.agent)}_${POSE[d.state] || "idle"}.png" alt="${esc(d.name)}" loading="lazy">${bubble}</div>
     <div class="plate">
-      <div class="name"><span class="ag ag-${esc(c.agent)}">${esc(c.agent)}</span><span>${esc(title)}</span><span class="st ${c.waiting ? "wait" : c.running ? "run" : ""}"></span></div>
-      <div class="sub">${esc(c.repo)} · ${esc(c.branch || "")}${c.running ? "" : " · " + ago(c.last_output_age_s)}</div>
+      <div class="name"><span class="ag ag-${esc(d.agent)}">${esc(d.agent)}</span><span>${esc(d.name)}</span><span class="st ${d.state === "waiting" ? "wait" : d.state === "running" ? "run" : ""}"></span></div>
+      <div class="sub">${esc(d.title || d.role)}</div>
+      <div class="sub n">${esc(d.note || d.role)}</div>
     </div>
   </div>`;
 }
-function lamp(c){
-  const cls = c.running ? "run" : c.status ? (/FAIL/.test(c.status) ? "bad" : "ok") : "";
-  return `<span class="lamp ${cls}"><i></i>${esc(c.name)}${c.status ? " · " + esc(c.status.replace(/^.*STATUS:/, "").trim().slice(0, 28)) : ""}</span>`;
-}
+const lamp = m => `<span class="lamp ${esc(m.state)}" title="${esc(m.label)}"><i></i>${esc(m.name)} · ${esc(m.note)}</span>`;
+
 let busy = false;
 async function refresh(){
   if (busy) return; busy = true;
   try {
-    const j = await (await fetch("/api/snapshot")).json();
+    const j = await (await fetch("/api/office")).json();
     $("#at").textContent = `갱신 ${j.at?.slice(11,19) ?? ""}`;
-    const running = j.terminals.filter(t => t.running).length, waiting = j.terminals.filter(t => t.waiting).length;
-    const fails = j.scheduled.filter(s => s.status && /FAIL/.test(s.status)).length;
-    $("#stats").innerHTML = `${waiting ? `<span class="chip warn">확인 필요 ${waiting}</span> ` : ""}<span class="chip ok">작업 중 ${running}</span> <span class="chip">대기 ${j.terminals.length - running - waiting}</span> <span class="chip ${fails ? "bad" : ""}">야간 ${j.scheduled.length}${fails ? ` · FAIL ${fails}` : ""}</span>`;
-    let terms = j.terminals;
-    if (location.search.includes("demo")) {   // 시연용 — 실제 세션 뒤에 가짜 책상 셋을 붙인다 (클릭은 무효)
-      terms = terms.concat([
-        {handle: "", agent: "codex", running: true, waiting: false, repo: "gamebuilders", branch: "day23", last_output_age_s: 1, session: {title: "웹 게임 3파일 생성", last_prompt: "SCOPE.md 대로 게임 만들어"}},
-        {handle: "", agent: "grok", running: false, waiting: true, repo: "battle-grok", branch: "main", last_output_age_s: 40, session: {title: "슈팅 게임 HTML"}},
-        {handle: "", agent: "hermes", running: false, waiting: false, repo: "jj-company", branch: "main", last_output_age_s: 900, session: {title: "검수 gumsu"}},
-      ]);
-    }
-    $("#floor").innerHTML = terms.length ? terms.map(desk).join("") : `<div class="empty">사무실이 비어 있습니다.</div>`;
-    $("#night").innerHTML = j.scheduled.map(lamp).join("");
-  } catch (e) { $("#stats").textContent = "서버에 못 붙었습니다"; }
+    $("#err").hidden = !!j.ok; $("#err").textContent = j.error || "";
+    const n = s => j.desks.filter(d => d.state === s).length;
+    $("#stats").innerHTML = `${n("waiting") ? `<span class="chip warn">확인 필요 ${n("waiting")}</span> ` : ""}<span class="chip ok">작업 중 ${n("running")}</span> <span class="chip">대기 ${n("idle")}</span> <span class="chip">출근 전 ${n("sleep")}</span>`;
+    const byDept = {};
+    for (const d of j.desks) (byDept[d.dept] = byDept[d.dept] || []).push(d);
+    const order = [...j.dept_order, ...Object.keys(byDept).filter(k => !j.dept_order.includes(k))];
+    $("#zones").innerHTML = order.filter(k => byDept[k]).map(k => `<section class="zone ${k === "개발팀" ? "wide" : ""}"><h2>${esc(k)}<span class="cnt">${byDept[k].length}</span></h2><div class="row">${byDept[k].map(desk).join("")}</div></section>`).join("");
+    $("#machines").innerHTML = j.machines.map(lamp).join("");
+  } catch (e) { $("#err").hidden = false; $("#err").textContent = "서버에 못 붙었습니다: " + e; }
   finally { busy = false; }
 }
 async function go(el){ const r = await post("/api/switch", {handle: el.dataset.h}); toast(r.ok ? "Orca 탭으로 이동했습니다" : "이동 실패"); }
-document.addEventListener("click", e => { const d = e.target.closest(".desk"); if (d) go(d); });
-document.addEventListener("keydown", e => { if ((e.key === "Enter" || e.key === " ") && e.target.classList.contains("desk")) { e.preventDefault(); go(e.target); } });
+document.addEventListener("click", e => { const d = e.target.closest(".desk.click"); if (d) go(d); });
+document.addEventListener("keydown", e => { if ((e.key === "Enter" || e.key === " ") && e.target.classList.contains("click")) { e.preventDefault(); go(e.target); } });
 refresh(); setInterval(refresh, 3000);
 </script>
 </body>
