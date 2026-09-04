@@ -33,8 +33,10 @@
   .unit.away img.empty { opacity:1; }
   .unit.away .bubble { display:none; }
   .jj img.boss { width:100%; display:block; filter: drop-shadow(0 10px 10px rgba(0,0,0,.5)); }
-  .jj { width:7.2%; pointer-events:none; transform:translate(-50%, -100%); }
-  .jj .below { position:absolute; left:50%; top:118%; transform:translateX(-50%); width:260px; }
+  .jj { width:8.2%; pointer-events:none; transform:translate(-50%, -100%); }
+  .deskfg { position:absolute; left:45.2%; top:42.8%; width:9.6%; z-index:47; pointer-events:none; }
+  .deskfg img { width:100%; display:block; }
+  .jj .below { position:absolute; left:50%; top:104%; transform:translateX(-50%); width:260px; z-index:48; }
   .jj .plate { margin-top:0; }
   .unit .glow { position:absolute; left:50%; bottom:2%; width:60%; height:8%; transform:translateX(-50%); border-radius:50%; pointer-events:none; }
   .unit.running .glow { background:radial-gradient(closest-side, rgba(34,197,94,.6), transparent); animation:glow 1.6s ease-in-out infinite; }
@@ -83,7 +85,7 @@ const esc = s => (s ?? "").toString().replace(/[&<>"]/g, c => ({"&":"&amp;","<":
 const POSE = {running: "typing", waiting: "hand", idle: "idle", sleep: "idle"};
 // 책상 자리 — 배경 그림(office_bg.jpg) 위의 % 좌표. `?edit` 로 드래그해 잡고 콘솔에 찍히는 값을 여기 옮긴다.
 const SLOTS = {
-  "jj":            {x: 50.0, y: 41.5, s: 1},
+  "jj":            {x: 50.0, y: 53.5, s: 1},
   "dev-grok":      {x: 21.0, y: 52.0, s: 0.72},
   "dev-codex":     {x: 33.0, y: 58.0, s: 0.78},
   "sagun":         {x: 67.0, y: 58.0, s: 0.78},
@@ -107,6 +109,7 @@ function renderJJ(){
   el.style.left = s.x + "%"; el.style.top = s.y + "%";
   el.innerHTML = `<img class="boss" src="/assets/jj_sit.png" alt="JJ"><div class="below"><div class="plate">JJ<small>대표 · 받은 리포트</small></div><div class="inbox" id="inbox"></div></div>`;
   stage.appendChild(el);
+  const fg = document.createElement("div"); fg.className = "deskfg"; fg.innerHTML = `<img src="/assets/desk_jj.png" alt="">`; stage.appendChild(fg);   // 단상 책상을 캐릭터 앞에 한 번 더 — 뒤에 앉은 것처럼
 }
 function upsert(d){
   const slot = slotOf(d.id);
