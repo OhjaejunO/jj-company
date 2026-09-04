@@ -307,12 +307,23 @@ try {
     }
 
     Write-Log ('claude -p (content-scout) start, allowed-tools: ' + ($AllowedTools -join ' '))
+    # headroom proxy (2026-09-04 JJ decision): compress tool outputs before the model.
+    # Falls back to direct when the proxy is not healthy - and says so in the log.
+    $HrHelper = Join-Path $Hq 'scripts\headroom-proxy.ps1'
+    $hrOn = $false; $hrBefore = -1
+    if (Test-Path -LiteralPath $HrHelper) {
+        . $HrHelper
+        $hrOn = Start-HeadroomProxy
+        if ($hrOn) { $env:ANTHROPIC_BASE_URL = $HeadroomUrl; $hrBefore = Get-HeadroomSavedTokens; Write-Log ('headroom: ON -> ANTHROPIC_BASE_URL=' + $HeadroomUrl) }
+        else { Remove-Item Env:ANTHROPIC_BASE_URL -ErrorAction SilentlyContinue; Write-Log 'headroom: OFF (direct)' }
+    } else { Write-Log ('headroom: helper missing (' + $HrHelper + ') -> OFF (direct)') }
     $out = & $Claude -p (ConvertTo-NativeArg $prompt) --permission-mode default `
         --allowed-tools @AllowedTools `
         --add-dir $SkillDir --add-dir $ContentOps --add-dir $ScanLogDir 2>&1
     $claudeCode = $LASTEXITCODE
     foreach ($l in $out) { Write-Log ('  cc| ' + $l) }
     Write-Log ('claude exit code ' + $claudeCode)
+    if ($hrOn) { Write-HeadroomSavings $hrBefore }
 
     if ($claudeCode -ne 0) {
         Write-Log ('STATUS: FAIL claude-exit-' + $claudeCode)
