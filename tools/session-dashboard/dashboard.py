@@ -34,6 +34,9 @@ from datetime import datetime, timezone, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, quote
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import hud as HUD  # noqa: E402 — 계기판 집계 (읽기 전용)
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 HOME = os.path.expanduser("~")
 CLAUDE_PROJECTS = os.path.join(HOME, ".claude", "projects")
@@ -569,6 +572,14 @@ class H(BaseHTTPRequestHandler):
                 self._json(snapshot())
             except Exception as e:  # noqa: BLE001 — 실패를 화면에 보인다 (조용히 빈 판을 내지 않는다)
                 self._json({"ok": False, "error": repr(e), "terminals": [], "scheduled": []}, 500)
+        elif p == "/api/hud":
+            try:
+                snap = snapshot(); snap["scheduled"] = scheduled_today(day)
+                self._json(HUD.hud(snap, _day(day).isoformat()))
+            except Exception as e:  # noqa: BLE001
+                self._json({"ok": False, "error": repr(e)}, 500)
+        elif p == "/diagram":
+            self._file(os.path.join(HERE, "..", "..", "docs", "diagrams", "jj-company.architecture.html"), "text/html; charset=utf-8")
         elif p == "/api/events":
             try:
                 self._json({"ok": True, "day": _day(day).isoformat(), "events": events_today(day)})
