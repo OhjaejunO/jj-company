@@ -24,3 +24,6 @@ __pycache__/
 
 # Obsidian vault workspace files
 .obsidian/
+# archify visual-check 산출물은 커밋하지 않는다 (재생성 가능 · PNG 만 _check/ 에 로컬 보관)
+docs/diagrams/*.visual-check.*
+docs/diagrams/_check/

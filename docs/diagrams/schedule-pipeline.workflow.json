@@ -1,0 +1,257 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "JJ Company 스케줄 회차 파이프라인",
+    "quality_profile": "showcase",
+    "animation": "none",
+    "views": [
+      {
+        "id": "happy",
+        "label": "정상 회차",
+        "focus": [
+          "task",
+          "lock",
+          "gitsync",
+          "auth",
+          "skill",
+          "probe",
+          "agent",
+          "report"
+        ],
+        "note": "작업 스케줄러가 래퍼를 띄우고, 동기화·게이트를 지나 에이전트가 리포트를 남긴다."
+      },
+      {
+        "id": "stops",
+        "label": "중단 자리",
+        "focus": [
+          "gitsync",
+          "skill",
+          "probe",
+          "fail"
+        ],
+        "note": "동기화나 권한 프로브가 어긋나면 에이전트를 띄우지 않고 STATUS: FAIL 로 멈춘다."
+      }
+    ]
+  },
+  "lanes": [
+    {
+      "id": "wrapper",
+      "label": "작업 스케줄러 · 래퍼 (PowerShell)"
+    },
+    {
+      "id": "gate",
+      "label": "선행 게이트 · 중단"
+    },
+    {
+      "id": "run",
+      "label": "실행 · 산출"
+    }
+  ],
+  "phases": [
+    {
+      "id": "p_sync",
+      "label": "동기화",
+      "fromCol": 1,
+      "toCol": 3,
+      "variant": "emphasis"
+    },
+    {
+      "id": "p_gate",
+      "label": "게이트 · 실행",
+      "fromCol": 4,
+      "toCol": 4,
+      "variant": "security"
+    },
+    {
+      "id": "p_out",
+      "label": "판정",
+      "fromCol": 5,
+      "toCol": 5,
+      "variant": "dashed"
+    }
+  ],
+  "groups": [
+    {
+      "id": "g_sync",
+      "label": "최신 main 과 맞춘다",
+      "lane": "wrapper",
+      "fromCol": 2,
+      "toCol": 3,
+      "variant": "emphasis"
+    },
+    {
+      "id": "g_stop",
+      "label": "에이전트를 띄우지 않는다",
+      "lane": "gate",
+      "fromCol": 3,
+      "toCol": 3,
+      "variant": "security"
+    }
+  ],
+  "mainPath": [
+    "task",
+    "lock",
+    "gitsync",
+    "auth",
+    "skill",
+    "probe",
+    "agent",
+    "report"
+  ],
+  "nodes": [
+    {
+      "id": "task",
+      "lane": "wrapper",
+      "col": 0,
+      "type": "external",
+      "label": "Windows 작업 스케줄러",
+      "sublabel": "\\JJ\\ · 지연 0/2/4/6분",
+      "width": 150
+    },
+    {
+      "id": "lock",
+      "lane": "wrapper",
+      "col": 1,
+      "type": "backend",
+      "label": "lock 파일 확인",
+      "sublabel": "있으면 즉시 종료",
+      "width": 132
+    },
+    {
+      "id": "gitsync",
+      "lane": "wrapper",
+      "col": 2,
+      "type": "backend",
+      "label": "git-sync",
+      "sublabel": "pull · 3회 재시도",
+      "width": 132
+    },
+    {
+      "id": "auth",
+      "lane": "gate",
+      "col": 2,
+      "type": "security",
+      "label": "auth_check",
+      "sublabel": "gh 토큰 · 드라이브 마운트",
+      "width": 150
+    },
+    {
+      "id": "skill",
+      "lane": "wrapper",
+      "col": 3,
+      "type": "backend",
+      "label": "deploy-skill",
+      "sublabel": "라이브 ← origin/main",
+      "width": 132
+    },
+    {
+      "id": "probe",
+      "lane": "gate",
+      "col": 4,
+      "type": "security",
+      "label": "permission_probe",
+      "sublabel": "목록 밖 쓰기 거부 · 안은 성공",
+      "width": 160
+    },
+    {
+      "id": "agent",
+      "lane": "run",
+      "col": 4,
+      "type": "backend",
+      "label": "claude -p 에이전트",
+      "sublabel": "default 모드 · allowlist",
+      "width": 150
+    },
+    {
+      "id": "report",
+      "lane": "run",
+      "col": 5,
+      "type": "database",
+      "label": "reports\\<날짜>_<작업>.md",
+      "sublabel": "마지막 줄 STATUS",
+      "width": 170
+    },
+    {
+      "id": "fail",
+      "lane": "gate",
+      "col": 3,
+      "type": "security",
+      "label": "STATUS: FAIL · 중단",
+      "sublabel": "git-sync · skill-sync · probe",
+      "width": 150
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": "task",
+      "to": "lock",
+      "label": "기동",
+      "role": "main"
+    },
+    {
+      "id": "e2",
+      "from": "lock",
+      "to": "gitsync",
+      "label": "lock 없음",
+      "role": "main"
+    },
+    {
+      "id": "e3",
+      "from": "gitsync",
+      "to": "auth",
+      "label": "최신 main",
+      "role": "main"
+    },
+    {
+      "id": "e4",
+      "from": "auth",
+      "to": "skill",
+      "label": "AUTH 기록",
+      "role": "main"
+    },
+    {
+      "id": "e5",
+      "from": "skill",
+      "to": "probe",
+      "label": "판본 스탬프",
+      "role": "main"
+    },
+    {
+      "id": "e6",
+      "from": "probe",
+      "to": "agent",
+      "label": "양방향 통과",
+      "role": "main"
+    },
+    {
+      "id": "e7",
+      "from": "agent",
+      "to": "report",
+      "label": "리포트 작성",
+      "role": "main"
+    },
+    {
+      "id": "x1",
+      "from": "gitsync",
+      "to": "fail",
+      "label": "pull 실패",
+      "role": "error"
+    },
+    {
+      "id": "x2",
+      "from": "skill",
+      "to": "fail",
+      "label": "동기화 실패",
+      "role": "error"
+    },
+    {
+      "id": "x3",
+      "from": "probe",
+      "to": "fail",
+      "label": "거부 안 됨",
+      "role": "error"
+    }
+  ]
+}
