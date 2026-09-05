@@ -185,7 +185,15 @@ class Orca(object):
         if text[:10] not in got:
             raise Missing("제목이 안 들어감: %r" % got)
 
+    _body_clicked = False
+
     def _cursor_to_end(self):
+        """본문 첫 문단으로 내부 커서를 **한 번만** 옮긴다. 그 뒤 붙여넣기는 에디터 커서(직전 붙여넣기 끝)에 이어진다.
+        매번 «마지막 문단»을 다시 누르면 커서가 그 문단 **앞**에 앉아 조각이 뒤섞였다(2026-09-05 실측 — 마지막 문단에
+        요약·한마디·관련글 꼬리가 한 줄로 엉켰다)."""
+        if self._body_clicked:
+            return ""
+        self._body_clicked = True
         return ("const ps=[...d.querySelectorAll('.se-component.se-text .se-text-paragraph')]; const p=ps[ps.length-1]; if(!p) return 'no-body';"
                 "const r=p.getBoundingClientRect(); for(const ty of ['mousedown','mouseup','click']) p.dispatchEvent(new MouseEvent(ty,{bubbles:true,cancelable:true,clientX:r.left+5,clientY:r.top+r.height/2,button:0}));"
                 "const s=d.getSelection(); const rg=d.createRange(); rg.selectNodeContents(p); rg.collapse(false); s.removeAllRanges(); s.addRange(rg);")
@@ -207,7 +215,7 @@ class Orca(object):
         got = self.eval("window.__jj.length")
         if got != len(b):
             raise Missing("이미지 전송 길이 불일치 %s≠%d" % (got, len(b)))
-        before = self.in_frame("return d.querySelectorAll('.se-component.se-image').length;") or 0
+        before = self.in_frame("return [...d.querySelectorAll('.se-component.se-image img')].filter(i=>/pstatic|blogfiles/.test(i.src)).length;") or 0
         js = (self._cursor_to_end() +
               "const bin=atob(window.__jj); const arr=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);"
               "const file=new File([arr], %s, {type:'image/jpeg'}); const dt=new DataTransfer(); dt.items.add(file);"
@@ -216,22 +224,26 @@ class Orca(object):
         r = self.in_frame(js)
         if r != "ok":
             raise Missing("이미지 붙여넣기 실패: %s" % r)
-        for _ in range(20):   # 업로드 완료 대기 (최대 30초)
+        for _ in range(60):   # 업로드 완료 대기 (최대 90초 — 표지 PNG 는 30초를 넘겼다, 실측)
             time.sleep(1.5)
             n = self.in_frame("return [...d.querySelectorAll('.se-component.se-image img')].filter(i=>/pstatic|blogfiles/.test(i.src)).length;") or 0
             if n > before:
                 return
-        raise Missing("이미지 업로드가 30초 안에 안 끝남: %s" % os.path.basename(path))
+        raise Missing("이미지 업로드가 90초 안에 안 끝남: %s" % os.path.basename(path))
 
     def click_named_button(self, name):
         snap = self.run("snapshot")
         refs = (snap.get("result") or {}).get("refs") or {}
         ref = next((k for k, v in refs.items() if v.get("role") == "button" and (v.get("name") or "").strip() == name), None)
-        if not ref:
-            raise Missing("스냅샷에 «%s» 버튼 없음" % name)
-        d = self.run("click", "--element", "@" + ref)
-        if not d.get("ok"):
-            raise Missing("클릭 실패 «%s»: %s" % (name, str(d)[:200]))
+        if ref:
+            d = self.run("click", "--element", "@" + ref)
+            if d.get("ok"):
+                time.sleep(STEP_PAUSE * 2); return
+        # 스냅샷이 큰 문서에서 비어 오는 때가 있다(2026-09-05 실측 — 내용을 다 채운 뒤 «저장» ref 를 못 찾았다).
+        # 프레임 안 버튼을 글자로 찾아 페이지 안에서 누른다. «발행» 은 이 경로로도 부르지 않는다(self-test).
+        r = self.in_frame("const b=[...d.querySelectorAll('button')].find(x=>(x.innerText||'').trim()===%s); if(!b) return 'none'; b.click(); return 'clicked';" % json.dumps(name))
+        if r != "clicked":
+            raise Missing("«%s» 버튼 없음 (스냅샷·프레임 둘 다)" % name)
         time.sleep(STEP_PAUSE * 2)
 
     def screenshot(self, path):
@@ -248,24 +260,39 @@ class Orca(object):
         return self.in_frame("return JSON.stringify({title:(d.querySelector('.se-title-text')||{}).innerText||'', comps:[...d.querySelectorAll('.se-component')].map(e=>e.className.toString().replace('se-component ','').split(' ')[0]), chars:(d.querySelector('.se-components-wrap')||{}).innerText?d.querySelector('.se-components-wrap').innerText.length:0});")
 
 
-def find_page(blog):
+def _tabs():
     r = subprocess.run(["orca", "tab", "list", "--json"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
     m = re.search(r"\{.*\}", r.stdout, re.S)
-    for t in (json.loads(m.group(0))["result"]["tabs"] if m else []):
-        if "naver.com" in t.get("url", ""):
-            return t["browserPageId"]
+    return json.loads(m.group(0))["result"]["tabs"] if m else []
+
+
+def find_page(blog, fresh=False):
+    """편집 탭. fresh=True 면 옛 네이버 탭을 닫고 새 탭으로 연다 — 열려 있던 편집 화면은 goto 로도 홈 경유로도
+    새로고침이 안 됐다(2026-09-05 실측 세 번: 옛 내용 위에 제목이 겹쳤다). 로그인은 프로필 쿠키라 새 탭에도 살아 있다."""
+    if fresh:
+        for t in sorted([t for t in _tabs() if "naver.com" in t.get("url", "")], key=lambda t: -t["index"]):
+            subprocess.run(["orca", "tab", "close", "--index", str(t["index"]), "--json"], capture_output=True, text=True, timeout=60)
+    else:
+        for t in _tabs():
+            if "naver.com" in t.get("url", ""):
+                return t["browserPageId"]
     r = subprocess.run(["orca", "tab", "create", "--url", WRITE_URL.format(blog=blog), "--json"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
     d = json.loads(re.search(r"\{.*\}", r.stdout, re.S).group(0))["result"]
     return d.get("browserPageId") or d.get("tab", {}).get("browserPageId")
 
 
 def open_editor(o, blog, log):
-    o.run("goto", "--url", WRITE_URL.format(blog=blog)); time.sleep(7)
+    time.sleep(8)
     if "nid.naver.com" in (o.url() or ""):
         log("STATUS: FAIL login-required (Orca 탭에서 네이버에 로그인한 뒤 다시)"); return False
     if not o.editor_ready():
         log("STATUS: FAIL editor-not-ready (%s)" % o.url()); return False
     log("restore popup: %s" % o.dismiss_restore())
+    st = o.state()
+    st = json.loads(st) if isinstance(st, str) else (st or {})
+    if len(st.get("comps", [])) > 2 or (st.get("title") or "").strip() not in ("", "제목"):
+        log("STATUS: FAIL editor-not-empty (comps=%d title=%r) — 빈 새 글이 아니면 넣지 않는다" % (len(st.get("comps", [])), st.get("title")))
+        return False
     return True
 
 
@@ -284,11 +311,12 @@ def run(stem, blog, log):
     if missing:
         log("STATUS: FAIL image-missing %s" % missing[0]); return 1
     os.makedirs(SHOT_DIR, exist_ok=True)
-    o = Orca(find_page(blog))
+    o = Orca(find_page(blog, fresh=True))
     if not open_editor(o, blog, log):
         return 1
     try:
         o.set_title(title); log("title ok")
+        o._body_clicked = False
         img_i = 0
         for k, ch in enumerate(chunks):
             o.paste_html(ch)
@@ -301,9 +329,21 @@ def run(stem, blog, log):
             o.paste_image(files[img_i]); log("image %d/%d (끝): %s" % (img_i + 1, len(files), os.path.basename(files[img_i]))); img_i += 1
         st = o.state()
         log("state: %s" % st)
+        # 순서 검증 — 조각이 뒤섞였으면 저장하지 않는다
+        text = (o.in_frame("return d.querySelector('.se-components-wrap').innerText;") or "").replace("\xa0", " ")
+        marks = ["FAQ", "토망치랩 한마디", "관련글"]
+        pos = [text.find(m) for m in marks]
+        if any(p_ < 0 for p_ in pos) or pos != sorted(pos) or text.count("(출처:") < 3:
+            raise Missing("본문 순서가 어긋남 (FAQ/한마디/관련글 위치 %s)" % pos)
         o.click_named_button("저장")
+        time.sleep(3)
+        toast = o.in_frame("return (d.body.innerText.match(/[^\\n]*저장[^\\n]*/g)||[]).slice(0,3).join(' | ');")
+        snap = o.run("snapshot"); refs = (snap.get("result") or {}).get("refs") or {}
+        cnt = next((v.get("name") for v in refs.values() if "임시저장된 글 보기" in (v.get("name") or "")), "?")
         shot = o.screenshot(os.path.join(SHOT_DIR, "%s_filled.png" % stem))
-        log("saved (임시글). shot=%s" % shot)
+        log("save clicked. toast=%r drafts=%r shot=%s" % (toast, cnt, shot))
+        if "0개" in str(cnt):
+            log("STATUS: OK (부분: 임시글 개수가 0 — 에디터에 내용은 남아 있으니 JJ 가 화면에서 «저장» 확인)"); return 0
         log("태그는 발행 창에서 JJ 가 붙인다: %s" % " ".join("#" + t for t in tags))
         log("STATUS: OK (임시저장 — 발행은 JJ)"); return 0
     except Missing as e:
@@ -314,7 +354,7 @@ def run(stem, blog, log):
 
 def probe(blog, log):
     o = Orca(find_page(blog))
-    o.run("goto", "--url", WRITE_URL.format(blog=blog)); time.sleep(7)
+    time.sleep(3)
     log("url: %s" % o.url())
     log("editor_ready: %s" % o.editor_ready())
     log("state: %s" % o.state())
