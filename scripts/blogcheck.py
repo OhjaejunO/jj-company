@@ -32,7 +32,7 @@ BANNED = [
     "이번 주 링크 묶음을 DM 으로",                                   # 캡션 CTA 문장 되풀이
 ]
 EP_NUM = re.compile(r"\bep\d{1,3}\b")
-SRC = re.compile(r"\(출처: [a-z0-9.-]+\.[a-z]{2,}(?: [^)]*)? · 20\d\d-\d\d-\d\d\)")
+SRC = re.compile(r"\(출처: (?:[a-z0-9.-]+\.[a-z]{2,}|X / @[A-Za-z0-9_]+)(?: [^)]*)? · 20\d\d-\d\d-\d\d\)")   # 도메인 또는 X 계정
 PLACEHOLDER = "[[JJ 한마디]]"
 
 
@@ -50,8 +50,10 @@ def check(md, publish=False, caption=None, kind=None):
     notes = []
     fm = re.match(r"^---\n(.*?)\n---\n", md, re.S)
     meta = dict(re.findall(r"^(\w+):\s*(.+)$", fm.group(1), re.M)) if fm else {}
-    kind = kind or meta.get("kind", "daily")
-    lo, hi = (2000, 5500) if kind == "weekly" else (2500, 3500)
+    kind = kind or meta.get("kind", "topic")
+    if kind == "daily":
+        kind = "topic"                       # 2026-09-05 JJ: 블로그는 «하루 한 소재 제대로» — daily 는 topic 의 옛 이름
+    lo, hi = (2000, 5500) if kind == "weekly" else (2500, 4500)
 
     if not re.search(r"^# .{10,}$", md, re.M):
         fails.append("제목 없음 (# 한 줄)")
@@ -106,6 +108,14 @@ def check(md, publish=False, caption=None, kind=None):
             if n > 3:
                 fails.append("한마디 %d문장 (≤3)" % n)
 
+    if kind == "topic":
+        # 한 소재 글의 뼈대 (테크토니형) — «핵심 정보 한눈에» 표 + «참고 자료» 목록
+        if not re.search(r"^### 핵심 정보", body, re.M):
+            fails.append("«### 핵심 정보 한눈에» 표 없음 (한 소재 글의 첫 절)")
+        ref = _section(md, "참고 자료") or ""
+        n_ref = len([ln for ln in ref.splitlines() if ln.startswith("- ") and re.search(r"[a-z0-9-]+\.[a-z]{2,}|X / @", ln)])
+        if n_ref < 3:
+            fails.append("«## 참고 자료» 출처 줄 %d (≥3, 도메인 또는 X / @핸들)" % n_ref)
     # 벤치마크 실측(2026-09-05 리포트 §4)에서 댓글 11~23 나오는 글이 전부 갖춘 셋 — JJ 지적으로 필수화
     if not re.search(r"^### Q\. .*(뭘 하면|해보면|하면 되나|하면 될까)", body, re.M):
         fails.append("실용 절 없음 — «### Q. 그래서 … 뭘 하면 되나요?» 꼴 소제목 1개 (이지온·이혜인 매 편)")
@@ -117,6 +127,8 @@ def check(md, publish=False, caption=None, kind=None):
             fails.append("마무리 CTA 없음 — 관련글 절에 «댓글» 질문과 «이웃추가» 요청 둘 다")
         if kind == "weekly" and "다음 주" not in rel:
             fails.append("주간판에 «다음 주 지켜볼 것» 없음")
+        if kind == "topic" and "지켜볼 것" not in rel:
+            fails.append("«다음에 지켜볼 것» 없음 (확인 못 한 것을 어디서 이어 볼지)")
 
     imgs = _section(md, "이미지") or ""
     n_img = len(re.findall(r"^\d+\. ", imgs, re.M))
@@ -175,6 +187,12 @@ kind: daily
 
 ## 본문
 
+### 핵심 정보 한눈에
+
+| 항목 | 내용 |
+|---|---|
+| 나온 날 | 9/7 |
+
 ### Q. 첫째 소식은 뭐예요?
 
 **첫째 소식이에요.** 오늘 새벽 공식 페이지에 올라온 값을 그대로 옮겨 적은 문장이에요. %s (출처: openai.com · 2026-09-07)
@@ -212,13 +230,19 @@ kind: daily
 
 ☞ 카드 — instagram.com/p/x
 
-먼저 써 보고 싶은 게 뭔가요? 댓글로 남겨 주세요. 이웃추가도 부탁드려요.
+다음에 지켜볼 것은 열리는 날이에요. 먼저 써 보고 싶은 게 뭔가요? 댓글로 남겨 주세요. 이웃추가도 부탁드려요.
 
 ## 이미지
 
 1. `a.png` — 표지 (출처: 토망치랩)
 2. `b.png` — 카드 (출처: openai.com)
 3. `c.png` — 카드 (출처: blog.google)
+
+## 참고 자료
+
+- openai.com — 발표문 (2026-09-07)
+- blog.google — 블로그 (2026-09-07)
+- X / @OpenAI — 포스트 (2026-09-07)
 
 ## 태그
 
@@ -258,6 +282,10 @@ def self_test():
     cases.append(("주간판에 다음 주 예고 없음 → FAIL", any("다음 주" in x for x in f), f))
     f, _ = check(good.replace("kind: daily", "kind: weekly").replace("이웃추가도 부탁드려요.", "이웃추가도 부탁드려요. 다음 주 지켜볼 것은 하나예요."))
     cases.append(("주간판 예고 있으면 통과", not any("다음 주" in x for x in f), f))
+    f, _ = check(good.replace("### 핵심 정보 한눈에", "### 정보"))
+    cases.append(("한 소재 글에 핵심 정보 표 없음 → FAIL", any("핵심 정보" in x for x in f), f))
+    f, _ = check(good.replace("- blog.google — 블로그 (2026-09-07)\n", ""))
+    cases.append(("참고 자료 2줄 → FAIL", any("참고 자료" in x for x in f), f))
     ok = all(c[1] for c in cases)
     for name, v, f in cases:
         print(("PASS " if v else "FAIL ") + name + ("" if v else "  <- " + "; ".join(f)))

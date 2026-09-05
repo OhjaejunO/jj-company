@@ -96,12 +96,26 @@ def parse_blocks(body):
     chunks = 붙여넣기 단위 HTML 목록. 이미지는 «요약 뒤 표지, 그 다음은 Q. 절마다 하나» 순으로 끼운다.
     """
     title = re.search(r"^# (.+)$", body, re.M).group(1).strip()
+    # 조각 = 붙여넣기 단위. 본문 안의 `[[이미지 N]]` 줄이 있으면 그 자리에 N번 그림을 끼운다 — 2026-09-05 JJ 지적
+    # (Astra 도표가 엉뚱한 절 뒤에 붙었다). 조각 목록의 원소는 HTML 문자열이거나 ("img", N) 이다.
     chunks = [md_to_html(_section(body, "요약"))]
     main = _section(body, "본문")
-    qs = re.split(r"(?m)^(?=### Q\. )", main)
+    qs = re.split(r"(?m)^(?=### )", main)
     for q in qs:
-        if q.strip():
-            chunks.append(md_to_html(q))
+        if not q.strip():
+            continue
+        buf = []
+        for ln in q.splitlines():
+            m = re.match(r"^\[\[이미지 (\d+)\]\]\s*$", ln.strip())
+            if m:
+                if "\n".join(buf).strip():
+                    chunks.append(md_to_html("\n".join(buf)))
+                buf = []
+                chunks.append(("img", int(m.group(1))))
+            else:
+                buf.append(ln)
+        if "\n".join(buf).strip():
+            chunks.append(md_to_html("\n".join(buf)))
     for name in ("FAQ", "토망치랩 한마디", "관련글"):
         sec = _section(body, name)
         if sec:
@@ -335,16 +349,22 @@ def run(stem, blog, log):
     try:
         o.set_title(title); log("title ok")
         o._body_clicked = False
+        explicit = any(isinstance(c, tuple) for c in chunks)
+        placed = set()
         img_i = 0
         for k, ch in enumerate(chunks):
+            if isinstance(ch, tuple):                      # [[이미지 N]] 자리
+                n_ = ch[1]
+                if 1 <= n_ <= len(files) and n_ not in placed:
+                    o.paste_image(files[n_ - 1]); placed.add(n_); log("image %d/%d (자리 지정): %s" % (n_, len(files), os.path.basename(files[n_ - 1])))
+                continue
             o.paste_html(ch)
-            # 요약(0) 뒤엔 표지, 그 뒤 Q 절마다 하나씩 — 남은 그림이 없으면 건너뛴다
-            if k == 0 or (0 < k < len(chunks) - 3):
-                if img_i < len(files):
-                    o.paste_image(files[img_i]); log("image %d/%d: %s" % (img_i + 1, len(files), os.path.basename(files[img_i]))); img_i += 1
+            if not explicit and (k == 0 or (0 < k < len(chunks) - 3)) and img_i < len(files):
+                o.paste_image(files[img_i]); placed.add(img_i + 1); log("image %d/%d: %s" % (img_i + 1, len(files), os.path.basename(files[img_i]))); img_i += 1
             log("chunk %d/%d ok" % (k + 1, len(chunks)))
-        while img_i < len(files):     # 남은 그림은 끝에
-            o.paste_image(files[img_i]); log("image %d/%d (끝): %s" % (img_i + 1, len(files), os.path.basename(files[img_i]))); img_i += 1
+        for n_ in range(1, len(files) + 1):               # 자리 지정이 없는 나머지는 끝에
+            if n_ not in placed:
+                o.paste_image(files[n_ - 1]); log("image %d/%d (끝): %s" % (n_, len(files), os.path.basename(files[n_ - 1])))
         st = o.state()
         log("state: %s" % st)
         # 순서 검증 — 조각이 뒤섞였으면 저장하지 않는다
@@ -401,6 +421,7 @@ def self_test():
     cases = [
         ("제목", title == "제목 하나 (2026년 9월 8일)"),
         ("청크 = 요약 · Q 둘 · FAQ · 한마디 · 관련글 = 6", len(chunks) == 6 and chunks[1].startswith("<h3>Q. 왜?</h3>") and chunks[2].startswith("<h3>Q. 둘?</h3>")),
+        ("[[이미지 N]] 줄은 ('img', N) 조각이 된다", (lambda c: ("img", 2) in c and all("[[이미지" not in x for x in c if isinstance(x, str)))(parse_blocks(body.replace("### Q. 둘?", "[[이미지 2]]\n\n### Q. 둘?"))[1])),
         ("굵게 strong · 표 table · 이스케이프", "<strong>굵은 첫 문장이에요.</strong>" in chunks[1] and "<table><tr><th>소식</th>" in chunks[2] and "&lt;문장&gt;" in chunks[1]),
         ("절 제목 h2", chunks[3].startswith("<h2>FAQ</h2>") and chunks[4].startswith("<h2>토망치랩 한마디</h2>")),
         ("태그·이미지는 따로, 본문에 안 들어간다", tags == ["AI뉴스", "토망치랩"] and images[0]["path"] == "workshop\\a.png" and not any("a.png" in c or "#AI뉴스" in c for c in chunks)),
