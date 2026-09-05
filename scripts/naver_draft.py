@@ -133,6 +133,10 @@ class Orca(object):
         res = d.get("result", {}).get("result") if d.get("ok") else None
         if isinstance(res, str):
             res = res.encode("utf-16", "surrogatepass").decode("utf-16", "replace")
+            try:                      # CLI 가 'false'/'true'/JSON 문자열로 돌려준다 — 'false' 는 참이 아니다
+                return json.loads(res)
+            except ValueError:
+                return res
         return res
 
     def exists(self, css):
