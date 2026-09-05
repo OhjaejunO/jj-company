@@ -1,6 +1,6 @@
 blog-writer 서브에이전트로 네이버 블로그 초안을 1편 써라.
 
-오늘은 {{DATE}} ({{WEEKDAY}}) 이다. 일요일이면 주간(kind: weekly), 아니면 일간(kind: daily).
+오늘은 {{DATE}} ({{WEEKDAY}}) 이다. 요일과 무관하게 **한 소재(kind: topic)** 한 편이다 — 브리프의 «최근 발행편» 중 블로그 글(`reports\blog\*_*.md` 의 `source:`)이 아직 없는 가장 최근 편 하나. 전부 이미 썼으면 초안을 만들지 말고 리포트에 «쓸 편 없음» 으로 적어라.
 
 ## 정본
 - 에이전트 정의: `.claude/agents/blog-writer.md` — 그대로 따른다
