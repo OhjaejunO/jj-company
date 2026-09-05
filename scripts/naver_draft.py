@@ -241,7 +241,9 @@ class Orca(object):
                 time.sleep(STEP_PAUSE * 2); return
         # 스냅샷이 큰 문서에서 비어 오는 때가 있다(2026-09-05 실측 — 내용을 다 채운 뒤 «저장» ref 를 못 찾았다).
         # 프레임 안 버튼을 글자로 찾아 페이지 안에서 누른다. «발행» 은 이 경로로도 부르지 않는다(self-test).
-        r = self.in_frame("const b=[...d.querySelectorAll('button')].find(x=>(x.innerText||'').trim()===%s); if(!b) return 'none'; b.click(); return 'clicked';" % json.dumps(name))
+        cls = {"저장": "save_btn__"}.get(name)   # 글자 대조가 빗나갈 때(innerText 에 숨은 글자) 클래스로 — «발행» 은 여기 없다
+        r = self.in_frame("const b=[...d.querySelectorAll('button')].find(x=>(x.innerText||'').trim()===%s || (%s && new RegExp(%s).test(x.className))); if(!b) return 'none'; b.click(); return 'clicked';"
+                          % (json.dumps(name), json.dumps(bool(cls)), json.dumps(cls or "^$")))
         if r != "clicked":
             raise Missing("«%s» 버튼 없음 (스냅샷·프레임 둘 다)" % name)
         time.sleep(STEP_PAUSE * 2)
