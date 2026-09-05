@@ -57,6 +57,7 @@
 | 부서 | 에이전트 | 등급 | 담당 |
 |---|---|---|---|
 | 운영팀 | ops-auditor | A | JJ-Brain vault 건강 감사, 백업 검증 |
+| 대표실 | study-scout | A | `C:\공부` 새 노트 → «요지 · 실물 대조 · 제안» 리포트 (주 1회 · 읽기 전용 · `scripts\study_watch.py` 가 새 노트를 잡는다) |
 | 마케팅팀 | content-scout | B | 토망치랩 소재 조사 → 카드 제안 |
 | 영업팀 | job-scout | B | AX/AI 엔지니어 채용 공고 발굴 → 요약 |
 | 마케팅팀 | blog-writer | B | 네이버 블로그 «AI 뉴스» 초안 (전날 스캔로그 + 발행편 검증로그 → `reports\blog\`) · 발행은 JJ (C) · 규격 `docs\blog-format.md` · 게이트 `scripts\blogcheck.py` |
@@ -202,6 +203,7 @@
 - **미기동은 다음 날 아침 리포트에 오른다 (2026-08-28 신설).** 8/27 에 세 작업이 같은 인증 만료로 `skill-sync` 에서 죽었는데 **자기 로그에만 남아 다음 날까지 아무도 몰랐다.** `run_audit.py` 는 «STATUS 줄이 없는» 회차만 봤고 «STATUS: FAIL 인» 회차는 보지 않았다. 이제 `RUNS_FAILED=<작업>@<날짜>:<사유>` 로 싣고 `RUNS_VERDICT=RED` 를 낸다.
   - 세 겹으로 갈랐다 — ① `deploy-skill` 이 `GIT_TERMINAL_PROMPT=0` 으로 **바로 실패**하고(종전엔 `/dev/tty` 를 더듬다 엉뚱한 오류를 냈다) ② 인증 꼴이면 재시도 없이 «credentials» 로 이름 붙이고, 그 밖의 실패는 5초 간격 3회 재시도하며 ③ 래퍼가 `STATUS: FAIL skill-sync-auth` 로 적어 다음 날 리포트에 사유가 그대로 실린다.
   - 🔴 **`STATUS: OK (부분: …)` 는 여기 오지 않는다** — §4 가 부분 완주를 실패가 아니라고 못박았다. `run_audit._selftest()` 의 네 케이스 중 하나가 그것을 지킨다(역검증: 판정 함수를 가짜로 바꾸면 자체 검사가 걸린다).
+  - **🔴 이면 intent 파일이 먼저 생긴다 (2026-09-05 신설 · 공부 반영 제안 E).** 래퍼가 `run_audit`·`auth_check` 뒤에 `scripts\intent_from_audit.py` 를 돌려 `RUNS_VERDICT=RED` 또는 `AUTH_ALL_OK=no` 면 `reports\intents\<날짜>_<사유>.md`(무엇이 · 진단 · 복구 명령 후보 · 로그 꼬리 · JJ 판정 자리)를 만든다. A등급 — 파일만 만들고 아무것도 실행하지 않는다. 같은 날 재실행은 덮어쓰지 않는다. 진단은 사유 문자열 규칙표라 표 밖 사유는 «진단 없음» 으로 남는다(4층 ④). 역검증 4건은 `--self-test`. 근거: 8/27 셋이 같이 죽은 날 다음 날 리포트를 읽고서야 알았다 — SDLC 플레이북 «로그가 intent 를 낳는다».
 - **content-scout 소스 목록(1-1단계)은 래퍼가 조회한다 (2026-08-19 신설).** 스케줄 allowlist 에 `yt-dlp` 가 없어 이 단계는 구조적으로 불가능했고 리포트에 흔적 없이 건너뛰어졌다. ops-auditor 와 같은 «래퍼 선실행» — `scripts\source_watch.py` 가 `config.md` 소스 표를 실행 시점에 파싱해 YouTube 는 yt-dlp 로 조회하고 `logs\scout-data\sources_<날짜>.txt` 에 쓴다. Threads·Instagram 은 yt-dlp 미지원이라 `UNSUPPORTED` 로 남겨 에이전트가 WebFetch 하거나 «미확인»으로 적는다. **0건·«신작 없음»으로 뭉개지 않는다.**
 
 ### 등록된 스케줄 (현황판)
@@ -215,6 +217,7 @@
 | hermes-event-watch | 헤르메스 `sagun` (감지는 `event_watch.py`) | 매일 07:40 | 시범 8/26~28 |
 | workshop-backup | (에이전트 없음 — 결정적 압축·대조) | 주 1회 일요일 13:00 + **편 발행 직후** | 가동 (2026-08-30 등록 · 실값 확인) |
 | blog-writer | blog-writer | 매일 09:00 | 가동 (2026-09-05 JJ 등록 · 실값 확인: WakeToRun True · StartWhenAvailable True · IgnoreNew · PT1H · S4U · 첫 회차 9/6 09:00) |
+| study-scout | study-scout | 주 1회 일요일 15:00 | **등록 대기** (2026-09-05 · 절차 `docs\schedule-task-registration.md` §2-3 · 사람 자리) |
 
 - **정본은 실값이고 이 표는 조회 결과다** (2026-08-25). **2026-08-30 실측으로 한 줄을 고쳤다** — `workshop-backup` 이 이미 등록돼 있는데 이 표는 «등록 대기» 였다. 표가 틀렸다. `Get-ScheduledTask -TaskPath '\JJ\'` 의 트리거가 정본이며, 이 표가 실값과 다르면 표가 틀린 것이다 — 8/22 재등록으로 vault·drift 가 12:30 으로 옮겨진 뒤 이 표는 사흘간 07:30/07:00 을 가리키고 있었고, 8/23 ops-auditor 가 그것을 읽고 «미실행»으로 오독했다. 재등록·트리거 변경 뒤에는 `docs\schedule-task-registration.md` 절차대로 실값을 재조회해 이 표를 맞춘다.
 

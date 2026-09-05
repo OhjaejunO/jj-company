@@ -134,6 +134,23 @@ Register-ScheduledTask -TaskName 'blog-writer' -TaskPath '\JJ\' `
 
 등록 뒤 §3 대로 실값을 다시 조회해 정관 §4 현황판의 «등록 대기» 를 실값으로 바꾼다.
 
+## 2-3. study-scout 등록 (2026-09-05 추가 · **사람 자리** · JJ «붙이자»)
+
+`C:\공부` 의 새 노트를 주 1회 읽어 «요지 · 실물 대조 · 제안» 리포트를 쓰는 A등급 워커. 일요일 15:00(래퍼 10분 지연 → 15:10) — workshop-backup 13:00 뒤. 새 노트가 0건이면 모델을 부르지 않고 한 줄 리포트로 끝난다.
+
+🔴 순서: ① PR 머지 → ② 운영 서버 `git pull` → ③ 라이브에서 `py scripts\study_watch.py --self-test` OK → ④ **첫 회차 전에 기준선**: `py scripts\study_watch.py --mark` (오늘까지의 노트 8건은 이미 분석했으므로 «본 것»으로 적는다 — 안 하면 첫 회차가 전부를 다시 읽는다) → ⑤ 관리자 PowerShell 등록.
+
+```powershell
+$act = New-ScheduledTaskAction -Execute 'powershell.exe' `
+  -Argument '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:\Users\ojaej\jj-company\scripts\study-scout.ps1"'
+$trg = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At '15:00'
+$set = New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun `
+  -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 1)
+$pri = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType S4U -RunLevel Limited
+Register-ScheduledTask -TaskName 'study-scout' -TaskPath '\JJ\' `
+  -Action $act -Trigger $trg -Settings $set -Principal $pri -Force
+```
+
 ## 3. 재등록 후 — 실값 재확인 (건너뛰면 절차를 안 한 것이다)
 
 ```powershell

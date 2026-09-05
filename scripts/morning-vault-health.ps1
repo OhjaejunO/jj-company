@@ -314,6 +314,20 @@ try {
         }
     }
 
+    # intent (2026-09-05, study-notes proposal E): when runs/auth say RED, write a
+    # diagnosis draft to reports\intents\ so the human opens a file, not a hunt.
+    # Grade A - creates a file, executes nothing. Never affects this run's STATUS.
+    $IntentFile = 'NONE'
+    $IntentPy   = Join-Path $Hq 'scripts\intent_from_audit.py'
+    if (Test-Path -LiteralPath $IntentPy) {
+        $intOut = & py $IntentPy --date $IsoDate 2>&1
+        foreach ($l in $intOut) { Write-Log ('  intent| ' + $l) }
+        $il = ($intOut | Select-String -Pattern '^INTENT=' | Select-Object -Last 1)
+        if ($il) { $IntentFile = ($il.Line -replace '^INTENT=', '') }
+    } else {
+        Write-Log ('intent script missing: ' + $IntentPy + ' - skipped')
+    }
+
     if (-not (Test-Path -LiteralPath $PromptFile)) {
         Write-Log ('prompt file missing: ' + $PromptFile)
         Write-Log 'STATUS: FAIL prompt-missing'
@@ -322,7 +336,7 @@ try {
     $prompt = (Get-Content -LiteralPath $PromptFile -Raw -Encoding UTF8).Replace('{{DATE}}', $IsoDate)
     $prompt = $prompt.Replace('{{VAULT_DATA}}', $VaultData).Replace('{{PR_DATA}}', $PrData)
     $prompt = $prompt.Replace('{{FRESH_DATA}}', $FreshData).Replace('{{RUNS_DATA}}', $RunsData)
-    $prompt = $prompt.Replace('{{AUTH_DATA}}', $AuthData)
+    $prompt = $prompt.Replace('{{AUTH_DATA}}', $AuthData).Replace('{{INTENT_FILE}}', $IntentFile)
     $ProbeData = Join-Path $DataDir ('probe_' + $IsoDate + '.txt')
     $prompt = $prompt.Replace('{{PROBE_DATA}}', $ProbeData)
 
