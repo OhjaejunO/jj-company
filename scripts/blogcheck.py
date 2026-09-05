@@ -106,8 +106,17 @@ def check(md, publish=False, caption=None, kind=None):
             if n > 3:
                 fails.append("한마디 %d문장 (≤3)" % n)
 
-    if _section(md, "관련글") is None:
+    # 벤치마크 실측(2026-09-05 리포트 §4)에서 댓글 11~23 나오는 글이 전부 갖춘 셋 — JJ 지적으로 필수화
+    if not re.search(r"^### Q\. .*(뭘 하면|해보면|하면 되나|하면 될까)", body, re.M):
+        fails.append("실용 절 없음 — «### Q. 그래서 … 뭘 하면 되나요?» 꼴 소제목 1개 (이지온·이혜인 매 편)")
+    rel = _section(md, "관련글")
+    if rel is None:
         fails.append("## 관련글 없음")
+    else:
+        if "이웃추가" not in rel or "댓글" not in rel:
+            fails.append("마무리 CTA 없음 — 관련글 절에 «댓글» 질문과 «이웃추가» 요청 둘 다")
+        if kind == "weekly" and "다음 주" not in rel:
+            fails.append("주간판에 «다음 주 지켜볼 것» 없음")
 
     imgs = _section(md, "이미지") or ""
     n_img = len(re.findall(r"^\d+\. ", imgs, re.M))
@@ -176,6 +185,10 @@ kind: daily
 
 **셋째 소식이에요.** %s (출처: claude.com · 2026-09-06)
 
+### Q. 그래서 오늘 뭘 해보면 되나요?
+
+**설정을 한 번 열어 보세요.** 바뀐 게 그대로 되는지 보면 돼요. (출처: blog.google · 2026-09-07)
+
 | 소식 | 날짜 |
 |---|---|
 | 첫째 | 9/7 |
@@ -198,6 +211,8 @@ kind: daily
 ## 관련글
 
 ☞ 카드 — instagram.com/p/x
+
+먼저 써 보고 싶은 게 뭔가요? 댓글로 남겨 주세요. 이웃추가도 부탁드려요.
 
 ## 이미지
 
@@ -235,6 +250,14 @@ def self_test():
     cases.append(("캡션 문장 복붙 → FAIL", any("캡션" in x for x in f), f))
     f, _ = check(good.replace("3. `c.png` — 카드 (출처: blog.google)\n", ""))
     cases.append(("이미지 2장 → FAIL", any("이미지" in x for x in f), f))
+    f, _ = check(good.replace("### Q. 그래서 오늘 뭘 해보면 되나요?", "### Q. 넷째는요?"))
+    cases.append(("실용 절 없음 → FAIL", any("실용 절" in x for x in f), f))
+    f, _ = check(good.replace("이웃추가도 부탁드려요.", ""))
+    cases.append(("이웃추가 없음 → FAIL", any("마무리 CTA" in x for x in f), f))
+    f, _ = check(good.replace("kind: daily", "kind: weekly"))
+    cases.append(("주간판에 다음 주 예고 없음 → FAIL", any("다음 주" in x for x in f), f))
+    f, _ = check(good.replace("kind: daily", "kind: weekly").replace("이웃추가도 부탁드려요.", "이웃추가도 부탁드려요. 다음 주 지켜볼 것은 하나예요."))
+    cases.append(("주간판 예고 있으면 통과", not any("다음 주" in x for x in f), f))
     ok = all(c[1] for c in cases)
     for name, v, f in cases:
         print(("PASS " if v else "FAIL ") + name + ("" if v else "  <- " + "; ".join(f)))
