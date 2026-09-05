@@ -1,23 +1,31 @@
 # -*- coding: utf-8 -*-
-r"""네이버 블로그 초안 넣기 (1단계) — 승인된 초안 md 를 Orca 내장 브라우저로 스마트에디터에 채우고 «임시저장»한다.
+r"""네이버 블로그 초안 넣기 (1단계) — 승인된 초안 md 를 Orca 내장 브라우저로 스마트에디터에 채우고 «저장(임시저장)»한다.
 
-    py scripts\naver_draft.py --post 2026-09-07_주간1호 --blog <블로그id>   ← 제목·본문·사진 채우고 임시저장, 화면 캡처
-    py scripts\naver_draft.py --probe --blog <블로그id>                     ← 에디터 화면 요소 덤프 (선택자 손보기용)
+    py scripts\naver_draft.py --post 2026-09-07_주간1호 --blog ai-tomangchi-lab   ← 제목·본문·사진 채우고 저장, 화면 캡처
+    py scripts\naver_draft.py --probe --blog ai-tomangchi-lab                     ← 에디터 화면 상태 덤프
     py scripts\naver_draft.py --self-test
 
 ## 이 스크립트는 발행하지 않는다 (JJ 판정 2026-09-05 «1단계만 먼저»)
-«발행» 버튼·공개 설정·태그 입력은 **코드에 없다.** 하는 일은 사람이 복붙하던 것 — 제목 치기, 본문 붙여넣기,
-사진 올리기 — 까지이고, 마지막에 «임시저장»(비공개 임시글)을 누른다. 발행은 JJ 가 에디터를 열어 태그를 달고
-«발행»을 누른다. 그래서 정관 §0 의 C등급(발행)은 그대로다.
+«발행» 버튼·공개 설정·태그 입력은 **코드에 없다.** 제목 넣기, 본문 붙여넣기, 사진 올리기까지 하고 «저장»(임시글)을
+누른다. 발행은 JJ 가 에디터에서 태그를 달고 «발행»을 누른다. 정관 §0 C등급(발행)은 그대로다.
 
-## 왜 API 가 아니라 브라우저인가
-네이버 블로그에는 공식 글쓰기 API 가 없다(2026-09-05 확인). 로그인은 사람이 Orca 탭에서 한다 — 쿠키를 읽지 않는다.
+## 실측으로 정한 경로 (2026-09-05 · ai-tomangchi-lab 실계정)
+- 에디터는 `#mainFrame` iframe 안(같은 출처)이다. 모든 DOM 작업은 그 frame 의 document 로 한다.
+- 🔴 **`orca type`·`keypress` 는 쓰지 않는다.** 브라우저 탭이 아니라 **활성 창**에 키를 보낸다 — 실측에서 JJ 채팅창에
+  «테스트 제목» 이 찍혔다. 여기 남은 입력 경로는 전부 페이지 안 JS 이벤트다.
+- 제목: 제목 span 에 합성 마우스 이벤트(mousedown·mouseup·click)로 에디터 내부 커서를 옮긴 뒤 text/plain 붙여넣기.
+  (선택 영역만 바꾸면 에디터는 무시하고 본문 커서 자리에 넣는다 — 실측.)
+- 본문: contenteditable 루트에 `ClipboardEvent('paste')` + text/html → 소제목·굵게·표(`se-table`)·문단이 그대로 컴포넌트가 된다.
+- 사진: 파일 바이트를 base64 청크로 `window.__jj` 에 넣고 `File` 을 만들어 같은 붙여넣기 경로로 준다 → 에디터가
+  `blogfiles.pstatic.net` 에 직접 올린다(`se-image`). CLI 인자 상한 때문에 24,000자 청크다. JPEG 88 로 줄여 보낸다.
+- 새 글 화면을 열면 «작성 중이던 글 불러오기» 팝업이 뜰 수 있다 → «취소» 를 누른다(복구하지 않는다).
+- 저장: 스냅샷에서 이름이 «저장» 인 버튼 ref 를 찾아 `orca click --element` (페이지 안 클릭).
 
 ## 🔴 이 스크립트가 증명하지 못하는 것 (§0 4층 ④)
-- 스마트에디터가 붙여넣은 HTML(소제목·표·굵게)을 어떻게 바꾸는지는 화면 캡처로만 본다 — 사람 육안.
-- 선택자(`SEL`)는 2026-09-05 추정값이다. 틀리면 «요소 못 찾음» 으로 멈추지 엉뚱한 곳을 누르지 않는다.
+- 붙여넣은 표·소제목이 발행본에서 어떻게 보이는지는 캡처·육안. 네이버의 «자동화 계정» 판정 기준은 비공개.
 """
 import argparse
+import base64
 import html
 import io
 import json
@@ -31,21 +39,16 @@ HQ = r"C:\Users\ojaej\jj-company"
 BLOG_DIR = os.path.join(HQ, "reports", "blog")
 SHOT_DIR = os.path.join(HQ, "logs", "naver-draft")
 WORKSHOP_ROOT = r"C:\Users\ojaej\orca\tomangchi-lab.github.io"
-STEP_PAUSE = 1.2
-
-#: 스마트에디터 ONE 선택자 — 🔴 추정값. `--probe` 로 실물을 덤프해 맞춘다.
-SEL = {
-    "editor_ready": ".se-main-container",
-    "title": ".se-title-text [contenteditable], .se-title-text",
-    "body": ".se-main-container .se-component.se-text [contenteditable], .se-main-container [contenteditable]",
-    "file_input": "input[type=file][accept*=image], input[type=file]",
-    "save_btn": "button[class*=save_btn]",
-    "login_hint": "#frmNIDLogin, input#id",
-}
 WRITE_URL = "https://blog.naver.com/{blog}?Redirect=Write&"
+STEP_PAUSE = 1.5
+CHUNK = 24000
+IMG_MAX_W = 1080
+JPEG_Q = 88
+
+F = "const d=document.querySelector('#mainFrame').contentDocument; const root=d.querySelector('[contenteditable]');"
 
 
-# ---------------------------------------------------------------- 원고 → HTML
+# ---------------------------------------------------------------- 원고 → 블록
 def read_post(stem):
     p = os.path.join(BLOG_DIR, stem + ".md")
     md = io.open(p, encoding="utf-8").read()
@@ -89,29 +92,43 @@ def md_to_html(sec):
 
 
 def parse_blocks(body):
-    """초안 md → (title, html, tags, images). 태그는 JJ 가 발행 창에서 붙이도록 텍스트로만 돌려준다."""
+    """초안 md → (title, chunks, tags, images).
+    chunks = 붙여넣기 단위 HTML 목록. 이미지는 «요약 뒤 표지, 그 다음은 Q. 절마다 하나» 순으로 끼운다.
+    """
     title = re.search(r"^# (.+)$", body, re.M).group(1).strip()
-    parts = []
-    for name in ("요약", "본문", "FAQ", "토망치랩 한마디", "관련글"):
+    chunks = [md_to_html(_section(body, "요약"))]
+    main = _section(body, "본문")
+    qs = re.split(r"(?m)^(?=### Q\. )", main)
+    for q in qs:
+        if q.strip():
+            chunks.append(md_to_html(q))
+    for name in ("FAQ", "토망치랩 한마디", "관련글"):
         sec = _section(body, name)
         if sec:
-            if name != "요약":
-                parts.append("<h2>%s</h2>" % html.escape(name))
-            parts.append(md_to_html(sec))
+            chunks.append("<h2>%s</h2>\n%s" % (html.escape(name), md_to_html(sec)))
     tags = re.findall(r"#(\S+)", _section(body, "태그"))
     images = []
     for ln in _section(body, "이미지").splitlines():
         m = re.match(r"^\d+\.\s+`([^`]+)`\s+—\s+(.*)$", ln.strip())
         if m:
             images.append({"path": m.group(1), "caption": m.group(2)})
-    return title, "\n".join(parts), tags, images
+    return title, chunks, tags, images
 
 
 def resolve_image(path):
     return path if os.path.isabs(path) else os.path.join(WORKSHOP_ROOT, path)
 
 
-# ---------------------------------------------------------------- 브라우저 (Orca CLI)
+def jpeg_b64(path):
+    from PIL import Image
+    im = Image.open(path).convert("RGB")
+    if im.width > IMG_MAX_W:
+        im = im.resize((IMG_MAX_W, round(im.height * IMG_MAX_W / im.width)))
+    buf = io.BytesIO(); im.save(buf, "JPEG", quality=JPEG_Q)
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+# ---------------------------------------------------------------- 브라우저 (Orca CLI · 페이지 안 JS 만)
 class Missing(Exception):
     pass
 
@@ -127,76 +144,108 @@ class Orca(object):
         return json.loads(m.group(0)) if m else {"ok": False, "raw": (r.stdout + r.stderr)[-400:]}
 
     def eval(self, js):
-        # `orca eval` = Orca 내장 브라우저 탭 안에서 JS 를 돌리는 CLI 다(파이썬 eval 아님). 여기 넘기는 JS 는
-        # 전부 이 파일의 고정 문자열이고, 원고 본문은 json.dumps 로 감싸 데이터로만 들어간다.
+        # `orca eval` = Orca 내장 브라우저 탭 안에서 JS 를 돌리는 CLI 다(파이썬 eval 아님). 넘기는 JS 는 이 파일의
+        # 고정 문자열이고 원고·이미지는 json.dumps 로 감싸 데이터로만 들어간다.
         d = self.run("eval", "--expression", js)
         res = d.get("result", {}).get("result") if d.get("ok") else None
         if isinstance(res, str):
             res = res.encode("utf-16", "surrogatepass").decode("utf-16", "replace")
-            try:                      # CLI 가 'false'/'true'/JSON 문자열로 돌려준다 — 'false' 는 참이 아니다
-                return json.loads(res)
+            try:
+                return json.loads(res)   # 'false'/'true'/JSON 문자열 — 'false' 는 참이 아니다
             except ValueError:
                 return res
         return res
 
-    def exists(self, css):
-        return bool(self.eval("!!document.querySelector(%s)" % json.dumps(css)))
+    def url(self):
+        return self.eval("location.href")
 
-    def focus_css(self, css):
-        ok = self.eval("(()=>{const e=document.querySelector(%s); if(!e) return false; e.scrollIntoView(); e.focus(); e.click(); return true;})()" % json.dumps(css))
-        if not ok:
-            raise Missing("요소 없음: %s" % css)
+    def in_frame(self, body_js):
+        return self.eval("(()=>{%s %s})()" % (F, body_js))
+
+    def editor_ready(self):
+        return bool(self.in_frame("return !!d.querySelector('.se-title-text') && !!root;"))
+
+    def dismiss_restore(self):
+        """«작성 중이던 글 불러오기» 류 팝업 → 취소. 복구하지 않는다."""
+        r = self.in_frame("const b=[...d.querySelectorAll('button')].find(x=>(x.innerText||'').trim()==='취소'); if(!b) return 'none'; b.click(); return 'cancelled';")
         time.sleep(STEP_PAUSE)
+        return r
 
-    def click_css(self, css):
-        ok = self.eval("(()=>{const e=document.querySelector(%s); if(!e) return false; e.scrollIntoView(); e.click(); return true;})()" % json.dumps(css))
-        if not ok:
-            raise Missing("요소 없음: %s" % css)
-        time.sleep(STEP_PAUSE)
-
-    def type(self, text):
-        d = self.run("type", "--input", text)
-        if not d.get("ok"):
-            raise Missing("type 실패: %s" % str(d)[:200])
-        time.sleep(STEP_PAUSE)
-
-    def paste_html(self, css, html_text):
-        """붙여넣기 이벤트를 합성해 HTML 을 넣는다 — 사람이 웹에서 복사해 붙이는 것과 같은 경로."""
-        js = ("(()=>{const e=document.querySelector(%s); if(!e) return 'missing'; e.focus();"
-              "const dt=new DataTransfer(); dt.setData('text/html', %s); dt.setData('text/plain', %s);"
-              "e.dispatchEvent(new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true})); return 'ok';})()"
-              ) % (json.dumps(css), json.dumps(html_text), json.dumps(re.sub(r"<[^>]+>", "", html_text)))
-        r = self.eval(js)
+    def set_title(self, text):
+        js = ("const t=d.querySelector('.se-title-text p span')||d.querySelector('.se-title-text p'); if(!t) return 'no-title';"
+              "const r=t.getBoundingClientRect(); const x=r.left+10,y=r.top+r.height/2;"
+              "for(const ty of ['mousedown','mouseup','click']) t.dispatchEvent(new MouseEvent(ty,{bubbles:true,cancelable:true,clientX:x,clientY:y,button:0}));"
+              "const s=d.getSelection(); const rg=d.createRange(); rg.selectNodeContents(t); rg.collapse(false); s.removeAllRanges(); s.addRange(rg);"
+              "const dt=new DataTransfer(); dt.setData('text/plain', %s); const ev=new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true}); root.dispatchEvent(ev);"
+              "return ev.defaultPrevented ? 'ok' : 'not-handled';") % json.dumps(text)
+        r = self.in_frame(js); time.sleep(STEP_PAUSE)
         if r != "ok":
-            raise Missing("붙여넣기 실패: %s" % r)
-        time.sleep(STEP_PAUSE * 2)
+            raise Missing("제목 붙여넣기 실패: %s" % r)
+        got = (self.in_frame("return d.querySelector('.se-title-text').innerText;") or "").replace("\xa0", " ")   # 에디터가 공백을 nbsp 로 바꾼다
+        if text[:10] not in got:
+            raise Missing("제목이 안 들어감: %r" % got)
 
-    def upload(self, css, files):
-        ok = self.eval("(()=>{const e=document.querySelector(%s); if(!e) return false; e.style.display='block'; e.style.opacity=1; return true;})()" % json.dumps(css))
-        if not ok:
-            raise Missing("파일 입력 없음: %s" % css)
-        snap = json.dumps(self.run("snapshot"), ensure_ascii=False)
-        m = re.search(r"(@e\d+)[^\n]{0,80}(file|파일)", snap, re.I)
-        if not m:
-            raise Missing("snapshot 에서 파일 입력 ref 를 못 찾음")
-        d = self.run("upload", "--element", m.group(1), "--files", ",".join(files), timeout=180)
+    def _cursor_to_end(self):
+        return ("const ps=[...d.querySelectorAll('.se-component.se-text .se-text-paragraph')]; const p=ps[ps.length-1]; if(!p) return 'no-body';"
+                "const r=p.getBoundingClientRect(); for(const ty of ['mousedown','mouseup','click']) p.dispatchEvent(new MouseEvent(ty,{bubbles:true,cancelable:true,clientX:r.left+5,clientY:r.top+r.height/2,button:0}));"
+                "const s=d.getSelection(); const rg=d.createRange(); rg.selectNodeContents(p); rg.collapse(false); s.removeAllRanges(); s.addRange(rg);")
+
+    def paste_html(self, html_text):
+        js = (self._cursor_to_end() +
+              "const dt=new DataTransfer(); dt.setData('text/html', %s); dt.setData('text/plain', %s);"
+              "const ev=new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true}); root.dispatchEvent(ev); return ev.defaultPrevented?'ok':'not-handled';"
+              ) % (json.dumps(html_text), json.dumps(re.sub(r"<[^>]+>", " ", html_text)))
+        r = self.in_frame(js); time.sleep(STEP_PAUSE * 2)
+        if r != "ok":
+            raise Missing("본문 붙여넣기 실패: %s" % r)
+
+    def paste_image(self, path):
+        b = jpeg_b64(path)
+        self.eval("window.__jj=''")
+        for i in range(0, len(b), CHUNK):
+            self.eval("(()=>{window.__jj+=%s; return 1;})()" % json.dumps(b[i:i + CHUNK]))
+        got = self.eval("window.__jj.length")
+        if got != len(b):
+            raise Missing("이미지 전송 길이 불일치 %s≠%d" % (got, len(b)))
+        before = self.in_frame("return d.querySelectorAll('.se-component.se-image').length;") or 0
+        js = (self._cursor_to_end() +
+              "const bin=atob(window.__jj); const arr=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);"
+              "const file=new File([arr], %s, {type:'image/jpeg'}); const dt=new DataTransfer(); dt.items.add(file);"
+              "const ev=new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true}); root.dispatchEvent(ev); window.__jj=''; return ev.defaultPrevented?'ok':'not-handled';"
+              ) % json.dumps(os.path.basename(path).rsplit(".", 1)[0] + ".jpg")
+        r = self.in_frame(js)
+        if r != "ok":
+            raise Missing("이미지 붙여넣기 실패: %s" % r)
+        for _ in range(20):   # 업로드 완료 대기 (최대 30초)
+            time.sleep(1.5)
+            n = self.in_frame("return [...d.querySelectorAll('.se-component.se-image img')].filter(i=>/pstatic|blogfiles/.test(i.src)).length;") or 0
+            if n > before:
+                return
+        raise Missing("이미지 업로드가 30초 안에 안 끝남: %s" % os.path.basename(path))
+
+    def click_named_button(self, name):
+        snap = self.run("snapshot")
+        refs = (snap.get("result") or {}).get("refs") or {}
+        ref = next((k for k, v in refs.items() if v.get("role") == "button" and (v.get("name") or "").strip() == name), None)
+        if not ref:
+            raise Missing("스냅샷에 «%s» 버튼 없음" % name)
+        d = self.run("click", "--element", "@" + ref)
         if not d.get("ok"):
-            raise Missing("upload 실패: %s" % str(d)[:200])
-        time.sleep(STEP_PAUSE * 3)
+            raise Missing("클릭 실패 «%s»: %s" % (name, str(d)[:200]))
+        time.sleep(STEP_PAUSE * 2)
 
     def screenshot(self, path):
         d = self.run("screenshot")
         try:
-            b64 = d["result"].get("data") or d["result"].get("base64")
+            b64 = d["result"].get("data")
             if b64:
-                import base64
                 io.open(path, "wb").write(base64.b64decode(b64)); return path
         except Exception:
             pass
         return None
 
-    def url(self):
-        return self.eval("location.href")
+    def state(self):
+        return self.in_frame("return JSON.stringify({title:(d.querySelector('.se-title-text')||{}).innerText||'', comps:[...d.querySelectorAll('.se-component')].map(e=>e.className.toString().replace('se-component ','').split(' ')[0]), chars:(d.querySelector('.se-components-wrap')||{}).innerText?d.querySelector('.se-components-wrap').innerText.length:0});")
 
 
 def find_page(blog):
@@ -210,6 +259,16 @@ def find_page(blog):
     return d.get("browserPageId") or d.get("tab", {}).get("browserPageId")
 
 
+def open_editor(o, blog, log):
+    o.run("goto", "--url", WRITE_URL.format(blog=blog)); time.sleep(7)
+    if "nid.naver.com" in (o.url() or ""):
+        log("STATUS: FAIL login-required (Orca 탭에서 네이버에 로그인한 뒤 다시)"); return False
+    if not o.editor_ready():
+        log("STATUS: FAIL editor-not-ready (%s)" % o.url()); return False
+    log("restore popup: %s" % o.dismiss_restore())
+    return True
+
+
 # ---------------------------------------------------------------- 실행
 def run(stem, blog, log):
     p, meta, body = read_post(stem)
@@ -219,42 +278,50 @@ def run(stem, blog, log):
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     if "STATUS: OK" not in (g.stdout or ""):
         log((g.stdout or "")[-600:]); log("STATUS: FAIL blogcheck"); return 1
-    title, body_html, tags, images = parse_blocks(body)
+    title, chunks, tags, images = parse_blocks(body)
     files = [resolve_image(i["path"]) for i in images]
     missing = [f for f in files if not os.path.exists(f)]
     if missing:
         log("STATUS: FAIL image-missing %s" % missing[0]); return 1
     os.makedirs(SHOT_DIR, exist_ok=True)
+    o = Orca(find_page(blog))
+    if not open_editor(o, blog, log):
+        return 1
     try:
-        o = Orca(find_page(blog))
-        o.run("goto", "--url", WRITE_URL.format(blog=blog)); time.sleep(6)
-        if o.exists(SEL["login_hint"]) or "nid.naver.com" in (o.url() or ""):
-            log("STATUS: FAIL login-required (Orca 탭에서 네이버에 로그인한 뒤 다시)"); return 1
-        o.run("wait", "--selector", SEL["editor_ready"], timeout=60)
-        o.focus_css(SEL["title"]); o.type(title)
-        o.focus_css(SEL["body"]); o.paste_html(SEL["body"], body_html)
-        if files:
-            o.upload(SEL["file_input"], files)
+        o.set_title(title); log("title ok")
+        img_i = 0
+        for k, ch in enumerate(chunks):
+            o.paste_html(ch)
+            # 요약(0) 뒤엔 표지, 그 뒤 Q 절마다 하나씩 — 남은 그림이 없으면 건너뛴다
+            if k == 0 or (0 < k < len(chunks) - 3):
+                if img_i < len(files):
+                    o.paste_image(files[img_i]); log("image %d/%d: %s" % (img_i + 1, len(files), os.path.basename(files[img_i]))); img_i += 1
+            log("chunk %d/%d ok" % (k + 1, len(chunks)))
+        while img_i < len(files):     # 남은 그림은 끝에
+            o.paste_image(files[img_i]); log("image %d/%d (끝): %s" % (img_i + 1, len(files), os.path.basename(files[img_i]))); img_i += 1
+        st = o.state()
+        log("state: %s" % st)
+        o.click_named_button("저장")
         shot = o.screenshot(os.path.join(SHOT_DIR, "%s_filled.png" % stem))
-        log("filled: title=%r html=%d자 images=%d shot=%s" % (title, len(body_html), len(files), shot))
-        o.click_css(SEL["save_btn"])
-        log("임시저장 클릭. 태그는 발행 창에서 JJ 가 붙인다: %s" % " ".join("#" + t for t in tags))
+        log("saved (임시글). shot=%s" % shot)
+        log("태그는 발행 창에서 JJ 가 붙인다: %s" % " ".join("#" + t for t in tags))
         log("STATUS: OK (임시저장 — 발행은 JJ)"); return 0
     except Missing as e:
-        log("요소 못 찾음 — 아무것도 누르지 않고 멈춘다: %s" % e)
-        log("STATUS: FAIL selector — `--probe` 로 화면을 덤프해 SEL 을 맞춘다"); return 1
+        o.screenshot(os.path.join(SHOT_DIR, "%s_failed.png" % stem))
+        log("멈춤 — 더 누르지 않는다: %s" % e)
+        log("STATUS: FAIL %s" % str(e)[:40]); return 1
 
 
 def probe(blog, log):
     o = Orca(find_page(blog))
-    o.run("goto", "--url", WRITE_URL.format(blog=blog)); time.sleep(6)
+    o.run("goto", "--url", WRITE_URL.format(blog=blog)); time.sleep(7)
     log("url: %s" % o.url())
-    for k, css in SEL.items():
-        log("%-13s %-75s %s" % (k, css, "있음" if o.exists(css) else "없음"))
+    log("editor_ready: %s" % o.editor_ready())
+    log("state: %s" % o.state())
     os.makedirs(SHOT_DIR, exist_ok=True)
-    out = os.path.join(SHOT_DIR, "probe_snapshot.json")
-    io.open(out, "w", encoding="utf-8").write(json.dumps(o.run("snapshot"), ensure_ascii=False, indent=1))
-    log("snapshot -> %s" % out)
+    snap = o.run("snapshot")
+    refs = (snap.get("result") or {}).get("refs") or {}
+    log("buttons: %s" % ", ".join(sorted(v.get("name", "") for v in refs.values() if v.get("role") == "button")[:30]))
     log("screenshot -> %s" % o.screenshot(os.path.join(SHOT_DIR, "probe.png")))
     return 0
 
@@ -266,24 +333,25 @@ def self_test():
     root = tempfile.mkdtemp(prefix="naverdraft_")
     BLOG_DIR = os.path.join(root, "blog"); os.makedirs(BLOG_DIR)
     md = ("---\nkind: daily\nstatus: ready\n---\n\n# 제목 하나 (2026년 9월 8일)\n\n## 요약\n\n한 문장이에요.\n\n## 본문\n\n"
-          "### Q. 왜?\n\n**굵은 첫 문장이에요.** 둘째 <문장>. (출처: a.com · 2026-09-08)\n\n| 소식 | 날짜 |\n|---|---|\n| 하나 | 9/8 |\n\n"
+          "### Q. 왜?\n\n**굵은 첫 문장이에요.** 둘째 <문장>. (출처: a.com · 2026-09-08)\n\n### Q. 둘?\n\n문단.\n\n| 소식 | 날짜 |\n|---|---|\n| 하나 | 9/8 |\n\n"
           "## FAQ\n\n**Q. 하나?**\n답.\n\n## 토망치랩 한마디\n\n판단이에요.\n\n## 관련글\n\n☞ 카드 — x\n\n## 이미지\n\n"
           "1. `workshop\\a.png` — 표지 (출처: 토망치랩)\n\n## 태그\n\n#AI뉴스 #토망치랩\n")
     io.open(os.path.join(BLOG_DIR, "t.md"), "w", encoding="utf-8").write(md)
     p, meta, body = read_post("t")
-    title, h, tags, images = parse_blocks(body)
+    title, chunks, tags, images = parse_blocks(body)
+    src = io.open(__file__, encoding="utf-8").read()
     cases = [
         ("제목", title == "제목 하나 (2026년 9월 8일)"),
-        ("소제목 h3 · 굵게 strong · 표 table · 절 제목 h2", "<h3>Q. 왜?</h3>" in h and "<strong>굵은 첫 문장이에요.</strong>" in h and "<table><tr><th>소식</th>" in h and "<h2>토망치랩 한마디</h2>" in h),
-        ("HTML 이스케이프", "&lt;문장&gt;" in h and "<문장>" not in h),
-        ("태그·이미지는 따로", tags == ["AI뉴스", "토망치랩"] and images[0]["path"] == "workshop\\a.png" and resolve_image(images[0]["path"]).startswith(WORKSHOP_ROOT)),
-        ("이미지·태그 절은 본문 HTML 에 안 들어간다", "a.png" not in h and "#AI뉴스" not in h),
-        # 클릭은 SEL 을 거쳐서만 일어난다 — 발행·확인·태그 선택자가 없으면 누를 길이 없다
-        ("발행 동작이 코드에 없다 (발행·확인·태그 선택자 0건)", not any(k in SEL for k in ("publish_open", "publish_confirm", "tag_input"))
-         and set(SEL) == {"editor_ready", "title", "body", "file_input", "save_btn", "login_hint"}),
+        ("청크 = 요약 · Q 둘 · FAQ · 한마디 · 관련글 = 6", len(chunks) == 6 and chunks[1].startswith("<h3>Q. 왜?</h3>") and chunks[2].startswith("<h3>Q. 둘?</h3>")),
+        ("굵게 strong · 표 table · 이스케이프", "<strong>굵은 첫 문장이에요.</strong>" in chunks[1] and "<table><tr><th>소식</th>" in chunks[2] and "&lt;문장&gt;" in chunks[1]),
+        ("절 제목 h2", chunks[3].startswith("<h2>FAQ</h2>") and chunks[4].startswith("<h2>토망치랩 한마디</h2>")),
+        ("태그·이미지는 따로, 본문에 안 들어간다", tags == ["AI뉴스", "토망치랩"] and images[0]["path"] == "workshop\\a.png" and not any("a.png" in c or "#AI뉴스" in c for c in chunks)),
+        # 검사 문자열은 이어 붙여 만든다 — 이 줄 자체가 검사에 걸리지 않게
+        ("OS 키 입력 경로 없음 (run 에 type·keypress 호출 0건)", ("run(\"" + "type\"") not in src and ("run(\"" + "keypress\"") not in src),
+        ("발행 버튼을 누르는 코드 없음", ("click_named_button(\"" + "발행\")") not in src),
     ]
-    for n, v in cases:
-        print(("PASS " if v else "FAIL ") + n)
+    for n_, v in cases:
+        print(("PASS " if v else "FAIL ") + n_)
     ok = all(v for _, v in cases)
     print("STATUS: " + ("OK" if ok else "FAIL selftest"))
     return 0 if ok else 1
