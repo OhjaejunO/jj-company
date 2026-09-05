@@ -4,25 +4,53 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>JJ Office</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  :root { --bg:#0F172A; --fg:#F8FAFC; --muted:#94A3B8; --muted-2:#64748B; --border:rgba(255,255,255,0.12); --accent:#22C55E; --amber:#F59E0B; --red:#EF4444;
-          --font:"Inter","Pretendard","Malgun Gothic",system-ui,sans-serif; --mono:"JetBrains Mono",Consolas,monospace; }
+  :root { --bg:#0b1020; --fg:#F8FAFC; --muted:#94A3B8; --muted-2:#64748B; --border:rgba(255,255,255,0.12); --accent:#22C55E; --amber:#F59E0B; --red:#EF4444; --blue:#60A5FA;
+          --font:"Inter","Pretendard","Malgun Gothic",system-ui,sans-serif; --mono:"JetBrains Mono",Consolas,monospace; --panel:rgba(255,255,255,0.04); }
   * { box-sizing:border-box; } html { color-scheme:dark; }
-  body { margin:0; min-height:100dvh; background:#0b1020; color:var(--fg); font:14px/1.5 var(--font); }
-  header { position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:12px; padding:10px 18px; border-bottom:1px solid var(--border); background:rgba(11,16,32,0.8); backdrop-filter:blur(14px); }
-  header .brand { font-weight:700; display:flex; align-items:center; gap:8px; white-space:nowrap; }
-  header .brand .dot { width:9px; height:9px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 4px rgba(34,197,94,0.18); }
-  header a, header button.lnk { color:var(--muted); font:500 12px var(--mono); text-decoration:none; padding:6px 10px; border:1px solid var(--border); border-radius:999px; white-space:nowrap; background:none; cursor:pointer; }
-  header a:hover, header button.lnk:hover { color:var(--fg); }
-  header .at { margin-left:auto; color:var(--muted); font:500 12px var(--mono); }
-  .chip { display:inline-flex; align-items:center; gap:6px; height:26px; padding:0 10px; border-radius:999px; font:500 12px/1 var(--mono); color:var(--muted); background:rgba(255,255,255,0.06); border:1px solid var(--border); }
-  .chip.ok { color:#86EFAC; background:rgba(34,197,94,0.12); border-color:rgba(34,197,94,0.28); }
-  .chip.warn { color:#FCD34D; background:rgba(245,158,11,0.12); border-color:rgba(245,158,11,0.3); }
-
-  /* ── 장면: 배경 한 장 + 절대 좌표 ── */
-  .stage-wrap { display:flex; justify-content:center; padding:8px; }
-  .stage { position:relative; width:min(100%, 2000px); aspect-ratio:2752/1536; border-radius:18px; overflow:hidden; background:#0b1020 url(/assets/office_bg.jpg) center/cover no-repeat; box-shadow:0 40px 80px -40px rgba(0,0,0,.9); user-select:none; }
+  body { margin:0; min-height:100dvh; background:var(--bg); color:var(--fg); font:14px/1.5 var(--font); }
+  a { color:inherit; }
+  /* ── 상단 바 ── */
+  header { position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:10px; padding:8px 16px; border-bottom:1px solid var(--border); background:rgba(11,16,32,0.85); backdrop-filter:blur(14px); font:500 12px var(--mono); }
+  header .brand { font:700 15px var(--font); display:flex; align-items:center; gap:8px; white-space:nowrap; }
+  header .live { display:inline-flex; align-items:center; gap:6px; padding:3px 8px; border-radius:6px; background:rgba(239,68,68,.16); color:#FCA5A5; font-weight:600; }
+  header .live i { width:7px; height:7px; border-radius:50%; background:var(--red); animation:blink 1.2s infinite; }
+  @keyframes blink { 50% { opacity:.25; } }
+  header .kv { color:var(--muted); white-space:nowrap; } header .kv b { color:var(--fg); font-weight:600; }
+  header a.lnk, header button.lnk { color:var(--muted); font:500 12px var(--mono); text-decoration:none; padding:5px 9px; border:1px solid var(--border); border-radius:999px; white-space:nowrap; background:none; cursor:pointer; }
+  header .clock { margin-left:auto; font:600 16px var(--mono); letter-spacing:.04em; }
+  @media (max-width:900px) { header { flex-wrap:wrap; } header .clock { margin-left:0; } }
+  /* ── 수치 띠 ── */
+  .ticker { display:flex; flex-wrap:wrap; gap:6px 22px; padding:8px 16px; border-bottom:1px solid var(--border); background:rgba(255,255,255,0.025); font:500 12px var(--mono); color:var(--muted); }
+  .ticker b { color:var(--fg); font-size:14px; margin:0 4px 0 6px; } .up { color:#86EFAC; } .down { color:#FCA5A5; } .flat { color:var(--muted-2); }
+  /* ── 본문 배치: 무대 + 오른쪽 패널 ── */
+  .wrap { display:grid; grid-template-columns: minmax(0, 1fr) 340px; gap:12px; padding:12px; max-width:2200px; margin:0 auto; }
+  @media (max-width:1100px) { .wrap { grid-template-columns:1fr; } }
+  .stage { position:relative; width:100%; aspect-ratio:2752/1536; border-radius:18px; overflow:hidden; background:#0b1020 url(/assets/office_bg.jpg) center/cover no-repeat; box-shadow:0 40px 80px -40px rgba(0,0,0,.9); user-select:none; }
+  .side { display:flex; flex-direction:column; gap:12px; min-width:0; }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:12px 12px 10px; }
+  .panel h3 { display:flex; align-items:center; gap:8px; margin:0 0 8px; font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--muted-2); }
+  .panel h3 .cnt { margin-left:auto; letter-spacing:0; color:var(--muted); }
+  .team .row { display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid rgba(255,255,255,.05); font-size:12.5px; }
+  .team .row:last-child { border:0; }
+  .team .st { width:8px; height:8px; border-radius:50%; background:var(--muted-2); flex:none; }
+  .team .st.running { background:var(--accent); box-shadow:0 0 0 3px rgba(34,197,94,.22); } .team .st.waiting { background:var(--amber); } .team .st.idle { background:#3b82f6; } .team .st.sleep { background:var(--muted-2); opacity:.5; }
+  .team .name { font-weight:600; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .team .note { margin-left:auto; color:var(--muted); font:400 11px var(--mono); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:55%; }
+  .feed { font:400 11.5px/1.5 var(--mono); color:var(--muted); max-height:230px; overflow:auto; }
+  .feed div { padding:2px 0; border-bottom:1px solid rgba(255,255,255,.04); } .feed b { color:var(--fg); font-weight:600; } .feed .t { color:var(--muted-2); margin-right:6px; }
+  .queue .item { display:grid; grid-template-columns: 1fr auto; gap:2px 8px; padding:7px 0; border-bottom:1px solid rgba(255,255,255,.05); font-size:12px; }
+  .queue .item:last-child { border:0; }
+  .queue .what { font-weight:600; } .queue .detail { grid-column:1 / -1; color:var(--muted); font:400 11px var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .queue .rev { font:500 10.5px var(--mono); color:#BFDBFE; background:rgba(96,165,250,.14); border-radius:6px; padding:2px 6px; white-space:nowrap; align-self:start; }
+  .queue .item.fail .rev, .queue .item.wait .rev { color:#FCD34D; background:rgba(245,158,11,.14); }
+  .queue .empty { color:var(--muted-2); font:400 12px var(--mono); padding:6px 0; }
+  .bars { display:flex; align-items:flex-end; gap:6px; height:70px; padding-top:4px; }
+  .bars .col { flex:1; display:flex; flex-direction:column; justify-content:flex-end; gap:2px; height:100%; }
+  .bars .seg { border-radius:3px; } .bars .ok { background:var(--accent); } .bars .fail { background:var(--red); } .bars .none { background:rgba(255,255,255,.08); }
+  .bars-x { display:flex; gap:6px; font:400 10px var(--mono); color:var(--muted-2); } .bars-x span { flex:1; text-align:center; }
+  /* ── 무대 안 ── */
   .unit { position:absolute; transform:translate(-50%, -100%); width:calc(var(--s, 1) * 10.5%); cursor:default; transition: left .4s, top .4s; }
   .unit.click { cursor:pointer; }
   .unit img.fig { width:100%; display:block; filter: drop-shadow(0 10px 10px rgba(0,0,0,.5)); transition: filter .3s, opacity .3s; }
@@ -30,62 +58,96 @@
   .unit.sleep img.fig { filter: drop-shadow(0 8px 8px rgba(0,0,0,.4)) saturate(.3) brightness(.62); opacity:.8; }
   .unit.away img.fig { opacity:0; }
   .unit img.empty { position:absolute; left:0; top:0; width:100%; display:block; opacity:0; filter: drop-shadow(0 10px 10px rgba(0,0,0,.5)); transition: opacity .3s; pointer-events:none; }
-  .unit.away img.empty { opacity:1; }
-  .unit.away .bubble { display:none; }
-  .jj img.boss { width:100%; display:block; filter: drop-shadow(0 10px 10px rgba(0,0,0,.5)); }
-  .jj { width:8.2%; pointer-events:none; transform:translate(-50%, -100%); }
-  .deskfg { position:absolute; left:45.2%; top:42.8%; width:9.6%; z-index:47; pointer-events:none; }
-  .deskfg img { width:100%; display:block; }
-  .jj .below { position:absolute; left:50%; top:104%; transform:translateX(-50%); width:260px; z-index:48; }
-  .jj .plate { margin-top:0; }
+  .unit.away img.empty { opacity:1; } .unit.away .bubble { display:none; }
   .unit .glow { position:absolute; left:50%; bottom:2%; width:60%; height:8%; transform:translateX(-50%); border-radius:50%; pointer-events:none; }
   .unit.running .glow { background:radial-gradient(closest-side, rgba(34,197,94,.6), transparent); animation:glow 1.6s ease-in-out infinite; }
   .unit.waiting .glow { background:radial-gradient(closest-side, rgba(245,158,11,.75), transparent); animation:glow 1s ease-in-out infinite; }
   @keyframes glow { 50% { opacity:.3; } }
+  .role { position:absolute; left:50%; top:-8%; transform:translate(-50%, -100%); white-space:nowrap; font:600 9.5px var(--mono); letter-spacing:.06em; text-transform:uppercase; padding:2px 6px; border-radius:5px; background:rgba(11,16,32,.85); border:1px solid rgba(255,255,255,.16); color:var(--muted); }
+  .role.a { color:#86EFAC; border-color:rgba(34,197,94,.35); } .role.b { color:#FCD34D; border-color:rgba(245,158,11,.35); }
   .tag { position:absolute; left:50%; bottom:-4px; transform:translate(-50%, 100%); white-space:nowrap; display:flex; align-items:center; gap:5px; padding:3px 8px; border-radius:8px; background:rgba(11,16,32,.82); border:1px solid rgba(255,255,255,.14); backdrop-filter:blur(8px); font:600 11px/1.2 var(--font); }
-  .tag .st { width:7px; height:7px; border-radius:50%; background:var(--muted-2); }
-  .tag .st.run { background:var(--accent); } .tag .st.wait { background:var(--amber); }
+  .tag .st { width:7px; height:7px; border-radius:50%; background:var(--muted-2); } .tag .st.run { background:var(--accent); } .tag .st.wait { background:var(--amber); }
   .tag small { color:var(--muted); font:400 10px var(--mono); }
   .bubble { position:absolute; left:60%; top:-6%; max-width:150%; padding:4px 8px; border-radius:10px 10px 10px 2px; background:rgba(255,255,255,.94); color:#0F172A; font:600 10.5px/1.3 var(--font); box-shadow:0 8px 20px -8px rgba(0,0,0,.6); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; pointer-events:none; }
   .bubble.wait { background:#FDE68A; } .bubble.zz { background:rgba(148,163,184,.3); color:#E2E8F0; font-family:var(--mono); }
-  .jj { position:absolute; transform:translate(-50%, -100%); text-align:center; pointer-events:none; z-index:46; }
+  .jj { position:absolute; width:8.2%; transform:translate(-50%, -100%); text-align:center; pointer-events:none; z-index:46; }
+  .jj img.boss { width:100%; display:block; filter: drop-shadow(0 10px 10px rgba(0,0,0,.5)); }
+  .jj .below { position:absolute; left:50%; top:104%; transform:translateX(-50%); width:260px; z-index:48; }
   .jj .plate { display:inline-block; padding:5px 12px; border-radius:10px; background:rgba(11,16,32,.85); border:1px solid rgba(255,255,255,.18); font:700 12px var(--font); }
   .jj .plate small { display:block; color:var(--muted); font:400 10px var(--mono); }
   .jj .inbox { display:inline-flex; gap:4px; margin-top:4px; flex-wrap:wrap; justify-content:center; max-width:220px; }
   .jj .inbox span { font-size:14px; filter: drop-shadow(0 2px 2px rgba(0,0,0,.6)); animation: pop .4s cubic-bezier(.2,.8,.2,1); }
   @keyframes pop { from { transform:scale(.2); opacity:0; } }
-  /* 걷는 캐릭터 */
-  .walker { position:absolute; transform:translate(-50%, -100%); width:calc(var(--s, 1) * 6.5%); pointer-events:none; z-index:10; transition: left var(--d, 2.4s) cubic-bezier(.45,.05,.55,.95), top var(--d, 2.4s) cubic-bezier(.45,.05,.55,.95); }
+  .deskfg { position:absolute; left:45.2%; top:42.8%; width:9.6%; z-index:47; pointer-events:none; } .deskfg img { width:100%; display:block; }
+  .walker { position:absolute; transform:translate(-50%, -100%); width:calc(var(--s, 1) * 6.5%); pointer-events:none; z-index:50; transition: left var(--d, 2.4s) cubic-bezier(.45,.05,.55,.95), top var(--d, 2.4s) cubic-bezier(.45,.05,.55,.95); }
   .walker img { width:100%; display:block; filter: drop-shadow(0 8px 8px rgba(0,0,0,.5)); animation: bob .42s ease-in-out infinite; transform-origin:50% 100%; }
   @keyframes bob { 0%,100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-6%) rotate(2deg); } }
   .walker .doc { position:absolute; right:-18%; top:20%; padding:3px 6px; border-radius:8px; background:#fff; color:#0F172A; font:700 10px var(--mono); box-shadow:0 6px 14px -6px rgba(0,0,0,.7); white-space:nowrap; }
-  @media (prefers-reduced-motion: reduce) { .walker img { animation:none; } .unit .glow { animation:none !important; } }
-  .log { max-width:1600px; margin:0 auto; padding:0 12px 24px; color:var(--muted); font:400 12px/1.6 var(--mono); }
-  .log b { color:var(--fg); font-weight:600; }
+  @media (prefers-reduced-motion: reduce) { .walker img { animation:none; } .unit .glow { animation:none !important; } header .live i { animation:none; } }
   .edit .unit { outline:1px dashed rgba(255,255,255,.4); cursor:move; }
+  /* ── 아래 절 ── */
+  .below-wrap { max-width:2200px; margin:0 auto; padding:0 12px 40px; display:grid; grid-template-columns:repeat(auto-fit, minmax(420px, 1fr)); gap:12px; }
+  .below-wrap .panel.wide { grid-column:1 / -1; }
+  table.grid { width:100%; border-collapse:collapse; font:400 11.5px var(--mono); }
+  table.grid th, table.grid td { padding:5px 6px; text-align:left; border-bottom:1px solid rgba(255,255,255,.06); white-space:nowrap; }
+  table.grid th { color:var(--muted-2); font-weight:500; }
+  .cell { display:inline-block; width:14px; height:14px; border-radius:4px; vertical-align:middle; background:rgba(255,255,255,.08); }
+  .cell.ok { background:var(--accent); } .cell.fail { background:var(--red); } .cell.running { background:var(--accent); animation:blink 1s infinite; } .cell.nostatus { background:var(--amber); }
+  .wbars { display:flex; align-items:flex-end; gap:8px; height:110px; }
+  .wbars .col { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; gap:4px; font:400 10px var(--mono); color:var(--muted-2); }
+  .wbars .bar { width:100%; border-radius:4px 4px 0 0; background:linear-gradient(180deg, #34d399, #0f766e); }
+  .wbars .v { color:var(--fg); font-weight:600; }
+  .gate { display:flex; gap:10px; flex-wrap:wrap; font:500 12px var(--mono); }
+  .gate .k { padding:8px 12px; border-radius:10px; background:rgba(255,255,255,.05); border:1px solid var(--border); } .gate .k b { display:block; font-size:18px; }
+  iframe.diagram { width:100%; height:640px; border:1px solid var(--border); border-radius:12px; background:#fff; }
   .toast { position:fixed; left:50%; bottom:20px; transform:translate(-50%,12px); padding:10px 14px; border-radius:12px; background:rgba(15,23,42,.9); border:1px solid rgba(255,255,255,.2); opacity:0; transition:opacity .2s, transform .2s; font-size:13px; pointer-events:none; z-index:30; }
   .toast.on { opacity:1; transform:translate(-50%,0); }
-  @media (max-width:640px) { .unit { width:calc(var(--s,1) * 17%); } .tag { font-size:9.5px; } .bubble { display:none; } }
+  @media (max-width:640px) { .unit { width:calc(var(--s,1) * 17%); } .tag { font-size:9.5px; } .bubble, .role { display:none; } }
 </style>
 </head>
 <body>
 <header>
-  <div class="brand"><span class="dot" aria-hidden="true"></span>JJ Office</div>
-  <a href="/">카드 보기</a>
-  <button class="lnk" id="replay" type="button">오늘 전달 다시 보기</button>
-  <span id="stats" role="status" aria-atomic="true"></span>
-  <span class="at" id="at">불러오는 중…</span>
+  <div class="brand">JJ Office</div>
+  <span class="live"><i></i>LIVE</span>
+  <span class="kv" id="k-day"></span>
+  <span class="kv" id="k-state"></span>
+  <a class="lnk" href="/">카드 보기</a>
+  <button class="lnk" id="replay" type="button">전달 다시 보기</button>
+  <a class="lnk" id="daylink" href="?date=yesterday">어제 것 보기</a>
+  <span class="clock" id="clock">--:--</span>
 </header>
-<div class="stage-wrap"><div class="stage" id="stage"></div></div>
-<div class="log" id="log"></div>
+<div class="ticker" id="ticker"></div>
+
+<div class="wrap">
+  <div class="stage" id="stage"></div>
+  <aside class="side">
+    <section class="panel team"><h3>The team <span class="cnt" id="team-cnt"></span></h3><div id="team"></div></section>
+    <section class="panel"><h3>Live feed <span class="cnt" id="feed-cnt"></span></h3><div class="feed" id="feed"></div></section>
+    <section class="panel queue"><h3>Approval queue · JJ 가 할 일 <span class="cnt" id="q-cnt"></span></h3><div id="queue"></div></section>
+    <section class="panel"><h3>Runs · 7일 <span class="cnt" id="runs-cnt"></span></h3><div class="bars" id="bars"></div><div class="bars-x" id="bars-x"></div></section>
+  </aside>
+</div>
+
+<div class="below-wrap">
+  <section class="panel"><h3>회차 격자 · 작업 × 날짜</h3><div style="overflow:auto"><table class="grid" id="runs-grid"></table></div></section>
+  <section class="panel"><h3>발행 추이 · 주별 게시물 <span class="cnt" id="pub-cnt"></span></h3><div class="wbars" id="wbars"></div></section>
+  <section class="panel"><h3>최근 발행</h3><table class="grid" id="recent"></table></section>
+  <section class="panel"><h3>최근 게이트 회차 <span class="cnt" id="gate-ep"></span></h3><div class="gate" id="gate"></div></section>
+  <section class="panel"><h3>오늘 리포트 <span class="cnt" id="rep-cnt"></span></h3><div style="overflow:auto;max-height:260px"><table class="grid" id="reports"></table></div></section>
+  <section class="panel"><h3>headroom · 토큰 절감 (오늘)</h3><div class="gate" id="headroom"></div></section>
+  <section class="panel wide"><h3>회사 구조 도식 · archify (클릭 가능)</h3><iframe class="diagram" src="/diagram" loading="lazy" title="JJ Company OS 회사 구조"></iframe></section>
+</div>
 <div class="toast" id="toast" role="status"></div>
+
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => (s ?? "").toString().replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const POSE = {running: "typing", waiting: "hand", idle: "idle", sleep: "idle"};
-// 책상 자리 — 배경 그림(office_bg.jpg) 위의 % 좌표. `?edit` 로 드래그해 잡고 콘솔에 찍히는 값을 여기 옮긴다.
+const DAY = new URLSearchParams(location.search).get("date") || "";
+const Q = DAY ? "?date=" + encodeURIComponent(DAY) : "";
+const ROLE = {"dev-claude": ["구현·검증", "b"], "dev-codex": ["구현", "b"], "dev-grok": ["실험", "b"], "ops-auditor": ["읽기 감사", "a"], "content-scout": ["소재 제안", "b"], "job-scout": ["공고 발굴", "b"], "cross-verify": ["감리 · 읽기", "a"], "sagun": ["사건 감시", "a"], "gumsu": ["검수", "a"]};
 const SLOTS = {
-  "jj":            {x: 50.0, y: 53.5, s: 1},
+  "jj":            {x: 50.0, y: 41.5, s: 1},
   "dev-grok":      {x: 21.0, y: 52.0, s: 0.72},
   "dev-codex":     {x: 33.0, y: 58.0, s: 0.78},
   "sagun":         {x: 67.0, y: 58.0, s: 0.78},
@@ -96,90 +158,120 @@ const SLOTS = {
   "cross-verify":  {x: 61.0, y: 88.0, s: 1.06},
   "dev-claude":    {x: 74.0, y: 80.0, s: 1.00},
 };
-let fallbackSlot = 0;
-const FALLBACK = [{x: 20, y: 50, s: .9}, {x: 84, y: 82, s: 1}, {x: 44, y: 86, s: 1.1}];
+let fallbackSlot = 0; const FALLBACK = [{x: 20, y: 50, s: .9}, {x: 84, y: 82, s: 1}, {x: 44, y: 86, s: 1.1}];
 const stage = $("#stage"); const units = new Map(); let deskData = new Map();
 function slotOf(id){ if (SLOTS[id]) return SLOTS[id]; SLOTS[id] = FALLBACK[fallbackSlot++ % FALLBACK.length]; return SLOTS[id]; }
 function toast(t){ const e=$("#toast"); e.textContent=t; e.classList.add("on"); clearTimeout(e._t); e._t=setTimeout(()=>e.classList.remove("on"),2000); }
 async function post(url, body){ const r = await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); return r.json(); }
+setInterval(() => { $("#clock").textContent = new Date().toTimeString().slice(0, 5); }, 1000); $("#clock").textContent = new Date().toTimeString().slice(0, 5);
 
 function renderJJ(){
   if ($("#jj")) return;
-  const s = SLOTS.jj; const el = document.createElement("div"); el.className = "jj"; el.id = "jj";
-  el.style.left = s.x + "%"; el.style.top = s.y + "%";
+  const s = SLOTS.jj; const el = document.createElement("div"); el.className = "jj"; el.id = "jj"; el.style.left = s.x + "%"; el.style.top = "53.5%";
   el.innerHTML = `<img class="boss" src="/assets/jj_sit.png" alt="JJ"><div class="below"><div class="plate">JJ<small>대표 · 받은 리포트</small></div><div class="inbox" id="inbox"></div></div>`;
   stage.appendChild(el);
-  const fg = document.createElement("div"); fg.className = "deskfg"; fg.innerHTML = `<img src="/assets/desk_jj.png" alt="">`; stage.appendChild(fg);   // 단상 책상을 캐릭터 앞에 한 번 더 — 뒤에 앉은 것처럼
+  const fg = document.createElement("div"); fg.className = "deskfg"; fg.innerHTML = `<img src="/assets/desk_jj.png" alt="">`; stage.appendChild(fg);
 }
 function upsert(d){
-  const slot = slotOf(d.id);
-  let el = units.get(d.id);
-  if (!el) {
-    el = document.createElement("div"); el.dataset.id = d.id; units.set(d.id, el); stage.appendChild(el);
-    el.addEventListener("click", () => { if (el.dataset.h && !stage.classList.contains("edit")) post("/api/switch", {handle: el.dataset.h}).then(r => toast(r.ok ? "Orca 탭으로 이동했습니다" : "이동 실패")); });
-  }
-  const away = el.classList.contains("away");      // 걷는 중이면 새로 그려도 자리는 비운 채로 둔다
+  const slot = slotOf(d.id); let el = units.get(d.id);
+  if (!el) { el = document.createElement("div"); el.dataset.id = d.id; units.set(d.id, el); stage.appendChild(el);
+    el.addEventListener("click", () => { if (el.dataset.h && !stage.classList.contains("edit")) post("/api/switch", {handle: el.dataset.h}).then(r => toast(r.ok ? "Orca 탭으로 이동했습니다" : "이동 실패")); }); }
+  const away = el.classList.contains("away");
   el.className = `unit ${d.state} ${d.handle ? "click" : ""} ${away ? "away" : ""}`; el.dataset.h = d.handle || "";
   el.style.setProperty("--s", slot.s); el.style.left = slot.x + "%"; el.style.top = slot.y + "%"; el.style.zIndex = Math.round(slot.y);
-  const bubble = d.state === "waiting" ? `<div class="bubble wait">${esc(d.note || "확인 필요")}</div>`
-    : d.state === "running" && d.prompt ? `<div class="bubble">${esc(d.prompt.slice(0, 60))}</div>`
-    : d.state === "sleep" ? `<div class="bubble zz">z z z</div>` : "";
-  el.innerHTML = `<img class="fig" src="/assets/${esc(d.agent)}_${POSE[d.state] || "idle"}.png" alt="${esc(d.name)}"><img class="empty" src="/assets/desk_empty.png" alt=""><div class="glow"></div>${bubble}
+  const bubble = d.state === "waiting" ? `<div class="bubble wait">${esc(d.note || "확인 필요")}</div>` : d.state === "running" && d.prompt ? `<div class="bubble">${esc(d.prompt.slice(0, 60))}</div>` : d.state === "sleep" ? `<div class="bubble zz">z z z</div>` : "";
+  const role = ROLE[d.id] ? `<div class="role ${ROLE[d.id][1]}">${esc(ROLE[d.id][0])} · ${ROLE[d.id][1].toUpperCase()}</div>` : "";
+  el.innerHTML = `${role}<img class="fig" src="/assets/${esc(d.agent)}_${POSE[d.state] || "idle"}.png" alt="${esc(d.name)}"><img class="empty" src="/assets/desk_empty.png" alt=""><div class="glow"></div>${bubble}
     <div class="tag"><span class="st ${d.state === "waiting" ? "wait" : d.state === "running" ? "run" : ""}"></span>${esc(d.name)}<small>${esc((d.note || d.role || "").slice(0, 26))}</small></div>`;
   el.title = `${d.name} · ${d.role}\n${d.note || ""}${d.handle ? "\n클릭: Orca 탭으로" : ""}`;
 }
-
-// ── 전달 애니메이션: from 자리에서 to 자리로 걸어가 서류를 건네고 돌아온다 ──
+// 전달 애니메이션
 const queue = []; let walking = false; const seen = new Set();
+const wait = ms => new Promise(r => setTimeout(r, ms));
 function walk(ev){ queue.push(ev); pump(); }
 async function pump(){
   if (walking || !queue.length) return; walking = true;
-  const ev = queue.shift();
-  const from = slotOf(ev.from), to = slotOf(ev.to); const d = deskData.get(ev.from);
+  const ev = queue.shift(); const from = slotOf(ev.from), to = slotOf(ev.to); const d = deskData.get(ev.from);
   const agent = d ? d.agent : "claude"; const unit = units.get(ev.from);
-  const w = document.createElement("div"); w.className = "walker"; w.style.setProperty("--s", from.s);
-  w.style.left = from.x + "%"; w.style.top = from.y + "%"; w.style.zIndex = 50;
+  const w = document.createElement("div"); w.className = "walker"; w.style.setProperty("--s", from.s); w.style.left = from.x + "%"; w.style.top = from.y + "%";
   w.innerHTML = `<img src="/assets/${esc(agent)}_stand.png" alt=""><div class="doc">📄 ${esc(ev.label)}</div>`;
   stage.appendChild(w); if (unit) unit.classList.add("away");
-  logLine(`<b>${esc(d ? d.name : ev.from)}</b> → ${esc(ev.to === "jj" ? "JJ" : (deskData.get(ev.to)?.name || ev.to))} · ${esc(ev.label)} · ${new Date(ev.ts * 1000).toTimeString().slice(0,5)}`);
+  feedLine(`<b>${esc(d ? d.name : ev.from)}</b> → ${esc(ev.to === "jj" ? "JJ" : (deskData.get(ev.to)?.name || ev.to))} · ${esc(ev.label)}`, new Date(ev.ts * 1000));
   await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
   const dist = Math.hypot(to.x - from.x, (to.y - from.y) * 0.56); const dur = Math.max(1.4, Math.min(3.2, dist / 18));
   w.style.setProperty("--d", dur + "s"); w.style.left = (to.x + (ev.to === "jj" ? -4 : -5)) + "%"; w.style.top = (to.y + (ev.to === "jj" ? 8 : 1)) + "%";
-  await wait(dur * 1000 + 100);
-  w.querySelector(".doc")?.remove();
+  await wait(dur * 1000 + 100); w.querySelector(".doc")?.remove();
   if (ev.to === "jj") { const s = document.createElement("span"); s.textContent = "📄"; s.title = ev.label; $("#inbox")?.appendChild(s); }
-  await wait(700);
-  w.style.left = from.x + "%"; w.style.top = from.y + "%";
-  await wait(dur * 1000 + 100);
-  w.remove(); if (unit) unit.classList.remove("away");
-  walking = false; pump();
+  await wait(700); w.style.left = from.x + "%"; w.style.top = from.y + "%"; await wait(dur * 1000 + 100);
+  w.remove(); if (unit) unit.classList.remove("away"); walking = false; pump();
 }
-const wait = ms => new Promise(r => setTimeout(r, ms));
-function logLine(html){ const l = $("#log"); l.insertAdjacentHTML("afterbegin", `<div>${html}</div>`); while (l.children.length > 12) l.lastChild.remove(); }
+const feedSeen = new Set();
+function feedLine(html, when){ const l = $("#feed"); const t = when ? when.toTimeString().slice(0,5) : new Date().toTimeString().slice(0,5); l.insertAdjacentHTML("afterbegin", `<div><span class="t">${t}</span>${html}</div>`); while (l.children.length > 40) l.lastChild.remove(); $("#feed-cnt").textContent = l.children.length; }
 
-let busy = false, firstEvents = true;
+// ── 계기판 ──
+function renderTicker(items){
+  $("#ticker").innerHTML = items.map(i => { const d = i.delta; const cls = d == null ? "flat" : d > 0 ? "up" : d < 0 ? "down" : "flat"; const arrow = d == null ? "" : d > 0 ? `▲${d}` : d < 0 ? `▼${-d}` : "·";
+    return `<span title="${esc(i.prev_date ? "어제(" + i.prev_date + ") 대비" : "비교값 없음")}">${esc(i.label)}<b>${i.value ?? "—"}</b><span class="${cls}">${arrow}</span></span>`; }).join("");
+}
+function renderTeam(desks){
+  $("#team").innerHTML = desks.map(d => `<div class="row"><span class="st ${d.state}"></span><span class="name">${esc(d.name)}</span><span class="note">${esc(d.note || "")}</span></div>`).join("");
+  $("#team-cnt").textContent = `${desks.filter(d => d.state === "running").length} 작업 중 · ${desks.filter(d => d.state === "sleep").length} 출근 전`;
+}
+function renderQueue(q){
+  $("#q-cnt").textContent = q.length;
+  $("#queue").innerHTML = q.length ? q.map(i => `<div class="item ${esc(i.kind)}"><span class="what">${esc(i.what)}</span><span class="rev" title="되돌림 비용 (정관 §0)">${esc(i.reversible)}</span><span class="detail">${esc(i.who)} · ${esc(i.detail)}</span></div>`).join("") : `<div class="empty">기다리는 승인이 없습니다.</div>`;
+}
+function renderBars(r7){
+  const n = 5;
+  $("#bars").innerHTML = r7.per_day.map(d => `<div class="col" title="${d.date} · OK ${d.ok} · FAIL ${d.fail} · 없음 ${d.none}">${["none","fail","ok"].map(k => d[k] ? `<div class="seg ${k}" style="height:${(d[k]/n)*100}%"></div>` : "").join("")}</div>`).join("");
+  $("#bars-x").innerHTML = r7.per_day.map(d => `<span>${d.date.slice(3)}</span>`).join("");
+  $("#runs-cnt").textContent = `오늘 OK ${r7.per_day[r7.per_day.length-1].ok}/${n}`;
+  $("#runs-grid").innerHTML = `<tr><th>작업</th>${r7.dates.map(d => `<th>${d}</th>`).join("")}</tr>` + r7.grid.map(g => `<tr><td>${esc(g.task)}</td>${g.days.map(c => `<td title="${esc(c.detail)}"><span class="cell ${c.state}"></span></td>`).join("")}</tr>`).join("");
+}
+function renderPub(pl){
+  if (pl.error) { $("#wbars").textContent = pl.error; return; }
+  const mx = Math.max(1, ...pl.weekly.map(w => w.n));
+  $("#wbars").innerHTML = pl.weekly.map(w => `<div class="col"><span class="v">${w.n}</span><div class="bar" style="height:${(w.n/mx)*80}%"></div><span>${w.week}</span></div>`).join("");
+  $("#pub-cnt").textContent = `${pl.episodes}편 · ${pl.posts}게시물 · Threads ${pl.threads}`;
+  $("#recent").innerHTML = `<tr><th>날짜</th><th>편</th><th>제목</th></tr>` + pl.recent.map(r => `<tr><td>${r.date.slice(5)}</td><td>${esc(r.ep)}</td><td style="white-space:normal">${esc(r.title)}</td></tr>`).join("");
+}
+function renderGate(g){
+  if (!g) { $("#gate").textContent = "게이트 회차 없음"; return; }
+  $("#gate-ep").textContent = `${g.ep} · ${g.at}`;
+  $("#gate").innerHTML = `<div class="k">OK<b>${g.ok}</b></div><div class="k">FAIL<b>${g.fail}</b></div><div class="k">SKIP<b>${g.skip}</b></div><div class="k">절<b>${g.sections}</b></div><div class="k">판정<b style="font-size:13px">${esc(g.status)}</b></div>`;
+}
+function renderReports(rs){
+  $("#rep-cnt").textContent = rs.length;
+  $("#reports").innerHTML = rs.length ? `<tr><th>시각</th><th>파일</th><th>KB</th></tr>` + rs.map(r => `<tr><td>${r.at}</td><td>${esc(r.name)}</td><td>${r.kb}</td></tr>`).join("") : `<tr><td class="empty">오늘 리포트가 아직 없습니다.</td></tr>`;
+}
+function renderHeadroom(h){
+  $("#headroom").innerHTML = h ? `<div class="k">절감 토큰<b>${h.tokens.toLocaleString()}</b></div><div class="k">회차<b>${h.runs}</b></div>` : `<div class="k" style="color:var(--muted)">오늘 값 없음 — 래퍼가 «headroom: saved this run» 을 찍으면 여기 오릅니다</div>`;
+}
+
+let busy = false, firstEvents = true, hudTick = 0;
 async function refresh(){
   if (busy) return; busy = true;
   try {
-    const j = await (await fetch("/api/office")).json();
-    $("#at").textContent = `갱신 ${j.at?.slice(11,19) ?? ""}`;
-    renderJJ();
-    deskData = new Map(j.desks.map(d => [d.id, d]));
+    const j = await (await fetch("/api/office" + Q)).json();
+    $("#k-day").innerHTML = `${DAY ? "<b>" + j.day + "</b> 기준" : "오늘 <b>" + (j.day || "") + "</b>"}`;
+    renderJJ(); deskData = new Map(j.desks.map(d => [d.id, d]));
     for (const d of j.desks) upsert(d);
     for (const [id, el] of units) if (!deskData.has(id)) { el.remove(); units.delete(id); }
     const n = s => j.desks.filter(d => d.state === s).length;
-    $("#stats").innerHTML = `${n("waiting") ? `<span class="chip warn">확인 필요 ${n("waiting")}</span> ` : ""}<span class="chip ok">작업 중 ${n("running")}</span> <span class="chip">대기 ${n("idle")}</span> <span class="chip">출근 전 ${n("sleep")}</span>`;
-    const ev = await (await fetch("/api/events")).json();
-    for (const e of ev.events) { if (seen.has(e.id)) continue; seen.add(e.id); if (firstEvents) $("#inbox")?.insertAdjacentHTML("beforeend", `<span title="${esc(e.label)}">📄</span>`); else walk(e); }
+    $("#k-state").innerHTML = `작업 중 <b>${n("running")}</b> · 대기 <b>${n("idle")}</b> · 출근 전 <b>${n("sleep")}</b>${n("waiting") ? ` · <b style="color:#FCD34D">확인 필요 ${n("waiting")}</b>` : ""}`;
+    renderTeam(j.desks);
+    const ev = await (await fetch("/api/events" + Q)).json();
+    for (const e of ev.events) { if (seen.has(e.id)) continue; seen.add(e.id); if (firstEvents) { $("#inbox")?.insertAdjacentHTML("beforeend", `<span title="${esc(e.label)}">📄</span>`); feedLine(`<b>${esc(deskData.get(e.from)?.name || e.from)}</b> → JJ · ${esc(e.label)}`, new Date(e.ts * 1000)); } else walk(e); }
     firstEvents = false;
-  } catch (e) { $("#stats").textContent = "서버에 못 붙었습니다"; }
+    if (hudTick++ % 10 === 0) {   // 계기판은 30초마다
+      const h = await (await fetch("/api/hud" + Q)).json();
+      if (h.ok) { renderTicker(h.ticker); renderQueue(h.approvals); renderBars(h.runs7); renderPub(h.publog); renderGate(h.gate); renderReports(h.reports); renderHeadroom(h.headroom); }
+      else $("#ticker").textContent = "계기판 오류: " + (h.error || "");
+    }
+  } catch (e) { $("#ticker").textContent = "서버에 못 붙었습니다: " + e; }
   finally { busy = false; }
 }
-$("#replay").addEventListener("click", async () => {
-  const ev = await (await fetch("/api/events")).json(); $("#inbox").innerHTML = ""; queue.length = 0;
-  for (const e of ev.events) walk(e);
-});
-// ── 편집 모드: ?edit 로 책상을 드래그해 좌표를 잡는다 (콘솔에 SLOTS 출력) ──
+$("#replay").addEventListener("click", async () => { const ev = await (await fetch("/api/events" + Q)).json(); $("#inbox").innerHTML = ""; queue.length = 0; for (const e of ev.events) walk(e); });
 if (location.search.includes("edit")) {
   stage.classList.add("edit"); let drag = null;
   stage.addEventListener("pointerdown", e => { const u = e.target.closest(".unit"); if (!u) return; drag = u; u.setPointerCapture(e.pointerId); });
