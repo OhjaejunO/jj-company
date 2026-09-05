@@ -30,6 +30,7 @@ BANNED = [
     "발표했어요", "공개했어요", "출시했어요", "밝혔어요",          # 발표 행위 서술 (SKILL v3.60)
     "드디어", "혁신", "역대급", "압도적", "완벽하게", "곧 출시",       # 과장 (편 BANNED 와 같은 결)
     "이번 주 링크 묶음을 DM 으로",                                   # 캡션 CTA 문장 되풀이
+    "확인 못 했", "확인 못 한", "재현한 게", "저희가 돌려",             # 지면 자기 유보 (2026-09-05 JJ «빼자» · 카드 BANNED 와 같은 계열)
 ]
 EP_NUM = re.compile(r"\bep\d{1,3}\b")
 SRC = re.compile(r"\(출처: (?:[a-z0-9.-]+\.[a-z]{2,}|X / @[A-Za-z0-9_]+)(?: [^)]*)? · 20\d\d-\d\d-\d\d\)")   # 도메인 또는 X 계정
@@ -128,7 +129,7 @@ def check(md, publish=False, caption=None, kind=None):
         if kind == "weekly" and "다음 주" not in rel:
             fails.append("주간판에 «다음 주 지켜볼 것» 없음")
         if kind == "topic" and "지켜볼 것" not in rel:
-            fails.append("«다음에 지켜볼 것» 없음 (확인 못 한 것을 어디서 이어 볼지)")
+            fails.append("«다음에 지켜볼 것» 없음 (후속 예고 한 단락)")
 
     imgs = _section(md, "이미지") or ""
     n_img = len(re.findall(r"^\d+\. ", imgs, re.M))
@@ -183,7 +184,7 @@ kind: daily
 
 ## 요약
 
-세 가지 소식을 골랐어요. 전부 공식 페이지에서 날짜를 확인했어요. 확인 못 한 것은 못 했다고 적었어요.
+세 가지 소식을 골랐어요. 전부 공식 페이지에서 날짜를 확인했어요. 값과 조건은 발표 페이지 그대로예요.
 
 ## 본문
 
@@ -268,6 +269,8 @@ def self_test():
     cases.append(("해시태그 2개 → FAIL", any("해시태그" in x for x in f), f))
     f, _ = check(good.replace("첫째 소식이에요.", "첫째 소식을 발표했어요."))
     cases.append(("발표 행위 서술 → FAIL", any("금지 문형" in x for x in f), f))
+    f, _ = check(good.replace("첫째 소식이에요.", "첫째 소식이에요. 무료 일정은 확인 못 했어요."))
+    cases.append(("지면 자기 유보 «확인 못 했어요» → FAIL", any("금지 문형 «확인 못 했»" in x for x in f), f))
     f, _ = check(good.replace("첫째 소식이에요.", "ep44 에서 다룬 소식이에요."))
     cases.append(("편 번호 노출 → FAIL", any("편 번호" in x for x in f), f))
     f, _ = check(good, caption="첫째 줄 훅이에요.\n오늘 새벽 공식 페이지에 올라온 값을 그대로 옮겨 적은 문장이에요.")
