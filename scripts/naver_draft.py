@@ -130,7 +130,15 @@ def parse_blocks(body):
 
 
 def resolve_image(path):
-    return path if os.path.isabs(path) else os.path.join(WORKSHOP_ROOT, path)
+    r"""상대 경로는 «있는 쪽»으로 푼다 — `workshop\…` 은 워크숍 루트, `reports\…` 는 운영 서버(HQ).
+    2026-09-06 실측: 영상 프레임을 `reports\blog\img\` 에 뽑아 두고 워크숍 루트로만 풀어 image-missing 이 났다."""
+    if os.path.isabs(path):
+        return path
+    for root in (WORKSHOP_ROOT, HQ):
+        p = os.path.join(root, path)
+        if os.path.exists(p):
+            return p
+    return os.path.join(WORKSHOP_ROOT, path)      # 없으면 종전 경로 그대로 돌려줘 image-missing 메시지가 그 경로를 가리킨다
 
 
 def jpeg_b64(path):
@@ -426,6 +434,10 @@ def self_test():
         ("굵게 strong · 표 table · 이스케이프", "<strong>굵은 첫 문장이에요.</strong>" in chunks[1] and "<table><tr><th>소식</th>" in chunks[2] and "&lt;문장&gt;" in chunks[1]),
         ("절 제목 h2", chunks[3].startswith("<h2>FAQ</h2>") and chunks[4].startswith("<h2>토망치랩 한마디</h2>")),
         ("태그·이미지는 따로, 본문에 안 들어간다", tags == ["AI뉴스", "토망치랩"] and images[0]["path"] == "workshop\\a.png" and not any("a.png" in c or "#AI뉴스" in c for c in chunks)),
+        ("상대 경로는 있는 쪽으로 — HQ 에만 있는 파일은 HQ, 어디에도 없으면 워크숍 루트, 절대 경로는 그대로",
+            resolve_image(os.path.join("scripts", "naver_draft.py")) == os.path.join(HQ, "scripts", "naver_draft.py")
+            and resolve_image(r"reports\blog\img\없는파일.png") == os.path.join(WORKSHOP_ROOT, r"reports\blog\img\없는파일.png")
+            and resolve_image(os.path.join(HQ, "scripts", "naver_draft.py")) == os.path.join(HQ, "scripts", "naver_draft.py")),
         # 검사 문자열은 이어 붙여 만든다 — 이 줄 자체가 검사에 걸리지 않게
         ("OS 키 입력 경로 없음 (run 에 type·keypress 호출 0건)", ("run(\"" + "type\"") not in src and ("run(\"" + "keypress\"") not in src),
         ("발행 버튼을 누르는 코드 없음", ("click_named_button(\"" + "발행\")") not in src),
