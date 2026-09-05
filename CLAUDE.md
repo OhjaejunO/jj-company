@@ -59,6 +59,7 @@
 | 운영팀 | ops-auditor | A | JJ-Brain vault 건강 감사, 백업 검증 |
 | 마케팅팀 | content-scout | B | 토망치랩 소재 조사 → 카드 제안 |
 | 영업팀 | job-scout | B | AX/AI 엔지니어 채용 공고 발굴 → 요약 |
+| 마케팅팀 | blog-writer | B | 네이버 블로그 «AI 뉴스» 초안 (전날 스캔로그 + 발행편 검증로그 → `reports\blog\`) · 발행은 JJ (C) · 규격 `docs\blog-format.md` · 게이트 `scripts\blogcheck.py` |
 | 개발팀 | implementer / verifier (글로벌 상속) | B | 구현/검증 분리, adversarial cross-validation |
 | 감리 | 교차검증 codex | A | 타모델 감리. 리포트 vs 에이전트 정의 대조 — read-only, 본문 미수정 append 전용 |
 
@@ -212,6 +213,7 @@
 | skill-drift-audit | (에이전트 없음 — 결정적 비교) | 매일 12:30 | 가동 |
 | hermes-event-watch | 헤르메스 `sagun` (감지는 `event_watch.py`) | 매일 07:40 | 시범 8/26~28 |
 | workshop-backup | (에이전트 없음 — 결정적 압축·대조) | 주 1회 일요일 13:00 + **편 발행 직후** | 가동 (2026-08-30 등록 · 실값 확인) |
+| blog-writer | blog-writer | 매일 09:00 | **등록 대기** (2026-09-05 · 절차 `docs\schedule-task-registration.md` §2-2 · 사람 자리) |
 
 - **정본은 실값이고 이 표는 조회 결과다** (2026-08-25). **2026-08-30 실측으로 한 줄을 고쳤다** — `workshop-backup` 이 이미 등록돼 있는데 이 표는 «등록 대기» 였다. 표가 틀렸다. `Get-ScheduledTask -TaskPath '\JJ\'` 의 트리거가 정본이며, 이 표가 실값과 다르면 표가 틀린 것이다 — 8/22 재등록으로 vault·drift 가 12:30 으로 옮겨진 뒤 이 표는 사흘간 07:30/07:00 을 가리키고 있었고, 8/23 ops-auditor 가 그것을 읽고 «미실행»으로 오독했다. 재등록·트리거 변경 뒤에는 `docs\schedule-task-registration.md` 절차대로 실값을 재조회해 이 표를 맞춘다.
 
