@@ -198,7 +198,17 @@ class Orca(object):
                 "const r=p.getBoundingClientRect(); for(const ty of ['mousedown','mouseup','click']) p.dispatchEvent(new MouseEvent(ty,{bubbles:true,cancelable:true,clientX:r.left+5,clientY:r.top+r.height/2,button:0}));"
                 "const s=d.getSelection(); const rg=d.createRange(); rg.selectNodeContents(p); rg.collapse(false); s.removeAllRanges(); s.addRange(rg);")
 
+    def bold_off(self):
+        """에디터의 «굵게» 상태가 켜져 있으면 끈다. 붙여넣은 <strong>·<h2> 뒤로 굵게 상태가 남아 **다음 붙여넣기 전체가
+        굵게** 됐다(2026-09-05 실측 — FAQ·한마디까지 전부 굵게, 툴바 B 가 켜진 채). 버튼은 `.se-bold-toolbar-button.se-is-selected`."""
+        return self.in_frame("const b=d.querySelector('.se-bold-toolbar-button.se-is-selected'); if(!b) return 'off'; b.click(); return 'turned-off';")
+
     def paste_html(self, html_text):
+        # 조각 끝에 빈 문단 — 다음 조각의 첫 블록이 앞 문단에 합쳐지지 않게(«토망치랩 한마디» 가 «랩 한마디» 로 잘린 실측).
+        # 빈 문단은 조각 **끝**에 있어야 한다 — 따로 붙이면 에디터가 버린다.
+        if not html_text.rstrip().endswith("<p><br></p>"):
+            html_text = html_text + "<p><br></p>"
+        self.bold_off()
         js = (self._cursor_to_end() +
               "const dt=new DataTransfer(); dt.setData('text/html', %s); dt.setData('text/plain', %s);"
               "const ev=new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true}); root.dispatchEvent(ev); return ev.defaultPrevented?'ok':'not-handled';"
@@ -206,6 +216,7 @@ class Orca(object):
         r = self.in_frame(js); time.sleep(STEP_PAUSE * 2)
         if r != "ok":
             raise Missing("본문 붙여넣기 실패: %s" % r)
+        self.bold_off()
 
     def paste_image(self, path):
         b = jpeg_b64(path)
@@ -224,6 +235,7 @@ class Orca(object):
         r = self.in_frame(js)
         if r != "ok":
             raise Missing("이미지 붙여넣기 실패: %s" % r)
+        self.bold_off()
         for _ in range(60):   # 업로드 완료 대기 (최대 90초 — 표지 PNG 는 30초를 넘겼다, 실측)
             time.sleep(1.5)
             n = self.in_frame("return [...d.querySelectorAll('.se-component.se-image img')].filter(i=>/pstatic|blogfiles/.test(i.src)).length;") or 0
@@ -242,11 +254,15 @@ class Orca(object):
         # 스냅샷이 큰 문서에서 비어 오는 때가 있다(2026-09-05 실측 — 내용을 다 채운 뒤 «저장» ref 를 못 찾았다).
         # 프레임 안 버튼을 글자로 찾아 페이지 안에서 누른다. «발행» 은 이 경로로도 부르지 않는다(self-test).
         cls = {"저장": "save_btn__"}.get(name)   # 글자 대조가 빗나갈 때(innerText 에 숨은 글자) 클래스로 — «발행» 은 여기 없다
-        r = self.in_frame("const b=[...d.querySelectorAll('button')].find(x=>(x.innerText||'').trim()===%s || (%s && new RegExp(%s).test(x.className))); if(!b) return 'none'; b.click(); return 'clicked';"
-                          % (json.dumps(name), json.dumps(bool(cls)), json.dumps(cls or "^$")))
-        if r != "clicked":
-            raise Missing("«%s» 버튼 없음 (스냅샷·프레임 둘 다)" % name)
-        time.sleep(STEP_PAUSE * 2)
+        js = ("const b=[...d.querySelectorAll('button')].find(x=>(x.innerText||'').trim()===%s || (%s && new RegExp(%s).test(x.className))); if(!b) return 'none'; b.click(); return 'clicked';"
+              % (json.dumps(name), json.dumps(bool(cls)), json.dumps(cls or "^$")))
+        last = None
+        for _ in range(3):        # 큰 문서 직후 한 번 헛도는 때가 있다(2026-09-05 실측) — 3번까지
+            last = self.in_frame(js)
+            if last == "clicked":
+                time.sleep(STEP_PAUSE * 2); return
+            time.sleep(2)
+        raise Missing("«%s» 버튼 없음 (스냅샷·프레임 3회, 마지막 응답 %r)" % (name, last))
 
     def screenshot(self, path):
         d = self.run("screenshot")
