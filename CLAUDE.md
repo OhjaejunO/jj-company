@@ -217,7 +217,7 @@
 | hermes-event-watch | 헤르메스 `sagun` (감지는 `event_watch.py`) | 매일 07:40 | 시범 8/26~28 |
 | workshop-backup | (에이전트 없음 — 결정적 압축·대조) | 주 1회 일요일 13:00 + **편 발행 직후** | 가동 (2026-08-30 등록 · 실값 확인) |
 | blog-writer | blog-writer | 매일 09:00 | 가동 (2026-09-05 JJ 등록 · 실값 확인: WakeToRun True · StartWhenAvailable True · IgnoreNew · PT1H · S4U · 첫 회차 9/6 09:00) |
-| study-scout | study-scout | 주 1회 일요일 15:00 | **등록 대기** (2026-09-05 · 절차 `docs\schedule-task-registration.md` §2-3 · 사람 자리) |
+| study-scout | study-scout | 주 1회 일요일 15:00 | 가동 (2026-09-05 JJ 등록 · 실값 확인: S4U · WakeToRun True · StartWhenAvailable True · IgnoreNew · PT1H · 첫 회차 9/6 15:00 · 기준선 `--mark` 11건) |
 
 - **정본은 실값이고 이 표는 조회 결과다** (2026-08-25). **2026-08-30 실측으로 한 줄을 고쳤다** — `workshop-backup` 이 이미 등록돼 있는데 이 표는 «등록 대기» 였다. 표가 틀렸다. `Get-ScheduledTask -TaskPath '\JJ\'` 의 트리거가 정본이며, 이 표가 실값과 다르면 표가 틀린 것이다 — 8/22 재등록으로 vault·drift 가 12:30 으로 옮겨진 뒤 이 표는 사흘간 07:30/07:00 을 가리키고 있었고, 8/23 ops-auditor 가 그것을 읽고 «미실행»으로 오독했다. 재등록·트리거 변경 뒤에는 `docs\schedule-task-registration.md` 절차대로 실값을 재조회해 이 표를 맞춘다.
 
