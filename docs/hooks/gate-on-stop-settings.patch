@@ -1,0 +1,20 @@
+--- a/.claude/settings.json
++++ b/.claude/settings.json
+@@ -30,6 +30,17 @@
+           }
+         ]
+       }
++    ],
++    "Stop": [
++      {
++        "hooks": [
++          {
++            "type": "command",
++            "command": "py \"${CLAUDE_PROJECT_DIR}/.claude/hooks/gate_on_stop.py\"",
++            "timeout": 300
++          }
++        ]
++      }
+     ]
+   }
+ }
