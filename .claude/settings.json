@@ -32,6 +32,17 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py \"${CLAUDE_PROJECT_DIR}/.claude/hooks/gate_on_stop.py\"",
+            "timeout": 300
+          }
+        ]
+      }
     ]
   }
 }
