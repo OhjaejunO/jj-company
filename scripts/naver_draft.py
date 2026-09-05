@@ -333,7 +333,8 @@ def run(stem, blog, log):
     p, meta, body = read_post(stem)
     if meta.get("status") != "ready":
         log("STATUS: FAIL not-ready (status=%s — 한마디를 채우고 status: ready 로)" % meta.get("status")); return 1
-    g = subprocess.run([sys.executable, os.path.join(HQ, "scripts", "blogcheck.py"), p, "--publish"],
+    # 게이트는 **이 파일 옆의** blogcheck.py — 운영 서버 사본을 고정으로 부르면 worktree 에서 고친 규칙이 안 먹는다(2026-09-05 실측)
+    g = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "blogcheck.py"), p, "--publish"],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     if "STATUS: OK" not in (g.stdout or ""):
         log((g.stdout or "")[-600:]); log("STATUS: FAIL blogcheck"); return 1

@@ -46,7 +46,7 @@ def proposals(day):
 def recent_eps(n):
     """01_발행완료 + 02_제작중 에서 mtime 최신 ep 폴더 n개(검증로그가 있는 것만)."""
     cands = []
-    for root in (PUBLISHED, INPROG):
+    for root in (PUBLISHED,):          # 2026-09-05: 블로그 소재는 «발행된 편»만 — 제작 중인 편은 아직 바깥에 안 나간 것이라 쓰지 않는다
         if not os.path.isdir(root):
             continue
         for name in os.listdir(root):
