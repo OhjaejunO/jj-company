@@ -112,6 +112,28 @@ Task Scheduler 가 시간대 없는 값을 **로컬 시각**으로 읽기 때문
 `00_브랜드에셋` 쓰기는 §2 예외 어디에도 없어(4번은 `02_제작중\<편>` 한정) **이 회차에서
 고치지 않았다.** 근본은 정본 단일화(`docs\plan-brand-assets-move.md`)이고 그때 같이 닫힌다.
 
+## 2-2. blog-writer 등록 (2026-09-05 추가 · **사람 자리** · JJ 착수 승인 «6문항 그대로»)
+
+네이버 블로그 «AI 뉴스» 초안 워커. 매일 09:00(래퍼 안 8분 지연 → 09:08) — scout 08:00·job 08:30 뒤에 서서
+전날 스캔로그를 재료로 쓴다. 산출은 `reports\blog\<날짜>_*.md`(초안) + `reports\<날짜>_blog-writer.md`.
+**발행은 C등급** — JJ 가 `[[JJ 한마디]]` 2문장을 채우고 `blogcheck.py --publish` OK 뒤 스마트에디터에 복붙한다.
+
+🔴 순서: ① PR 머지 → ② 운영 서버 `git pull` → ③ 라이브 경로에서 `py scripts\blog_brief.py --self-test` 와
+`py scripts\blogcheck.py --self-test` 둘 다 `STATUS: OK` → ④ 관리자 PowerShell 에서 등록.
+
+```powershell
+$act = New-ScheduledTaskAction -Execute 'powershell.exe' `
+  -Argument '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:\Users\ojaej\jj-company\scripts\blog-writer.ps1"'
+$trg = New-ScheduledTaskTrigger -Daily -At '09:00'
+$set = New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun `
+  -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 1)
+$pri = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType S4U -RunLevel Limited
+Register-ScheduledTask -TaskName 'blog-writer' -TaskPath '\JJ\' `
+  -Action $act -Trigger $trg -Settings $set -Principal $pri -Force
+```
+
+등록 뒤 §3 대로 실값을 다시 조회해 정관 §4 현황판의 «등록 대기» 를 실값으로 바꾼다.
+
 ## 3. 재등록 후 — 실값 재확인 (건너뛰면 절차를 안 한 것이다)
 
 ```powershell
