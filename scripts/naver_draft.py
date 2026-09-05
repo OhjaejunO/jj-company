@@ -130,7 +130,7 @@ def parse_blocks(body):
 
 
 def resolve_image(path):
-    """상대 경로는 «있는 쪽»으로 푼다 — `workshop\…` 은 워크숍 루트, `reports\…` 는 운영 서버(HQ).
+    r"""상대 경로는 «있는 쪽»으로 푼다 — `workshop\…` 은 워크숍 루트, `reports\…` 는 운영 서버(HQ).
     2026-09-06 실측: 영상 프레임을 `reports\blog\img\` 에 뽑아 두고 워크숍 루트로만 풀어 image-missing 이 났다."""
     if os.path.isabs(path):
         return path
