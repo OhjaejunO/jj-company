@@ -1,6 +1,8 @@
+diff --git a/.claude/settings.json b/.claude/settings.json
+index 4ffc50c..ad723b1 100644
 --- a/.claude/settings.json
 +++ b/.claude/settings.json
-@@ -33,6 +33,26 @@
+@@ -43,6 +43,28 @@
            }
          ]
        }
