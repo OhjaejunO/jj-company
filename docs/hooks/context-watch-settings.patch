@@ -1,0 +1,31 @@
+--- a/.claude/settings.json
++++ b/.claude/settings.json
+@@ -33,6 +33,26 @@
+           }
+         ]
+       }
++    ],
++    "UserPromptSubmit": [
++      {
++        "hooks": [
++          {
++            "type": "command",
++            "command": "py \"${CLAUDE_PROJECT_DIR}/.claude/hooks/context_watch.py\" prompt",
++            "timeout": 20
++          }
++        ]
++      }
++    ],
++    "SessionStart": [
++      {
++        "hooks": [
++          {
++            "type": "command",
++            "command": "py \"${CLAUDE_PROJECT_DIR}/.claude/hooks/context_watch.py\" start",
++            "timeout": 20
++          }
++        ]
++      }
+     ]
+   }
+ }
