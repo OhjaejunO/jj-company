@@ -64,6 +64,6 @@ status: draft | ready
    발행 버튼·태그·공개 설정은 코드에 없다. 요소를 못 찾으면 아무것도 누르지 않고 `STATUS: FAIL selector` 로 멈춘다
    (`--probe` 로 화면을 덤프해 `SEL` 을 맞춘다). 화면 캡처는 `logs\naver-draft\<이름>_filled.png`.
 4. **JJ**: 에디터에서 임시글을 열어 표·소제목이 살아남았는지 보고, 태그(«## 태그» 절)를 달고 «발행».
-5. 발행 URL·시각을 회신 → 스코어카드 «블로그» 칸(인용수는 JJ 조회값만).
+5. 발행은 두 길이다 — ⓐ JJ 가 에디터에서 태그·예약을 넣고 «발행» ⓑ **워커 발행**(2026-09-06 개통): `py scripts\publish_naver.py --post <원고> --draft-approval` → JJ 가 `move-approval.bat` 으로 서명 → `powershell -File scripts\publish-naver.ps1 -Post <원고> -Publish`. 태그는 원고 «## 태그» 그대로(네이버 칸 상한 **# 포함 100글자** · 워커가 센다). 어느 길이든 발행 URL·시각은 `docs\scorecard.md` §1-3 «블로그» 칸(조회·인용은 JJ 조회값만).
 
 2단계(발행까지 기계)는 오토 모드 분류기가 워커 작성을 막아 보류(2026-09-05). 재개하면 Threads 워커의 승인 장치(초안·서명 2단 · 해시 3확인 · 프로브)를 그대로 물린다.
