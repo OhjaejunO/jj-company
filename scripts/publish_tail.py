@@ -100,7 +100,8 @@ def detect(s):
     ts = dt.datetime.fromisoformat(m["timestamp"].replace("+0000", "+00:00")).astimezone(KST)
     n_cards = len([p for p in ep_dir.iterdir() if re.match(r"\d\d_.*\.(png|mp4)$", p.name)])
     m_type = {"CAROUSEL_ALBUM": "캐러셀", "VIDEO": "릴스", "IMAGE": "단장"}.get(m["media_type"], m["media_type"])
-    build = next(ep_dir.glob("build_ep*.py"), None)
+    # 릴스 단독 편은 build_ep*.py 가 없고 assemble_reel.py 가 선언을 든다 (2026-09-07 ep45 실측 — 없으면 킷이 «없음» 으로 잘못 적힌다)
+    build = next(ep_dir.glob("build_ep*.py"), None) or next(ep_dir.glob("assemble_reel.py"), None)
     corner = (read_decl(build, "CORNER") or '"AI 소식"').strip('"\'') if build else "AI 소식"
     kit = read_decl(build, "KIT") if build else None
     return {"shortcode": m["shortcode"], "permalink": m["permalink"], "published_kst": ts.strftime("%Y-%m-%d %H:%M KST"),
