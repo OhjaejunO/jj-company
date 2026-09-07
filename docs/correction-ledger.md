@@ -21,3 +21,4 @@
 | 6 | 2026-09-06 | ep44 | «Astra 밖에 안 보인다 — 여러 개 보이게» → «원래 있던 그림에 덧붙이니 전부 가려져 있잖아? 다시 생성» — 씬에 덧붙일 땐 빈 판으로 생성 | 백로그 | docs/clause-backlog.md#C-24 | — |
 | 7 | 2026-09-02 | ep42 | 「저희가 돌려 본 게 아니에요」 계열 자기 유보를 지면에 쓰지 마라 — 8/31·9/2·9/2 세 번, 매번 다른 문장 | 생성 | C:\Users\ojaej\orca\tomangchi-lab.github.io\workshop\01_발행완료\ep42_패블미토스5_1\build_ep42.py#BANNED = | — |
 | 8 | 2026-09-02 | ep42 | (7 과 같은 지적의 승계) `BANNED` 는 ep42 빌더에만 있고 «새 편은 그 목록을 승계한다» 가 사람 손이다 — 공용 검사로 올려야 한다 | 백로그 | docs/clause-backlog.md#C-25 | #7 |
+| 9 | 2026-09-07 | ep45~48 | «캡션이랑 고정댓글에 누가 적은 값이에요, 누가 밝혔어요, 누가 적었어요 하지 말라고 했잖아» — 네 번째. 릴스 캡션 4·고정 댓글 1이 «힉스필드는 … 적었어요 · 밝힌 값이라 그대로 옮겨요» 꼴. ep42 BANNED 를 릴스 편이 승계 못 함 | 검사 | C:\Users\ojaej\orca\tomangchi-skill\skills\tomangchi\surface_check.py#BANNED | #7 |
