@@ -1082,6 +1082,6 @@ move 02_제작중\ep39_챗지피티로그인 90_자료함\기각편\기각_챗�
 - **보류 근거**: ① `SAFETY.md` «보안 감사 받지 않음 · 격리 보장 없음 · 일회용 VM 권장» — 스케줄러는 JJ 본 기계에서 돈다 ② 생성 3주 · alpha · README «깨지는 변경 예고» — §4 «고친 것이 언제부터 도는지» 가 매 릴리스 발동 ③ §4 장치 전부(`permission_probe`·deny 18줄·훅 3종·`headroom-proxy`·`ConvertTo-NativeArg`)가 **Claude Code 권한 모델·훅 이벤트에 붙어 있어** 실행기를 바꾸면 하나도 안 따라온다 — 되돌림 비용은 «써 보기» 낮음 / «옮기기» 높음(§4 게이트 전부 재증명) ④ 지금 «갈아끼워야 할 자리» 가 실측된 것이 없다.
 - **재검토 조건 (둘 다 있어야 다시 연다)**: ⓐ `1.0` 태그 **또는** 보안 감사 공표 ⓑ 우리 쪽에 «Claude Code 권한 모델로 못 하는 일» 이 **실측으로 1건** 생겼을 때. 둘 다 없으면 열지 않는다.
 - **감시처**: 이 항목. ⓐ 는 `gh api repos/deepseek-ai/deepseek-harness/releases/latest` 한 줄, ⓑ 는 스케줄 회차 리포트의 «못 한 것» 에서 나온다.
-- **가져올 것은 코드가 아니라 원칙 하나** — `docs/architecture.md` «Model-visible means logged»(모델 요청에 닿는 것은 세션 로그에서 재구성 가능 · 런타임 불변식이 단언). 조문 안건은 `clause-backlog.md` **C-39** (JJ 판정 대기).
+- **가져올 것은 코드가 아니라 원칙 하나** — `docs/architecture.md` «Model-visible means logged»(모델 요청에 닿는 것은 세션 로그에서 재구성 가능 · 런타임 불변식이 단언). 조문 안건은 `clause-backlog.md` **C-41** (JJ 판정 대기).
 - **써 보려면 (JJ 판정 후 · 별 세션)**: `npx @deepseek-ai/dsh web` — Node `^22.19 || >=24`(이 기계 v24.15). 파일은 dsh 홈에만 생긴다. `SAFETY.md` 대로 일회용 폴더·최소 권한.
 - **근거**: `reports\2026-09-07_repo-intake-5.md` §2. 같은 리포트의 보류 3건(OpenMAIC · minimind · gods-eye-view)은 재검토 조건이 없어 등재하지 않는다 — «회사 인프라 자리 없음» 이 판정이고, 소재 후보는 자회사 트랙(§1.5).
