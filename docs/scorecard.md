@@ -95,6 +95,7 @@ API 에서 `2026-08-29T16:38:08` 로 왔는데 이것이 발행로그의 `2026-0
 | ep43 | GPT-6 Astra | 2026-09-06T11:20+09:00 | blog.naver.com/ai-tomangchi-lab/224402482140 | — | — | — |
 | ep42 | Claude Fable 5.1 | 2026-09-06T13:49+09:00 | blog.naver.com/ai-tomangchi-lab/224402583349 | — | — | — |
 | ep41 | Hermes 에이전트 Box 스킬 | 2026-09-07T09:32+09:00 | blog.naver.com/ai-tomangchi-lab/224403282024 | — | — | — |
+| ep40 | OpenClaw 2.0 | 2026-09-07T09:44+09:00 | blog.naver.com/ai-tomangchi-lab/224403293270 | — | — | — |
 
 ---
 
