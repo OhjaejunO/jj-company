@@ -19,6 +19,10 @@
       "Read(C:\\Users\\ojaej\\.aws\\**)",
       "Read(C:\\Users\\ojaej\\.config\\gcloud\\**)",
       "Read(C:\\Users\\ojaej\\.ssh\\**)"
+    ],
+    "allow": [
+      "Bash(powershell -NoProfile -File scripts/publish-naver.ps1:*)",
+      "Bash(powershell -NoProfile -File /c/Users/ojaej/jj-company/scripts/publish-naver.ps1:*)"
     ]
   },
   "hooks": {
