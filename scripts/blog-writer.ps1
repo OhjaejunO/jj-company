@@ -23,6 +23,7 @@ $Workshop   = 'C:\Users\ojaej\orca\tomangchi-lab.github.io\workshop'   # blog: r
 $Stamp    = Get-Date -Format 'yyyyMMdd'
 $IsoDate  = Get-Date -Format 'yyyy-MM-dd'
 $Weekday  = (Get-Date).DayOfWeek.ToString()
+$RunStart = Get-Date   # gate only drafts written after this moment (see the drafts filter below)
 $LogDir   = Join-Path $Hq 'logs\scheduled'
 $LogFile  = Join-Path $LogDir ($Task + '_' + $Stamp + '.log')
 $LockFile = Join-Path $Hq ('logs\' + $Task + '.lock')
@@ -170,7 +171,11 @@ try {
     if ($reportStatus -notmatch 'STATUS:\s*OK') { Write-Log 'STATUS: FAIL agent-status-not-ok'; exit 1 }
 
     # blog: the draft is the product. Re-run the gate here - the agent's own claim is not the evidence.
-    $drafts = @(Get-ChildItem -LiteralPath (Join-Path $Hq 'reports\blog') -Filter ($IsoDate + '_*.md') -ErrorAction SilentlyContinue)
+    # Only files written by THIS run. The queue keeps pre-made manuscripts named for future dates
+    # (2026-09-07 real case: the already-published Fable file carried today's date, so the gate ran
+    # on it in draft mode and failed on its filled one-liner while the real new draft went unchecked).
+    $drafts = @(Get-ChildItem -LiteralPath (Join-Path $Hq 'reports\blog') -Filter ($IsoDate + '_*.md') -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -ge $RunStart })
     if ($drafts.Count -eq 0) {
         if ($zeroItems) { Write-Log 'no draft and brief had 0 items -- acceptable'; Write-Log 'STATUS: OK (no-draft: 0 items)'; exit 0 }
         Write-Log 'draft missing while brief had items'; Write-Log 'STATUS: FAIL draft-missing'; exit 1
