@@ -51,9 +51,40 @@ def first_line(p):
 
 
 def read_decl(build, name):
-    """`NAME = 값` 한 줄을 읽는다. 없으면 None — 조용히 넘기지 않고 호출한 쪽이 «없음»으로 적는다."""
-    m = re.search(rf"^{name}\s*=\s*(.+?)\s*(#.*)?$", build.read_text("utf-8"), re.M)
-    return m.group(1).strip() if m else None
+    """`NAME = 값` 선언을 읽는다. 없으면 None — 조용히 넘기지 않고 호출한 쪽이 «없음»으로 적는다.
+
+    값이 `{`·`[`·`(` 로 열리고 그 줄에서 안 닫히면 **닫힐 때까지 다음 줄을 잇는다.** 종전엔 첫 줄만 잘라
+    ep49 킷 칸에 `{"file": "08_kit.mp4",` 가 그대로 적혔다(2026-09-07 실측). 딕셔너리면 `html` → `file` 순으로 값 하나를 돌려준다.
+    """
+    lines = build.read_text("utf-8").split("\n")
+    for i, ln in enumerate(lines):
+        m = re.match(rf"^{name}\s*=\s*(.+)$", ln)
+        if not m:
+            continue
+        val = m.group(1)
+        opens, closes = "{[(", "}])"
+        depth = lambda s: sum(s.count(o) for o in opens) - sum(s.count(c) for c in closes)  # noqa: E731
+        j = i
+        while depth(val) > 0 and j + 1 < len(lines):
+            j += 1
+            val += "\n" + lines[j]
+        if val.lstrip()[:1] in opens:
+            try:
+                import ast
+                lit = ast.literal_eval(val)
+            except (ValueError, SyntaxError):
+                # 주석·계산식이 섞이면 literal_eval 이 죽는다 — 주석을 떼고 한 번 더
+                stripped = "\n".join(re.sub(r"\s+#.*$", "", l) for l in val.split("\n"))
+                try:
+                    lit = ast.literal_eval(stripped)
+                except (ValueError, SyntaxError):
+                    return None
+            if isinstance(lit, dict):
+                v = lit.get("html") or lit.get("file")
+                return f'"{v}"' if v else None
+            return str(lit)
+        return re.sub(r"\s+#.*$", "", val).strip()
+    return None
 
 
 def tree_hashes(folder):
@@ -227,6 +258,15 @@ def _self_test():
         assert "| 편 | 1 |" in text and "두 줄 | 2026-08-01" in text, "다른 표·기존 행이 변했다"
         assert (WORKSHOP / "01_발행완료" / "ep99_시험편" / "shots" / "x.png").read_bytes() == b"s" and not ep.exists()
         assert gr.run(GRAPH, ck, log=quiet) == 0 and len(ep_rows(PUBLOG.read_text("utf-8"), "ep99")) == 1, "재실행에 행이 두 번 붙었다"
+        # 여러 줄 KIT 딕셔너리(ep49 꼴) — 킷 칸에 html 값 하나가 적혀야 한다. 한 줄 문자열·None 도 같이 본다.
+        kb = WORKSHOP / "02_제작중" / "ep96_k"; kb.mkdir()
+        (kb / "build_ep96.py").write_text('CORNER = "AI 소식"\nKIT = {"file": "08_kit.mp4",\n       "html": "x-kit.html",\n'
+                                          '       "dur": 22.8,   # 실측\n       "title": "킷"}\n', "utf-8")
+        assert read_decl(kb / "build_ep96.py", "KIT") == '"x-kit.html"', read_decl(kb / "build_ep96.py", "KIT")
+        (kb / "build_ep96.py").write_text('KIT = "y-kit.html"  # 재사용\n', "utf-8")
+        assert read_decl(kb / "build_ep96.py", "KIT") == '"y-kit.html"'
+        (kb / "build_ep96.py").write_text('KIT = None\n', "utf-8")
+        assert read_decl(kb / "build_ep96.py", "KIT") == "None" and read_decl(kb / "build_ep96.py", "NOPE") is None
         # 역검증 ① 행 선재 없이 move → FAIL
         (WORKSHOP / "02_제작중" / "ep98_x").mkdir(); (WORKSHOP / "02_제작중" / "ep98_x" / "a.png").write_bytes(b"a")
         try:
