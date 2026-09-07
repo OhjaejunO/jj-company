@@ -35,6 +35,11 @@ import os
 import re
 import subprocess
 import sys
+
+try:  # cp949 콘솔에서 «—» 가 든 로그 줄이 UnicodeEncodeError 로 죽었다(2026-09-07 --draft-approval 실측 · 파일은 이미 써진 뒤)
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
 import tempfile
 import time
 
