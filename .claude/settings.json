@@ -19,6 +19,10 @@
       "Read(C:\\Users\\ojaej\\.aws\\**)",
       "Read(C:\\Users\\ojaej\\.config\\gcloud\\**)",
       "Read(C:\\Users\\ojaej\\.ssh\\**)"
+    ],
+    "allow": [
+      "Bash(powershell -NoProfile -File scripts/publish-naver.ps1:*)",
+      "Bash(powershell -NoProfile -File /c/Users/ojaej/jj-company/scripts/publish-naver.ps1:*)"
     ]
   },
   "hooks": {
@@ -40,6 +44,28 @@
             "type": "command",
             "command": "py \"${CLAUDE_PROJECT_DIR}/.claude/hooks/gate_on_stop.py\"",
             "timeout": 300
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py \"${CLAUDE_PROJECT_DIR}/.claude/hooks/context_watch.py\" prompt",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py \"${CLAUDE_PROJECT_DIR}/.claude/hooks/context_watch.py\" start",
+            "timeout": 20
           }
         ]
       }

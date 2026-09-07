@@ -59,14 +59,18 @@ def recent_eps(n):
 def ep_block(folder):
     name = os.path.basename(folder)
     log = read(os.path.join(folder, "검증로그.md"))
-    sec = re.findall(r"^## [12]\..*?(?=^## |\Z)", log, re.S | re.M)
+    # 🔴 전 절을 싣는다 (2026-09-06). 종전엔 §1·§2 만 실어 «나머지는 에이전트가 알아서 열게» 뒀는데, 첫 자동 회차가 ep42
+    # 검증로그의 §3 금성 지도·§4 한계를 통째로 빼고 추측 문장으로 채웠다. 프롬프트로 «다 읽어라»가 아니라 브리프가 다 싣는다
+    # (정관 §0 4층 ① 구조로 닫기). 사실이 아닌 절(게이트 사고·조판 경위)도 같이 가지만 «브리프에 없는 사실은 쓰지 않는다»가
+    # 그대로 지켜지므로 해가 없다 — 없는 것보다 있는 것이 싸다.
+    sec = re.findall(r"^## \d+\..*?(?=^## |\Z)", log, re.S | re.M)
     imgs = sorted(f for f in os.listdir(folder) if re.match(r"\d\d_.*\.(png|jpg)$", f))
     urls = [ln for ln in read(PUBLOG).splitlines() if name.split("_")[0] in ln and "instagram.com" in ln]
     out = ["### 편 %s" % name, "- 폴더: `%s`" % folder,
            "- 캡션: `%s`" % os.path.join(folder, "caption.txt"),
            "- 이미지: " + ", ".join("`%s`" % os.path.join(folder, f) for f in imgs[:16]),
            "- 인스타: " + (" / ".join(u.strip() for u in urls[:2]) or "발행로그에 없음 — «확인 못 했어요»")]
-    out += ["", "#### 검증로그 §1·§2 (사실 원장 — 여기 있는 값만 쓴다)", ""] + sec
+    out += ["", "#### 검증로그 전 절 (사실 원장 — 여기 있는 값만 쓴다 · 과학·한계·데모 절도 소재다, 빼지 않는다)", ""] + sec
     return "\n".join(out)
 
 
@@ -110,13 +114,15 @@ def self_test():
     io.open(os.path.join(ep, "01_cover.png"), "wb").write(b"x")
     io.open(PUBLOG, "w", encoding="utf-8").write("| ep50 | instagram.com/p/abc |\n")
     txt, total = build("2026-09-07", 1)
-    ok1 = total == 2 and "**A**" in txt and "B" not in txt.split("<details>")[0].split("## 최근")[0].replace("| B |", "") and "값 1" in txt and "못 연 것" not in txt and "instagram.com/p/abc" in txt
+    ok1 = total == 2 and "**A**" in txt and "B" not in txt.split("<details>")[0].split("## 최근")[0].replace("| B |", "") and "값 1" in txt and "instagram.com/p/abc" in txt
+    # 역검증 (2026-09-06): §3 이 브리프에 실려야 한다 — 종전 «§1·§2 만» 이면 여기서 걸린다
+    ok3 = "## 3. 못 연 것" in txt and "- z" in txt
     txt2, total2 = build("2026-09-09", 0)
     ok2 = total2 == 0 and txt2.rstrip().endswith("STATUS: OK (소재 0건)")
-    for name, v in (("제안만 · §1§2만 · 인스타 URL", ok1), ("소재 0건 → OK (소재 0건)", ok2)):
+    for name, v in (("제안만 · 인스타 URL", ok1), ("검증로그 전 절 실림 (§3 포함)", ok3), ("소재 0건 → OK (소재 0건)", ok2)):
         print(("PASS " if v else "FAIL ") + name)
-    print("STATUS: " + ("OK" if ok1 and ok2 else "FAIL selftest"))
-    return 0 if ok1 and ok2 else 1
+    print("STATUS: " + ("OK" if ok1 and ok2 and ok3 else "FAIL selftest"))
+    return 0 if ok1 and ok2 and ok3 else 1
 
 
 if __name__ == "__main__":
