@@ -6,7 +6,7 @@ r"""ledger_check.py — 지적 원장(docs\correction-ledger.md) 검사기.
 ③ 재발 칸이 앞선 행을 가리키는지 잰다. 재는 값은 «재발 행 수» — 0 으로 가야 한다.
 
     py scripts\ledger_check.py              # 원장 검사 → STATUS 줄
-    py scripts\ledger_check.py --self-test  # 역검증 4건 + 정상 1건
+    py scripts\ledger_check.py --self-test  # 역검증 6건 + 정상 1건
 
 🔴 못 잡는 것: 지적이 원장에 «적혔는가». 검사기는 적힌 행만 본다(정관 §0 4층 ④).
 """
@@ -59,6 +59,8 @@ def check(rows):
                 fails.append(f"{tag}: 자리는 `경로#표식` 꼴이어야 한다 `{r['place']}`")
             else:
                 p, anchor = resolve(r["place"])
+                if re.fullmatch(r"build_ep\d+\.py", p.name):
+                    fails.append(f"{tag}: 편 한정 파일은 자리가 아니다 {p}")
                 if not p.is_file():
                     fails.append(f"{tag}: 자리 파일 없음 {p}")
                 elif anchor not in p.read_text("utf-8", errors="replace"):
@@ -90,17 +92,21 @@ def self_test():
     assert not check(parse(good)), "정상 행이 걸렸다"
     # 가짜 표식은 실행 시 조립한다 — 글자 그대로 적으면 이 소스 안에 있어서 «있음»으로 읽힌다(첫 실행에서 실제로 그랬다)
     ghost = "zz".join(["없는", "표식"])
-    bad = {
-        "4층 밖 처리": HEAD + f"| 1 | 2026-09-06 | ep0 | x | 메모리 | {me}#def check | — |\n",
-        "표식 없음": HEAD + f"| 1 | 2026-09-06 | ep0 | x | 검사 | {me}#{ghost} | — |\n",
-        "파일 없음": HEAD + "| 1 | 2026-09-06 | ep0 | x | 생성 | docs/없는파일.md#a | — |\n",
-        "재발 앞 참조": HEAD + f"| 1 | 2026-09-06 | ep0 | x | 검사 | {me}#def check | #2 |\n",
-        "못잡음 사유 없음": HEAD + "| 1 | 2026-09-06 | ep0 | x | 못잡음 | — | — |\n",
-    }
-    for name, text in bad.items():
-        fails = check(parse(text))
-        assert len(fails) == 1, f"{name}: 걸려야 하는데 {fails}"
-        print("ok  ", name, "→", fails[0])
+    with tempfile.TemporaryDirectory() as tmp:
+        epfile = Path(tmp) / "build_ep42.py"
+        epfile.write_text("BANNED = []\n", encoding="utf-8")
+        bad = {
+            "4층 밖 처리": HEAD + f"| 1 | 2026-09-06 | ep0 | x | 메모리 | {me}#def check | — |\n",
+            "표식 없음": HEAD + f"| 1 | 2026-09-06 | ep0 | x | 검사 | {me}#{ghost} | — |\n",
+            "파일 없음": HEAD + "| 1 | 2026-09-06 | ep0 | x | 생성 | docs/없는파일.md#a | — |\n",
+            "재발 앞 참조": HEAD + f"| 1 | 2026-09-06 | ep0 | x | 검사 | {me}#def check | #2 |\n",
+            "못잡음 사유 없음": HEAD + "| 1 | 2026-09-06 | ep0 | x | 못잡음 | — | — |\n",
+            "편 한정 파일": HEAD + f"| 1 | 2026-09-06 | ep0 | x | 검사 | {epfile}#BANNED = | — |\n",
+        }
+        for name, text in bad.items():
+            fails = check(parse(text))
+            assert len(fails) == 1, f"{name}: 걸려야 하는데 {fails}"
+            print("ok  ", name, "→", fails[0])
     print("ok   정상 2행 통과")
     print("STATUS: OK")
 
