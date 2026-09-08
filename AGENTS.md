@@ -5,7 +5,7 @@
 코덱스에서 다른 것만 적는다 (2026-09-08 실측).
 
 - **쓰기 차단**은 `settings.json` deny 규칙이 아니라 sandbox 다. `workspace-write` 에서 CWD 밖은 기본 차단이고, §2 출장지 예외는 `--add-dir` 로만 연다(전역 허용 금지). 예외를 열면 §4 프로브처럼 **밖은 거부·안은 성공** 양방향을 그 회차에 실증한다.
-- **훅은 하나만 있다 (2026-09-08 이식).** `.codex/hooks.json` 의 PreToolUse 셸 재해석 가드(`.claude/hooks/bash-escape-guard.ps1` · 코덱스는 세션 cwd 에서 돌리므로 상대 경로)만 코덱스에 걸린다 — 켜지려면 `.codex/config.toml` 의 `codex_hooks = true` 와 **이 프로젝트의 trust** 가 필요하다. Stop 게이트·context_watch 는 **이식하지 않았다**: 클로드 트랜스크립트 JSONL 꼴을 읽는 스크립트라 코덱스 롤아웃에서는 아무것도 못 보고 조용히 «없음» 을 낸다(§0 «조용히 실패하는 코드»). 그래서 코덱스 세션은 «게이트 훅 없음» 이 §0 4층 ④ 못잡음이다 — `verify.py` 는 손으로 돌린다.
+- **훅은 하나만 있다 (2026-09-08 이식).** `.codex/hooks.json` 의 PreToolUse 가 `.codex/hooks/pretooluse.ps1` 을 거쳐 셸 재해석 가드(`.claude/hooks/bash-escape-guard.ps1`)를 부른다 — 코덱스는 세션 cwd 에서 돌리므로 상대 경로다. 켜지려면 `.codex/config.toml` 의 `[features] hooks = true`(`codex_hooks` 는 deprecated), **이 프로젝트의 trust**, 그리고 **훅 자체의 trust**(`/hooks` 에서 승인 · 해시가 바뀌면 재승인)가 필요하다. 래퍼는 호출마다 `logs\hooks\codex-pretooluse.jsonl` 에 한 줄(tool_name·command·exit)을 남긴다 — «Hook failed» 가 뜨면 그 줄이 진단이다(2026-09-08 exit 1 사고 뒤 신설). Stop 게이트·context_watch 는 **이식하지 않았다**: 클로드 트랜스크립트 JSONL 꼴을 읽는 스크립트라 코덱스 롤아웃에서는 아무것도 못 보고 조용히 «없음» 을 낸다(§0 «조용히 실패하는 코드»). 그래서 코덱스 세션은 «게이트 훅 없음» 이 §0 4층 ④ 못잡음이다 — `verify.py` 는 손으로 돌린다.
 - **`.codex/agents/*.toml` 의 도구 제한은 문구다.** 마이그레이터가 `tools:` 를 `developer_instructions` 산문으로만 옮겼다(코덱스 커스텀 에이전트에 도구 경계가 없다). ops-auditor 의 «Bash 없음» 이 코덱스에서는 지켜지지 않는다 — ④ 못잡음.
 - **부서 정의·스킬·메모리를 못 본다.** `.claude/agents/*.md`·`~/.claude/skills`·클로드 메모리는 코덱스 밖이다. 원장·백로그·발행로그(파일)만이 공유 상태다.
 - **작성자 ≠ 감리자.** 코덱스가 쓴 산출물의 감리는 클로드가 한다(§1 «타모델 감리»). 자기 승인은 승인이 아니다.
