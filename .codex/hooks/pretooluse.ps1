@@ -46,6 +46,19 @@ if (-not (Test-Path -LiteralPath $guard)) {
 
 $out = $raw | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $guard 2>&1
 $code = $LASTEXITCODE
-if ($out) { [Console]::Error.WriteLine(($out | Out-String).TrimEnd()) }
-Write-HookLog $(if ($code -eq 2) { 'block' } elseif ($code -eq 0) { 'pass' } else { 'error' }) $code
+$reason = if ($out) { ($out | Out-String).TrimEnd() } else { '' }
+if ($reason) { [Console]::Error.WriteLine($reason) }
+if ($code -eq 2) {
+    # Codex source (codex-rs/hooks/src/events/pre_tool_use.rs): exit 2 blocks ONLY if stderr is
+    # non-empty as Codex captured it, and then stdout is ignored; exit 0 + JSON permissionDecision
+    # 'deny' blocks via the parsed block_reason regardless of stderr. 2026-09-09 00:21 measured:
+    # exit 2 was logged here as 'block' yet the command still ran - stderr evidently arrived empty.
+    # So: emit the deny JSON on stdout and exit 0. The guard's text still goes to stderr for humans.
+    if (-not $reason) { $reason = 'blocked by bash-escape-guard (no reason text captured)' }
+    $deny = @{ hookSpecificOutput = @{ hookEventName = 'PreToolUse'; permissionDecision = 'deny'; permissionDecisionReason = $reason } } | ConvertTo-Json -Compress -Depth 4
+    [Console]::Out.WriteLine($deny)
+    Write-HookLog 'block' 0
+    exit 0
+}
+Write-HookLog $(if ($code -eq 0) { 'pass' } else { 'error' }) $code
 exit $code
