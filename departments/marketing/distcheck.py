@@ -31,8 +31,17 @@ if hasattr(sys.stdout, "buffer") and not getattr(sys.stdout, "_dist_wrapped", Fa
 #: Threads 포스트당 글자 상한. **공표값이고 우리 실측이 아니다**
 #: (`04_운영/유통확장_설계안.md` §3). 플랫폼이 거부하는 상한이라 초과는 FAIL 이다.
 THREADS_CHAR_MAX = 500
-#: 스레드 길이. JJ 지시 2026-08-27 «3~5개 포스트».
-POSTS_MIN, POSTS_MAX = 3, 5
+#: 스레드 길이 상한. JJ 지시 2026-08-27 «3~5개 포스트» 중 **상한만 남았다.**
+#: 🔴 **하한 3 은 2026-09-10 에 1 로 내렸다 (JJ 지시 «바꿔서 해보자»).**
+#: 종전 하한은 «한 편을 3~5 토막으로 나눠라» 를 뜻했는데, 그 분할이 도달을 깎는다는 것이
+#: 실측으로 나왔다 — `reports/2026-09-10_threads-benchmark.md`. 같은 계정 같은 편에서
+#: 부모 포스트 67♥ 에 이어 붙인 체인이 `1/` 5♥ · `2/` 4♥ · `3/` 3♥ 로 **13배 떨어졌고**,
+#: 팔로워 29.1만 계정의 상위 포스트는 **전부 단일 포스트 179~264자**였다.
+#: 즉 **레퍼런스가 쓰는 꼴이 이 하한에 걸려 통과할 수 없었다** — 정관 §0
+#: «검사가 틀린 것을 요구하고 있으면 산출물보다 검사부터 고친다»(ep28 게이트 선례) 자리다.
+#: 하한을 없앤 것이 아니라 1 로 내린 것이고, 상한 5 는 그대로다 — 체인은
+#: «본문의 나머지» 가 아니라 «더 볼 사람만 가는 심화» 로 쓰면 된다.
+POSTS_MIN, POSTS_MAX = 1, 5
 
 #: v3.56 — «공식» 빈도. **편 합산**이다(원고 포스트 + 카드 문안), 카드당이 아니다.
 #: 🔴 단위가 판정을 뒤집는다 — ep39 실측으로 카드 합계 8회·카드별 최대 2회라,
@@ -969,6 +978,30 @@ def _nokit_selftest(cc):
     return bad
 
 
+def _postsmin_selftest(cc):
+    """`[3-1]` 하한 개정의 역검증 — 세 면을 따로 본다 (2026-09-10 신설).
+
+    `_m_count` 는 «6개로 늘리면 그 검사만 걸린다» 를 보지만 그것만으로는
+    **하한이 실제로 열렸는지** 를 모른다 — 하한을 안 고쳤어도 그 케이스는 통과한다.
+    ⓐ 단일 포스트가 통과한다 (열린 쪽)  ⓑ 0개는 걸린다 (하한이 사라진 것이 아니다)
+    ⓒ 6개는 걸린다 (상한은 살아 있다)
+    """
+    one = ["\n".join(_BASE_POSTS)]
+    six = _BASE_POSTS + _BASE_POSTS[:3]
+    bad = 0
+    for why, ps, want_ok in [("단일 포스트는 통과한다", one, True),
+                             ("포스트 0개는 걸린다", [], False),
+                             ("포스트 6개는 걸린다", six, False)]:
+        r = check(ps, _BASE_ROWS, _Facts(), _BASE_KIT, _BASE_CAPTION, cc)
+        got_ok = not any(i[0].startswith("[3-1]") for i in r.failed)
+        if got_ok == want_ok:
+            print("[  OK  ] [3-1] 포스트 수 하한 — %s" % why)
+        else:
+            bad += 1
+            print("[ FAIL ] [3-1] 포스트 수 하한 — %s (실제 %s)" % (why, "통과" if got_ok else "걸림"))
+    return bad
+
+
 def selftest():
     cc = load_cardcheck()
     quote_bad = _quote_tone_selftest()
@@ -1017,6 +1050,7 @@ def selftest():
             print("[ FAIL ] 문장 분할 — %s (%d개로 갈렸다)" % (why, got))
     bad += _media_selftest(cc)
     bad += _nokit_selftest(cc)
+    bad += _postsmin_selftest(cc)
     # 규격 추출 자체의 역검증 — 못 찾으면 던져야 한다.
     try:
         skill_regex("__NOT_A_REAL_REGEX__")
