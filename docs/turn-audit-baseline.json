@@ -1,0 +1,60 @@
+{
+  "turns": 841,
+  "active_hours": 80.0,
+  "median_min": 3.3,
+  "p75_min": 7.0,
+  "p90_min": 14.0,
+  "max_min": 46.3,
+  "tools_median": 6,
+  "tools_p90": 39,
+  "tools_max": 170,
+  "top12pct_share": 49,
+  "bash_calls": 8465,
+  "find_share": 47,
+  "make_share": 13,
+  "fix_share": 11,
+  "bash_top": [
+    [
+      "파일 들여다보기",
+      2030
+    ],
+    [
+      "grep",
+      1825
+    ],
+    [
+      "기타",
+      1263
+    ],
+    [
+      "gh pr",
+      654
+    ],
+    [
+      "편 빌드",
+      540
+    ],
+    [
+      "py -c 한 줄",
+      537
+    ],
+    [
+      "git",
+      457
+    ],
+    [
+      "패치 스크립트",
+      428
+    ],
+    [
+      "게이트",
+      300
+    ],
+    [
+      "ls·find",
+      132
+    ]
+  ],
+  "sessions": 12,
+  "measured_at": "2026-09-10T10:30:37+09:00"
+}
