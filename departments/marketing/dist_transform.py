@@ -149,7 +149,39 @@ class _Subst(ast.NodeTransformer):
                         for a in node.args)):
             return ast.copy_location(
                 ast.Constant(os.path.join(*[a.value for a in node.args])), node)
+        # 넷째 갈래: `max`·`min` 의 **상수 인자** (2026-09-10 · ep51 실측). 빌더가 팬 길이를
+        # `max(24.566667, 18.466667)` 로 적어 CARDS 전체가 안 읽혔다 — `len` 과 같은 꼴로
+        # **인자가 전부 상수 숫자일 때만** 접는다. 값을 손으로 적지 않은 편을 읽으려는 것이지
+        # 계산기를 만드는 것이 아니다(위 doctrine 그대로 — 갈래를 이름으로 열거한다).
+        if (isinstance(node.func, ast.Name) and node.func.id in ("max", "min")
+                and len(node.args) >= 2 and not node.keywords
+                and all(isinstance(a, ast.Constant) and isinstance(a.value, (int, float))
+                        and not isinstance(a.value, bool) for a in node.args)):
+            fn = max if node.func.id == "max" else min
+            return ast.copy_location(ast.Constant(fn(*[a.value for a in node.args])), node)
         return node
+
+    def visit_Subscript(self, node):
+        """이미 상수로 접힌 dict·list 에서 한 칸 꺼내기 (2026-09-10 · ep51/52/55 실측).
+
+        빌더가 `OFFICIAL_VIDEO["file"]`·`OFFICIAL_CLIPS["03"]["file"]` 로 자기 선언을
+        가리키기 시작해 **세 편의 CARDS 가 통째로 안 읽혔다.** 이름 쪽은 `visit_Name` 이
+        이미 상수 dict 로 바꿔 주는데 그 다음 칸 꺼내기가 없어 거기서 멈춘 것이다.
+        🔴 **계산이 아니라 «선언된 값 읽기»다** — 컨테이너와 키가 **둘 다 상수일 때만** 접고,
+        키가 없거나 꼴이 안 맞으면 **그대로 둔다**(조용히 틀린 값을 만들지 않는다).
+        """
+        node = self.generic_visit(node)
+        if not (isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, (dict, list, tuple, str))):
+            return node
+        sl = node.slice
+        if not (isinstance(sl, ast.Constant) and isinstance(sl.value, (str, int))
+                and not isinstance(sl.value, bool)):
+            return node
+        try:
+            return ast.copy_location(ast.Constant(node.value.value[sl.value]), node)
+        except (KeyError, IndexError, TypeError):
+            return node
 
     def visit_BinOp(self, node):
         node = self.generic_visit(node)
@@ -392,7 +424,8 @@ def brief(ep):
     a("")
     a("## 제약")
     a("")
-    a("- 포스트 %d~%d개, 스레드로 이어 붙인다." % (distcheck.POSTS_MIN, distcheck.POSTS_MAX))
+    a("- 포스트 %d~%d개. 🔴 **P1 하나로 끝내도 된다** — 하한이 1 이다(2026-09-10 개정)."
+      % (distcheck.POSTS_MIN, distcheck.POSTS_MAX))
     a("- 포스트당 %d자 이하 (Threads 공표값 — 우리 실측 아님, `유통확장_설계안.md` §3)."
       % distcheck.THREADS_CHAR_MAX)
     if ep["kit_url"]:
@@ -404,6 +437,33 @@ def brief(ep):
     a("- 벤치 수치를 실은 포스트에는 «%s» 라벨을 단다." % distcheck.OFFICIAL_LABEL)
     a("- **인스타 캡션을 복붙하지 않는다** — 같은 사실을 텍스트 매체 문법으로 다시 쓴다.")
     a("  첫 줄이 훅이고, 이미지 없이 읽혀야 한다.")
+    a("")
+    a("## 🔴 Threads 문법 (실측 · `reports/2026-09-10_threads-benchmark.md`)")
+    a("")
+    a("2026-09-10 에 잘되는 계정 5곳 15편의 본문을 그대로 옮겨 쟀다. **여섯 가지가 갈랐다.**")
+    a("")
+    a("1. **P1 은 그 자체로 완결이다.** 상위 포스트는 전부 단일 포스트 179~264자였고,")
+    a("   같은 계정 같은 편에서 체인 자식은 **13배** 떨어졌다(부모 67♥ → `1/` 5♥ · `2/` 4♥ · `3/` 3♥).")
+    a("   **P2~ 는 «본문의 나머지»가 아니라 «더 볼 사람만» 가는 심화다.** 나눌 이유가 없으면 나누지 않는다.")
+    a("2. **첫 줄은 짧고(20~42자) 결론만.** 알맹이는 둘째 문단부터 내린다.")
+    a("   우리 옛 원고는 첫 줄 44~84자 = 포스트 전체였다 — 첫 줄에서 끝나 스크롤할 이유가 없었다.")
+    a("3. **첫 줄의 주어는 «독자가 무엇을 하게 되는가»다.** 824♥ 짜리 첫 줄에는 제품명이 없다:")
+    a("   「Opus급 코딩 에이전트를 이제 무료로 돌릴 수 있습니다」 — 회사·모델명은 둘째 줄에 나온다.")
+    a("   아는 것에 빗대는 것도 통한다: 「오디오계의 나노바나나가 등장했습니다」(51♥).")
+    a("   🔴 «~가 나왔어요» 로 여는 소식 고지가 우리 옛 원고 4편 전부의 첫 줄이었다.")
+    a("4. **수치는 단독이 아니라 «대비»로 준다.** 「출력 가격은 Opus 5의 20분의 1」·")
+    a("   「구글이 7.50달러를 받는데 이 모델은 0.28달러」·「7.8%였던 것이 99.9%가 됐고」.")
+    a("   비교 대상이 없는 수치는 크고 작음을 알 수 없다.")
+    a("5. **마지막 줄은 소감 한 줄.** 「~가는 것 같네요」·「~줄어들 것 같습니다」.")
+    a("   인스타 캡션의 «💬 토망치랩 코멘트» 와 같은 자리인데 옛 Threads 원고에는 0건이었다.")
+    a("6. **해시태그·팔로우 요청 0개.** 표본 상위 포스트에 하나도 없었다.")
+    a("   CTA 자리는 «예고» 가 대신한다 — 「왜 이런 물건을 공짜로 주는지부터 정리했습니다」(824♥).")
+    a("")
+    a("**문체는 축이 아니다** — 합니다체·반말·개조식(`-음`)이 전부 상위에 있었다. 우리 해요체는 그대로 간다.")
+    a("")
+    a("🔴 **게이트가 못 재는 것** — 위 1~6 중 기계로 잴 수 있는 것은 «포스트 수» 하나뿐이다.")
+    a("나머지 다섯은 **이 지시서가 먹이는 것이지 검사가 잡는 것이 아니다**(정관 §0 4층 ④).")
+    a("잘못 쓰면 게이트는 통과하고 도달만 죽는다.")
     a("- 소스 맵에 없는 문장은 존재할 수 없다. 근거가 없으면 **뺀다**(덜 싣는 건 자유).")
     a("")
     a("## 첨부 미디어 후보 (공식 원본만)")
