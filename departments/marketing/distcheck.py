@@ -386,10 +386,32 @@ def check_media(media, posts, facts, ep, r):
         r.ok("[10-2] 우리 제작 카드 금지 — 첨부는 %s 아래만" % "·".join(MEDIA_DIRS),
              not ours, " / ".join(ours))
 
-        # [10-3] 출처가 편 FACTS 에 등록된 URL 인가
+        # [10-3] 첨부의 출처가 **편에 등록돼 있는가**. 정본으로 인정하는 자리가 셋이다 —
+        #   ⓐ `_facts.py` 의 URL 변수 (기본)
+        #   ⓑ 편 선언 `OFFICIAL_VIDEO = {url, dur}` (2026-09-02 · ep42)
+        #   ⓒ 편 **검증로그**에 그 첨부 파일이 등재 (2026-09-10 · ep50/ep54)
         bad_src = []
         for m in media:
             k = m["src_key"]
+            # 🔴 `VERIFY_LOG` 특례 (2026-09-10 · ep50·ep54 실측). **공식 이미지에는 ⓐ·ⓑ 어느
+            # 쪽도 열려 있지 않았다** — `OFFICIAL_VIDEO` 는 영상 전용이고, 두 편의 `_facts.py`
+            # 에는 URL 변수가 **0개**다(ep54 는 아티클 주소가 docstring 에만, ep50 은 아예 없다).
+            # 두 편 다 `_official/shots/` 에 공식 도표를 갖고 있는데(ep54 Figure 1~7 + 배너,
+            # ep50 공식 삽화 2장 포함 7장) **붙일 수 있는 조합이 없었다** — 같은 날 신설한
+            # `[10-0]`(P1 에 공식 미디어 필수)과 정면으로 부딪혀 두 편은 어떤 원고로도 통과할 수
+            # 없다. 편 폴더가 `01_발행완료` 라 선언을 더할 수도 없다(§2 예외 4 는 `02_제작중` 한정).
+            # 정관 §0 «검사가 틀린 것을 요구하고 있으면 산출물보다 검사부터 고친다» — ep28·ep39·
+            # `[10-8]` 과 같은 꼴이다.
+            #
+            # 🔴 **느슨해지지 않는다.** 재는 것은 «출처가 편에 «적혀» 있는가» 그대로이고, 자리만
+            # 검증로그로 넓혔다 — 검증로그는 **그 편의 출처 정본 문서**이고 이미 `[10-7ⓒ]` 가 읽는
+            # 게이트 입력이다. 파일 이름이 거기 없으면 종전대로 걸린다. 검증로그는 편 폴더에 있어
+            # 우리가 못 고친다(§2) — 즉 **자기 서명으로 만들 수 없는 근거**다.
+            if k == "VERIFY_LOG":
+                vlog = ep.get("verify_log") or ""
+                base = os.path.basename(m["path"] or "")
+                if base and base in vlog:
+                    continue
             # `OFFICIAL_VIDEO` 특례 (2026-09-02 · ep42 실측). 공식 영상의 URL 정본은
             # _facts 가 아니라 **편 선언** `OFFICIAL_VIDEO = {url, dur}` 다(SKILL v3.54 §7 이
             # 거기 두라고 정했다). ep42 는 _facts 에 URL 변수가 하나도 없어 종전 규칙으로는
@@ -403,7 +425,8 @@ def check_media(media, posts, facts, ep, r):
             v = getattr(facts, k, None) if k and not k.startswith("_") else None
             if not isinstance(v, str) or not URL_RE.match(v):
                 bad_src.append("P%d %s" % (m["post"], k or "(빈칸)"))
-        r.ok("[10-3] 출처키가 _facts.py 의 URL 로 실재", not bad_src, " / ".join(bad_src))
+        r.ok("[10-3] 출처키가 편에 등록돼 실재 (_facts URL · OFFICIAL_VIDEO · VERIFY_LOG)",
+             not bad_src, " / ".join(bad_src))
 
         # [10-4] 크레딧 문구가 그 포스트 본문에 있는가 (카드 하단 라벨 역할을 본문이 대신한다)
         no_credit = []
@@ -996,6 +1019,23 @@ def _media_selftest(cc):
             else:
                 bad += 1
                 print("[ FAIL ] [10-0]   %s → 안 걸린다 (걸린 검사 %s)" % (why, sorted(got) or "없음"))
+
+        # `VERIFY_LOG` 특례 (2026-09-10 신설) — **양방향으로 본다.** 한쪽만 보면 «파일 이름을
+        #   안 보고 그냥 통과시키는» 상태와 구별되지 않는다(정관 §0 역검증).
+        #   ⓐ 검증로그에 그 파일이 실려 있으면 통과 ⓑ 없으면 종전대로 `[10-3]` 이 걸린다.
+        _vl = dict(_MEDIA_BASE[0], src_key="VERIFY_LOG")
+        _vl_cases = [
+            ("검증로그에 파일이 실려 있으면 통과", "판 03 | `demo.png` 1508x1102 | 공식 삽화", False),
+            ("검증로그에 그 파일이 없으면 걸린다", "판 03 | `other.png` 1508x1102 | 공식 삽화", True),
+        ]
+        for why, vlog, want_fail in _vl_cases:
+            got = run([_vl], verify_log=vlog).labels_failed() - base_fail
+            hit = any(g.startswith("[10-3]") for g in got)
+            if hit == want_fail and not [g for g in got if not g.startswith("[10-3]")]:
+                print("[  OK  ] [10-3]   %s" % why)
+            else:
+                bad += 1
+                print("[ FAIL ] [10-3]   %s → 걸린 검사 %s" % (why, sorted(got) or "없음"))
 
         # `shape_mismatch` — `[10-5]`(로컬)와 `[10-8]`(URL 바이트)이 쓰는 한 함수.
         #   양방향으로 본다: 맞으면 None, 축마다 하나씩 걸린다.
