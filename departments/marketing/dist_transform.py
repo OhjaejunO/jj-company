@@ -363,6 +363,27 @@ def official_sources(ep):
                     "shape": ("🔴 우리 합성 판 — " if composite else "") + shape,
                     "composite": composite,
                     "headline": c.get("headline", "")})
+
+    # 🔴 `_official/` 도 후보로 낸다 (2026-09-10 신설 · ep50·ep54 실측).
+    # 종전에는 카드 선언의 `shot` 만 훑어서 **`_official/shots/` 를 한 번도 보지 않았다** —
+    # 게이트의 `MEDIA_DIRS` 는 2026-08-29 부터 `_official/` 을 허용하는데 지시서만 몰랐다.
+    # 그래서 ep54 브리핑이 「`shots/` 에 공식 원본 캡처가 없다 — 첨부 없이 텍스트로 간다」 를
+    # 냈고, 정작 그 편에는 앤트로픽 아티클 Figure 1~7 이 그 폴더에 다 있었다. 같은 날 신설한
+    # `[10-0]`(P1 에 공식 미디어 필수)과 부딪혀 **지시서를 그대로 따르면 반드시 FAIL 난다.**
+    # §0 4층 ② — 검사로 잡기 전에 생성 단계가 옳은 것을 내게 한다.
+    seen = {s["path"] for s in out}
+    off = os.path.join(ep["dir"], "_official", "shots")
+    for name in sorted(os.listdir(off)) if os.path.isdir(off) else []:
+        rel = "_official/shots/" + name
+        if rel in seen:
+            continue
+        p = os.path.join(off, name)
+        kind, w, h, dur = distcheck.probe_media(p)
+        if kind == "기타":
+            continue
+        shape = kind + (" %dx%d" % (w, h) if w else "") + (" %gs" % dur if dur is not None else "")
+        out.append({"card": "_official", "path": rel, "credit": "", "shape": shape,
+                    "headline": "공식 원본 보관 자리 (C-22) — 크레딧·출처키는 검증로그에서"})
     return out
 
 
