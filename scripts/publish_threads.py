@@ -1,28 +1,27 @@
 # -*- coding: utf-8 -*-
-r"""Threads 발행 워커 — 승인된 편 1건의 텍스트 스레드를 체인 순서대로 올린다.
+r"""Threads 발행 워커 — 게이트를 통과한 편 1건의 텍스트 스레드를 체인 순서대로 올린다.
 
 정본 명세: `docs\workers\publish-threads.md`. **그 문서가 규칙이고 이 파일은 그 실행체다.**
 
-    py scripts\publish_threads.py --ep ep39 --draft-approval    ← 승인 «초안» 을 reports\ 에
     py scripts\publish_threads.py --ep ep39                     ← 드라이런 (기본값)
     py scripts\publish_threads.py --ep ep39 --publish           ← 실제 게시
     py scripts\publish_threads.py --self-test                   ← 검사기 자체 시험
 
-## 승인은 초안·서명 2단이다 (2026-08-28 개정)
+## 🔴 발행 자격 (2026-09-10 개정 — 승인 파일 장치는 폐기했다)
 
-    ① 에이전트: `--draft-approval` → `reports\<ep>.approval.json` **초안**
-       (본문 해시 5건 + chain + 대상 편. 해시 계산은 기계가 한다 — 사람이 셀 값이 아니다)
-    ② JJ: 원고 5포스트를 읽고 판정한 뒤 `scripts\move-approval.bat` 으로
-       `publish_approval\<ep>.json` 으로 **옮긴다. 이동이 곧 서명이다.**
-    ③ 워커: **`publish_approval\` 에 있는 것만** 승인으로 본다.
+종전에는 `publish_approval\<ep>.json` 이 트리거였고 JJ 가 그 파일을 옮기는 것이 서명이었다.
+JJ 지시로 그 자리를 없앴다. 남은 자격은 **둘 다 기계가 재는 것**이다:
 
-🔴 **초안 생성이 잠금을 우회하지 않는다.** 에이전트는 `reports\` 에만 쓸 수 있고
-`publish_approval\` 에는 쓰지도 못하고 이동 배치를 실행하지도 못한다(프로브가 회차마다 실증).
-초안은 **«승인해 달라는 서류»** 이지 승인이 아니다 — 그 서류가 어느 폴더에 있느냐가 전부다.
+    ① **복붙 세트가 실재할 것** — `dist_transform.pack()` 은 게이트 FAIL 이 하나라도 있으면
+       파일을 **쓰지 않는다.** 그래서 `reports\<날짜>_dist_<ep>.md` 의 존재 자체가 «게이트 통과» 다.
+    ② **그 원고가 게이트를 돈 그 바이트일 것** — 사이드카 `<원고>.meta.json` 의 `body_sha256` 이
+       지금 원고 파일의 sha256 과 같아야 한다. 게이트 뒤에 한 글자라도 손대면 여기서 선다.
+
+사이드카가 없거나·해시가 갈리거나·`gate_failed` 가 0이 아니면 **게시하지 않는다.**
 
 ## 왜 에이전트가 아니라 스크립트인가
 
-승인 파일과 원고가 정해지면 **남은 일에 판단이 없다** — 해시를 맞추고, 컨테이너를 만들고,
+원고가 정해지면 **남은 일에 판단이 없다** — 해시를 맞추고, 컨테이너를 만들고,
 `FINISHED` 를 기다리고, 순서대로 올린다. 정답이 있는 자리에 모델을 넣지 않는다
 (정관 §0 · `skill-drift-audit` 과 같은 성격). 모델이 끼면 «원고를 조금 고쳐서 올리는» 길이 생긴다.
 
@@ -33,11 +32,9 @@ r"""Threads 발행 워커 — 승인된 편 1건의 텍스트 스레드를 체�
 
 ## 🔴 이 스크립트가 증명하지 *못* 하는 것 (§0 4층 ④)
 
-- **승인 파일의 암호 서명을 검증하지 않는다.** 서명은 «이동» 이고, 이동할 수 있는 것은
-  `publish_approval\` 에 쓸 수 있는 자 뿐이다. 그 자리를 재는 것은 `scripts\permission_probe.py` 이고
-  워커 기동 **전에** 래퍼가 돌린다. 여기서 다시 검사하는 척하지 않는다.
-- 🔴 **그 프로브가 증명하는 것은 «에이전트가 만들 수 없다» 가 아니라 «이 회차에 만들지 못했다» 다.**
-  권한 밖 경로로 우회하는 길(다른 세션·사람 권한 탈취)은 이 장치가 못 잡는다.
+- **원고가 «좋은 글인가» 는 재지 않는다.** 재는 것은 게이트 축 목록뿐이고, 그 밖의 것은
+  발행 뒤 사람이 본다. 승인 장치를 뺀 대가가 정확히 이것이다 — 되돌림 비용이 낮아서
+  치를 수 있는 대가라고 §0 으로 판정했다(텍스트 포스트는 삭제로 되돌아간다).
 - **컨테이너가 실제로 만료돼 사라지는지 확인할 수 없다** — API 가 만료 시각을 내주지 않는다.
 """
 import argparse
@@ -59,17 +56,10 @@ API = "/v1.0"
 #: 🔴 **HQ 는 절대경로로 박는다 (2026-08-28 · 상대 계산 폐기).**
 #:
 #: 종전에는 `os.path.dirname(os.path.dirname(__file__))` 로 잡았다. 그러면 **같은 코드가
-#: 어디 놓이느냐에 따라 다른 폴더를 본다** — 운영 서버 사본은 `jj-company\publish_approval`,
-#: 작업장 사본은 `orca\jj-company\publish_approval` 이었다. 둘 다 실재하는 사본이다.
-#:
-#: 승인 폴더는 **잠금의 경계**다. 경계가 사본마다 다르면 «에이전트가 못 쓴다» 는 실증이
-#: 어느 폴더에 대한 것인지 흐려지고, 배치가 옮겨 둔 승인을 워커가 못 보는 조합도 생긴다.
-#: 배치(`move-approval.bat` DST)·래퍼(`publish-threads.ps1` $Hq)는 이미 절대경로였다 —
-#: **셋 중 하나만 상대 계산이었고, 그 하나가 보안 경계를 쥐고 있었다.**
-#:
-#: 세 자리가 어긋나면 `_selftest()` 가 파일을 열어 **실제로 대조해** 걸러 낸다.
+#: 어디 놓이느냐에 따라 다른 폴더를 본다** — 운영 서버 사본과 작업장 사본이 각각 제 옆의
+#: `reports\` 를 봤다. 둘 다 실재하는 사본이고, 원고가 어느 쪽에 있는지가 갈렸다.
+#: 워커가 읽는 원고 자리는 **운영 서버 하나**여야 한다 (`dist_transform` 도 거기에 쓴다).
 HQ = r"C:\Users\ojaej\jj-company"
-APPROVAL_DIR = os.path.join(HQ, "publish_approval")
 REPORTS_DIR = os.path.join(HQ, "reports")
 
 #: 🔴 publish 는 **경로의 마지막 세그먼트 일치**로만 판정한다 (C-8 2026-08-28 사례).
@@ -324,66 +314,75 @@ def attachment_block(md_path, support=_AUTO):
     return (["첨부 %d건 중 명세 불완전 %d건:" % (len(decls), len(bad))] + ["  " + b for b in bad]) if bad else []
 
 
-def build_draft(ep, ms_path, posts):
-    """승인 «초안» 을 만든다 — 해시 계산은 기계 몫이다. **서명은 여기 없다.**
+def build_plan(ep, ms_path, posts):
+    """발행 계획을 **원고에서** 만든다 (2026-09-10 · 종전 `build_draft` 의 자리).
 
-    `signed_by`·`signature` 를 미리 채우지 않는다. 채워 두면 사람이 «이미 서명됐다» 로 읽는다 —
-    서명은 이 파일을 `publish_approval\\` 로 **옮기는 행위** 다.
+    종전에는 이것이 «승인 초안» 이었고 JJ 가 옮겨 서명했다. 승인 장치를 폐기했으므로
+    같은 값을 **회차 시작 시점의 스냅샷**으로만 쓴다 — 체인 순서·포스트별 해시·첨부 서명.
+    `run_chain` 이 묶음마다 원고를 다시 읽어 이 스냅샷과 견주므로, **도는 도중에 원고가
+    바뀌면 거기서 선다.** 그 축은 승인이 사라져도 값을 잃지 않는다(오히려 유일하게 남는다).
     """
-    # 🔴 판본은 **메타 필드**다 — 해시 대상이 아니다 (C-32 ①). 기록은 남기되 승인의
-    #    무결성 판정에는 넣지 않는다. 사이드카가 없으면 «미상» 으로 적는다(조용히 빼지 않는다).
-    _meta = ms_path + ".meta.json"
-    _rev = "미상 (사이드카 없음)"
-    if os.path.exists(_meta):
-        try:
-            _rev = json.loads(io.open(_meta, encoding="utf-8").read()).get(
-                "gate_skill_revision") or _rev
-        except ValueError:
-            _rev = "미상 (사이드카를 못 읽었다)"
+    # 🔴 판본은 **메타 필드**다 — 해시 대상이 아니다 (C-32 ①). 기록은 남기되 무결성
+    #    판정에는 넣지 않는다. 사이드카가 없으면 «미상» 으로 적는다(조용히 빼지 않는다).
+    _rev = (read_sidecar(ms_path) or {}).get("gate_skill_revision") or "미상 (사이드카 없음)"
     return {
         "ep": ep,
         "gate_skill_revision": _rev,
         "body_sha256": sha256_file(ms_path),
         "posts": [{"seq": s, "sha256": sha256_text(posts[s])} for s in sorted(posts)],
-        # 승인은 **미디어까지 서명한다** (2026-09-02). URL 과 그 바이트의 sha256 이 여기
-        # 박히고, 워커는 발행 직전 URL 을 다시 받아 이 값과 대조한다 — 서명 뒤 URL 내용이
+        # 미디어도 스냅샷에 넣는다 (2026-09-02). URL 과 그 바이트의 sha256 이 여기 박히고,
+        # 워커는 발행 직전 URL 을 다시 받아 이 값과 대조한다 — 회차 도중 CDN 내용이
         # 갈리면 발행이 서지 않는다. 첨부 없는 편은 빈 목록이다.
         "attachments": [dict(seq=s, media_type=v["kind"], url=v["url"], sha256=v["sha256"])
                         for s, v in sorted(parse_attachments(ms_path).items()) if v],
         "chain": sorted(posts),
-        "drafted_by": "publish_threads.py --draft-approval",
-        "drafted_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S KST"),
+        "planned_by": "publish_threads.py",
+        "planned_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S KST"),
         "manuscript": os.path.basename(ms_path),
-        "_승인_방법": ("이 파일을 scripts\\move-approval.bat 으로 publish_approval\\ 로 옮기면 "
-                   "그것이 승인이다. reports\\ 에 있는 동안은 승인이 아니다."),
     }
 
 
-def check_approval(appr, ep, ms_path, posts):
-    """3확인 + 원고·승인 정합. 어긋난 사유 목록을 돌려준다(빈 목록이면 통과)."""
+def read_sidecar(ms_path):
+    """`<원고>.meta.json` 을 읽는다. 없거나 못 읽으면 `None` — «비었다» 와 구별한다."""
+    p = ms_path + ".meta.json"
+    if not os.path.exists(p):
+        return None
+    try:
+        d = json.loads(io.open(p, encoding="utf-8").read())
+    except ValueError:
+        return None
+    return d if isinstance(d, dict) else None
+
+
+def check_gate(ms_path):
+    """🔴 **발행 자격** — 승인 파일을 대신한 자리다 (2026-09-10).
+
+    어긋난 사유 목록을 돌려준다(빈 목록이면 통과). 재는 것은 셋이다:
+      ① 사이드카가 있는가 — `pack()` 이 원고와 **같이** 쓰므로 없으면 게이트를 안 돈 원고다
+      ② `gate_failed` 가 0인가 — 사이드카가 그 회차의 판정을 싣는다
+      ③ `body_sha256` 이 지금 원고 파일과 같은가 — 게이트 뒤에 손댄 원고를 막는다
+
+    🔴 ③ 이 이 장치의 중심이다. ①·② 만 보면 «게이트를 통과한 적 있는 원고» 까지만 알고,
+       **지금 올릴 바이트가 그것인지**는 모른다 — 승인 파일이 하던 일이 정확히 그 대조였다.
+    """
     bad = []
-    if appr.get("ep") != ep:
-        bad.append("ep-mismatch: 승인 %r ≠ 대상 %r" % (appr.get("ep"), ep))
+    meta = read_sidecar(ms_path)
+    if meta is None:
+        bad.append("gate-evidence-missing: 사이드카가 없거나 못 읽었다 (%s)"
+                   % os.path.basename(ms_path + ".meta.json"))
+        return bad
+    nf = meta.get("gate_failed")
+    if nf is None:
+        bad.append("gate-unknown: 사이드카에 `gate_failed` 가 없다 — 옛 판 `pack()` 이 쓴 것이다")
+    elif nf:
+        bad.append("gate-failed: 게이트 FAIL %s건" % nf)
+    want = meta.get("body_sha256")
     got = sha256_file(ms_path)
-    if appr.get("body_sha256") != got:
-        bad.append("approval-stale: 원고 해시 불일치 (승인 %s… / 실물 %s…)"
-                   % (str(appr.get("body_sha256"))[:12], got[:12]))
-    chain = appr.get("chain") or []
-    declared = {int(p["seq"]): p["sha256"] for p in (appr.get("posts") or [])}
-    if sorted(chain) != sorted(declared):
-        bad.append("chain 과 posts 의 seq 집합이 다르다: %s ≠ %s" % (sorted(chain), sorted(declared)))
-    if set(declared) != set(posts):
-        bad.append("승인 seq %s ≠ 원고 seq %s" % (sorted(declared), sorted(posts)))
-    # 첨부 정합 (2026-09-02) — 원고가 지금 선언한 첨부와 승인이 서명한 첨부가 같아야 한다.
-    # 옛 승인(attachments 필드 없음)에 첨부 원고를 대면 여기서 걸린다 — 승인이 미디어를
-    # 서명하지 않았는데 미디어를 올리는 길은 없다.
-    ms_atts = {(s, v["kind"], v["url"], v["sha256"])
-               for s, v in parse_attachments(ms_path).items() if v}
-    ap_atts = {(int(x["seq"]), x["media_type"], x["url"], x["sha256"])
-               for x in (appr.get("attachments") or [])}
-    if ms_atts != ap_atts:
-        bad.append("attachment-mismatch: 원고 첨부 %d건 ≠ 승인 서명 %d건"
-                   % (len(ms_atts), len(ap_atts)))
+    if not want:
+        bad.append("gate-unknown: 사이드카에 `body_sha256` 이 없다 — 옛 판 `pack()` 이 쓴 것이다")
+    elif want != got:
+        bad.append("manuscript-changed: 게이트 이후 원고가 바뀌었다 (사이드카 %s… / 실물 %s…)"
+                   % (str(want)[:12], got[:12]))
     return bad
 
 
@@ -413,7 +412,7 @@ def append_event(ep, obj, base=None):
     """
     d = base or RECEIPT_DIR
     if not os.path.isdir(d):
-        os.makedirs(d)                      # logs\ 아래다. publish_approval\ 이 아니다.
+        os.makedirs(d)                      # logs\ 아래다 — 워커 산출물 자리다.
     # 🔴 **`fsync` 가 빠져도 자체 시험은 못 잡는다** (§0 4층 ④). 프로세스가 정상 종료하면
     #    `close()` 가 어차피 flush 하므로, 같은 프로세스 안에서는 fsync 유무가 보이지 않는다.
     #    이 줄이 값을 하는 자리는 **정전·강제 종료** 뿐이고 그것은 시험으로 만들 수 없다.
@@ -716,9 +715,6 @@ def run_chain(api, uid, ep, ms_path, appr, log, publish,
 
 
 # ---------------------------------------------------------------- 자체 검사
-_NO_MKDIR_CHECKED = []
-
-
 def _selftest_resume():
     r"""재기동 조정·중복 검사의 자체 시험.
 
@@ -844,16 +840,34 @@ def _selftest():
     except SystemExit:
         pass
 
-    # ③ 승인 대조 — 정상 통과 / 축마다 하나씩 걸림 (역검증 케이스를 섞지 않는다)
+    # ③ 발행 자격 (`check_gate`) — 정상 통과 / 축마다 하나씩 걸림 (역검증 케이스를 섞지 않는다)
+    #   승인 파일을 폐기하고 그 자리에 앉힌 검사다 (2026-09-10). 사이드카를 실제로 써 놓고 잰다.
     posts = {1: "가", 2: "나"}
-    base = {"ep": "ep39", "body_sha256": sha256_file(p),
-            "posts": [{"seq": 1, "sha256": sha256_text("가")},
-                      {"seq": 2, "sha256": sha256_text("나")}],
-            "chain": [1, 2]}
-    assert check_approval(dict(base), "ep39", p, posts) == [], "정상 승인을 걸렀다"
-    assert check_approval(dict(base, ep="ep40"), "ep39", p, posts), "ep 불일치를 놓쳤다"
-    assert check_approval(dict(base, body_sha256="x" * 64), "ep39", p, posts), "원고 해시 불일치를 놓쳤다"
-    assert check_approval(dict(base, chain=[1]), "ep39", p, posts), "chain/posts 어긋남을 놓쳤다"
+    _side = p + ".meta.json"
+
+    def _put_side(obj):
+        io.open(_side, "w", encoding="utf-8", newline="\n").write(
+            json.dumps(obj, ensure_ascii=False))
+
+    #   ⓐ 사이드카가 없으면 걸린다 — «게이트를 안 돈 원고» 다
+    if os.path.exists(_side):
+        os.remove(_side)
+    assert any("gate-evidence-missing" in x for x in check_gate(p)), "사이드카 없는 원고를 통과시켰다"
+    #   ⓑ 정상 사이드카는 통과한다 (전부 막는 가드가 아니다)
+    _ok_side = {"gate_failed": 0, "body_sha256": sha256_file(p), "gate_skill_revision": "v0"}
+    _put_side(_ok_side)
+    assert check_gate(p) == [], "정상 자격을 걸렀다: %r" % (check_gate(p),)
+    #   ⓒ 게이트 FAIL 이 실려 있으면 걸린다
+    _put_side(dict(_ok_side, gate_failed=2))
+    assert any("gate-failed" in x for x in check_gate(p)), "게이트 FAIL 을 통과시켰다"
+    #   ⓓ 🔴 **게이트 뒤에 원고가 바뀌면 걸린다** — 이 축이 승인 파일의 해시 대조를 이어받았다
+    _put_side(dict(_ok_side, body_sha256="x" * 64))
+    assert any("manuscript-changed" in x for x in check_gate(p)), "게이트 뒤 원고 변경을 놓쳤다"
+    #   ⓔ 옛 판 사이드카(축 자체가 없는 것)는 «통과» 가 아니라 **모른다** 로 걸린다
+    _put_side({"gate_skill_revision": "v0"})
+    assert len([x for x in check_gate(p) if "gate-unknown" in x]) == 2, \
+        "옛 판 사이드카를 통과시켰다: %r" % (check_gate(p),)
+    _put_side(_ok_side)
 
     # ③-a 첨부 안전판 — **양방향** (인프라 백로그 20번 ① · 2026-08-30)
     #      막는 것만 보면 «전부 막는 가드» 가 정상으로 보인다. 통과해야 할 것을 같이 본다.
@@ -896,18 +910,12 @@ def _selftest():
     assert parse_attachments(_patt2) == {1: None}, "포스트당 2건을 명세로 읽었다"
     assert attachment_block(_patt2, support=True), "포스트당 2건을 통과시켰다"
     os.remove(_patt2)
-    #   ⓒ-4 승인 정합 — 원고 첨부와 승인 서명이 갈리면 걸린다 (양방향)
-    _appr_ok = dict(base, attachments=[{"seq": 1, "media_type": "VIDEO",
-                                        "url": "https://example.com/a.mp4",
-                                        "sha256": _sha64}])
+    #   ⓒ-4 계획이 첨부를 **서명값으로** 싣는다 — `run_chain` 이 묶음마다 이것과 견준다
     _posts_f = parse_posts(pf)
-    _appr_ok["posts"] = [{"seq": s, "sha256": sha256_text(_posts_f[s])} for s in sorted(_posts_f)]
-    _appr_ok["chain"] = sorted(_posts_f)
-    _appr_ok["body_sha256"] = sha256_file(pf)
-    assert check_approval(_appr_ok, "ep39", pf, _posts_f) == [], "정합한 첨부 승인을 걸렀다"
-    _appr_bad = dict(_appr_ok, attachments=[])
-    assert any("attachment-mismatch" in x for x in
-               check_approval(_appr_bad, "ep39", pf, _posts_f)), "첨부 미서명 승인을 통과시켰다"
+    _plan_f = build_plan("ep39", pf, _posts_f)
+    assert _plan_f["attachments"] == [{"seq": 1, "media_type": "VIDEO",
+                                       "url": "https://example.com/a.mp4",
+                                       "sha256": _sha64}], _plan_f["attachments"]
     os.remove(pf)
     #   ⓓ **판정 불가는 통과가 아니다** — 모르면 멈춘다
     _unk = attachment_block(pa, support=None)
@@ -937,68 +945,29 @@ def _selftest():
     #   ⓙ 문법이 깨진 소스는 «못 싣는다» 가 아니라 **모른다** 다
     assert media_support_state("def (:") is None, "깨진 소스를 «못 싣는다» 로 단정했다"
 
-    # ③-b 초안은 서명 자리를 만들지 않는다 — 만들면 «이미 서명됐다» 로 읽힌다
-    d = build_draft("ep39", p, posts)
+    # ③-b 계획은 원고에서 나온다 — 그 값이 `run_chain` 의 대조 기준이 된다
+    d = build_plan("ep39", p, posts)
     assert d["ep"] == "ep39" and d["chain"] == [1, 2], d
-    assert "signature" not in d and "signed_by" not in d, "초안이 서명 자리를 갖고 있다"
-    assert check_approval(d, "ep39", p, posts) == [], "제 초안이 제 검사를 통과 못 한다"
+    assert d["body_sha256"] == sha256_file(p), "계획의 본문 해시가 원고와 다르다"
+    assert [x["sha256"] for x in d["posts"]] == [sha256_text("가"), sha256_text("나")], d["posts"]
 
-    for q in (p, p2):
-        os.remove(q)
+    for q in (p, p2, _side):
+        if os.path.exists(q):
+            os.remove(q)
 
-    # ③-c 승인 폴더가 **세 자리에서 같은 값인가** — 파일을 열어 실제로 대조한다.
-    #     선언만 맞추면 다음 사람이 한 곳만 고치고 지나간다. 그 «한 곳» 이 하필
-    #     보안 경계였던 것이 이 조항의 계기다(2026-08-28).
-    #     세 파일이 같은 폴더에 있을 때만 본다 — 시험 실행에서 파일이 없다고 죽지 않는다.
-    here = os.path.dirname(os.path.abspath(__file__))
-    bat = os.path.join(here, "move-approval.bat")
-    ps1 = os.path.join(here, "publish-threads.ps1")
-    if os.path.exists(bat) and os.path.exists(ps1):
-        bt = io.open(bat, encoding="utf-8", errors="replace").read()
-        pt = io.open(ps1, encoding="utf-8", errors="replace").read()
-        m = re.search(r'set\s+"HQ=([^"]+)"', bt)
-        assert m, "move-approval.bat 에서 HQ 를 못 찾았다"
-        assert os.path.normcase(m.group(1).rstrip("\\")) == os.path.normcase(HQ), \
-            "승인 폴더가 어긋난다 — 배치 HQ=%r 대 워커 HQ=%r" % (m.group(1), HQ)
-        m2 = re.search(r"\$Hq\s*=\s*'([^']+)'", pt)
-        assert m2, "publish-threads.ps1 에서 $Hq 를 못 찾았다"
-        assert os.path.normcase(m2.group(1).rstrip("\\")) == os.path.normcase(HQ), \
-            "승인 폴더가 어긋난다 — 래퍼 $Hq=%r 대 워커 HQ=%r" % (m2.group(1), HQ)
-
-    # ③-d 절대경로인가 — 상대 계산으로 되돌아가면 사본마다 다른 폴더를 본다
-    assert os.path.isabs(APPROVAL_DIR), "APPROVAL_DIR 이 절대경로가 아니다"
-    assert APPROVAL_DIR == os.path.join(HQ, "publish_approval"), APPROVAL_DIR
-
-    # ③-e **이 경로를 만드는 코드는 어디에도 없어야 한다 (2026-08-28 신설).**
-    #
-    #     2026-08-28 21:16:29 에 빈 `publish_approval\` 이 나타났다. 조사 결과
-    #     어느 세션도 그 창에 돌지 않았고 스케줄도 없었으며 코드에도 만드는 자리가 없었다 —
-    #     즉 **사람이 만든 것**으로 보이고, 그렇다면 정상이다. 문제는 그때
-    #     «코드가 만든 것인지 사람이 만든 것인지 가릴 방법이 없었다» 는 것이다.
-    #
-    #     그래서 규칙을 **예외 없이** 세운다: 이 레포의 어떤 스크립트도 그 폴더를 만들지 않는다.
-    #     «사람 도구만 만들어도 된다» 는 예외는 밖에서 검증할 수 없다 —
-    #     배치는 자기를 누가 눌렀는지 증명하지 못한다. 예외가 없어야 grep 한 번으로 판정된다.
-    #     🔴 주석은 빼고 본다. 첫 판이 «이 폴더를 만들지 않는다» 고 **설명하는 주석**에 걸렸다 —
-    #     낱말만 세면 규칙을 적어 둔 자리가 규칙 위반으로 잡힌다(C-8 계열).
-    scripts_dir = os.path.dirname(os.path.abspath(__file__))
-    mk = re.compile(r"(makedirs|mkdir|New-Item[^\n]*Directory)", re.I)
-    offenders = []
-    for fn in sorted(os.listdir(scripts_dir)):
-        if not fn.lower().endswith((".py", ".ps1", ".bat", ".cmd")):
-            continue
-        fp = os.path.join(scripts_dir, fn)
-        if os.path.samefile(fp, os.path.abspath(__file__)):
-            continue                      # 이 파일의 검사 코드 자신은 대상이 아니다
-        for ln in io.open(fp, encoding="utf-8", errors="replace").read().splitlines():
-            bare = ln.strip()
-            if bare.startswith("#") or bare.startswith("::") or bare[:4].lower() == "rem ":
-                continue                  # 주석은 코드가 아니다
-            if "publish_approval" in bare and mk.search(bare):
-                offenders.append("%s: %s" % (fn, bare[:90]))
-    assert not offenders, ("publish_approval 을 만드는 코드가 있다 — 그 폴더는 사람이 만든다:\n  "
-                           + "\n  ".join(offenders))
-    _NO_MKDIR_CHECKED.append(scripts_dir)
+    # ③-c 🔴 **승인 장치가 코드에 남아 있지 않다 (2026-09-10 신설).**
+    #     축을 «없앴다» 는 것은 그 자리가 비었다는 것으로만 증명된다. 한 자리만 지우고
+    #     다른 자리에 남으면 «이름만 바뀐 같은 잠금» 이 된다 — 이 워커에서 그것을 잰다.
+    #     🔴 주석·문서 문장은 대상이 아니다. 낱말만 세면 «폐기했다» 고 적어 둔 자리가
+    #     위반으로 잡힌다(C-8 계열).
+    _mod = sys.modules[__name__]
+    assert not [n for n in ("APPROVAL_DIR", "check_approval", "build_draft")
+                if hasattr(_mod, n)], "승인 장치가 아직 이 모듈에 있다"
+    _needle = "publish_" + "approval"     # 이 줄 자신이 검사에 걸리지 않게 쪼개 둔다
+    _body = io.open(os.path.abspath(__file__), encoding="utf-8").read().split("\nimport ", 1)[1]
+    _live = [ln.strip() for ln in _body.splitlines()
+             if _needle in ln and not ln.strip().startswith("#")]
+    assert not _live, "승인 폴더를 가리키는 코드가 남아 있다:\n  " + "\n  ".join(_live[:5])
 
     # ④ 드라이런에서 publish 가 실제로 막히는가 (토큰 없이도 되는 검사)
     api = Api("dummy", allow_publish=False)
@@ -1019,15 +988,12 @@ def _run(argv=None):
     _selftest()
     ap = argparse.ArgumentParser()
     ap.add_argument("--ep", help="대상 편 (예: ep39)")
-    ap.add_argument("--approval-dir", default=None)
     ap.add_argument("--manuscript", default=None, help="원고 경로. 생략하면 reports 에서 찾는다")
     ap.add_argument("--out-dir", default=None)
     ap.add_argument("--receipt-dir", default=None,
                     help="영수증 자리. 시험용 우회 — 쓰면 리포트가 그렇게 적는다")
     ap.add_argument("--publish", action="store_true",
                     help="🔴 실제 게시. 없으면 드라이런 — 기본값은 게시하지 않는다")
-    ap.add_argument("--draft-approval", action="store_true",
-                    help="승인 «초안» 을 reports\\<ep>.approval.json 으로 쓴다. 승인이 아니다")
     ap.add_argument("--self-test", action="store_true")
     a = ap.parse_args(argv)
     if a.self_test:
@@ -1041,20 +1007,17 @@ def _run(argv=None):
     #    알 수 없었다. 승인·토큰·계정보다 **앞**에 적는다: 무엇이 실패하든 «켜졌다» 는 남는다.
     _receipt_dir_early = a.receipt_dir or RECEIPT_DIR
     append_event(a.ep, {"stage": "run.started",
-                        "mode": "publish" if a.publish else "dryrun",
-                        "draft_only": bool(a.draft_approval)}, base=_receipt_dir_early)
+                        "mode": "publish" if a.publish else "dryrun"},
+                 base=_receipt_dir_early)
     # 같은 사실을 `run_audit.py` 가 읽는 꼴로도 남긴다 — 그 스크립트는 이 JSONL 을 모른다.
     write_stamp()
 
     # 자리는 위 상수로 고정한다. 인자는 **시험용 우회**일 뿐이고, 쓰면 리포트가 그렇게 적는다 —
     # 그렇게 적지 않으면 fixture 회차가 실제 회차처럼 읽힌다.
-    appr_dir = a.approval_dir or APPROVAL_DIR
     out_dir = a.out_dir or REPORTS_DIR
     rcpt_dir = a.receipt_dir or RECEIPT_DIR
-    overridden = [n for n, v in (("--approval-dir", a.approval_dir),
-                                 ("--out-dir", a.out_dir),
+    overridden = [n for n, v in (("--out-dir", a.out_dir),
                                  ("--receipt-dir", a.receipt_dir)) if v]
-    appr_path = os.path.join(appr_dir, a.ep + ".json")
 
     lines = []
 
@@ -1062,67 +1025,31 @@ def _run(argv=None):
         print(m)
         lines.append(m)
 
-    def find_manuscript():
-        if a.manuscript:
-            return a.manuscript
-        cand = sorted(f for f in os.listdir(out_dir)
-                      if re.match(r"\d{4}-\d\d-\d\d_dist_%s\.md$" % a.ep, f))
-        return os.path.join(out_dir, cand[-1]) if cand else None
-
-    # --- 초안 만들기 — 승인이 아니다 -------------------------------------------
-    if a.draft_approval:
-        ms = find_manuscript()
-        if not ms:
-            print("🔴 원고를 못 찾았다: reports\\<날짜>_dist_%s.md" % a.ep)
-            return 1
-        draft = build_draft(a.ep, ms, parse_posts(ms))
-        dpath = os.path.join(out_dir, a.ep + ".approval.json")
-        io.open(dpath, "w", encoding="utf-8", newline="\n").write(
-            json.dumps(draft, ensure_ascii=False, indent=1) + "\n")
-        print("초안: %s" % dpath)
-        print("포스트 %d건 · 원고 %s" % (len(draft["posts"]), draft["manuscript"]))
-        print("🔴 **이것은 승인이 아니다.** JJ 가 원고 5포스트를 읽고 "
-              "`scripts\\move-approval.bat` 으로 publish_approval\\ 로 옮겨야 승인이다.")
-        print("STATUS: OK (초안 생성 — 승인 아님)")
-        _finish(a.ep, a.receipt_dir or RECEIPT_DIR, "draft-only")
-        return 0
-
     log("# Threads 발행 — %s · %s" % (a.ep, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
     log("모드: **%s**" % ("실제 게시" if a.publish else "드라이런 (publish 미호출)"))
-    log("승인 폴더: `%s`" % appr_dir)
-    # 🔴 이 회차가 시작될 때 그 폴더가 있었는가. 끝에서 다시 봐서 «없었는데 생겼다» 면
-    #    코드가 만든 것이므로 그 회차를 FAIL 로 찍는다 — 승인 폴더는 사람이 만든다.
-    _DIR_WATCH[:] = [appr_dir, os.path.isdir(appr_dir)]
-    log("승인 폴더 존재(회차 시작 시): %s" % ("예" if _DIR_WATCH[1] else "아니오"))
     if overridden:
         log("🔴 **기본 자리가 아니다 — 시험용 우회** (%s). 실제 회차가 아니다"
             % ", ".join(overridden))
 
-    # 트리거 — 승인 파일이 없으면 워커는 뜨지 않는다 (에러 아님).
-    # 🔴 **`publish_approval\` 만 본다.** reports\ 의 초안은 승인이 아니므로 여기서 찾지 않는다 —
-    #    찾는 순간 «에이전트가 자기에게 내주는 허가» 가 되고 3확인 전체가 무너진다.
-    if not os.path.exists(appr_path):
-        log("승인 파일 없음 — 트리거가 없다: %s" % appr_path)
-        draft_path = os.path.join(out_dir, a.ep + ".approval.json")
-        if os.path.exists(draft_path):
-            log("🔴 초안은 있다 (`%s`) — **초안은 승인이 아니다.** "
-                "JJ 가 `scripts\\move-approval.bat` 으로 옮겨야 한다" % os.path.basename(draft_path))
-        log("STATUS: OK (부분: 승인 파일 없음 — 발행 대상 아님)")
-        _finish(a.ep, rcpt_dir, "no-approval")
-        _write_report(out_dir, a.ep, lines)
-        return 0
-    appr = json.load(io.open(appr_path, encoding="utf-8"))
-
+    # 트리거 — 복붙 세트가 없으면 워커는 뜨지 않는다 (에러 아님).
+    # 🔴 `pack()` 은 게이트 FAIL 이면 파일을 **쓰지 않는다** — 그래서 이 파일의 존재가
+    #    곧 «그 회차 게이트를 통과했다» 다. 초안(`.draft.md`)은 대상이 아니다.
     ms = a.manuscript
     if not ms:
         cand = sorted(f for f in os.listdir(out_dir) if re.match(r"\d{4}-\d\d-\d\d_dist_%s\.md$" % a.ep, f))
         if not cand:
-            log("원고를 못 찾았다: reports\\<날짜>_dist_%s.md" % a.ep)
-            log("STATUS: FAIL manuscript-missing")
-            _finish(a.ep, rcpt_dir, "manuscript-missing")
+            log("복붙 세트 없음 — 트리거가 없다: reports\\<날짜>_dist_%s.md" % a.ep)
+            log("STATUS: OK (부분: 원고 없음 — 발행 대상 아님)")
+            _finish(a.ep, rcpt_dir, "no-manuscript")
             _write_report(out_dir, a.ep, lines)
-            return 1
+            return 0
         ms = os.path.join(out_dir, cand[-1])
+    elif not os.path.exists(ms):
+        log("원고를 못 찾았다: %s" % ms)
+        log("STATUS: FAIL manuscript-missing")
+        _finish(a.ep, rcpt_dir, "manuscript-missing")
+        _write_report(out_dir, a.ep, lines)
+        return 1
     log("원고: %s" % os.path.basename(ms))
 
     posts = parse_posts(ms)
@@ -1143,20 +1070,23 @@ def _run(argv=None):
         _write_report(out_dir, a.ep, lines)
         return 1
 
-    bad = check_approval(appr, a.ep, ms, posts)
+    # 🔴 **발행 자격** (2026-09-10 · 승인 파일 폐기). 사이드카가 재는 두 축을 여기서 본다.
+    bad = check_gate(ms)
     if bad:
         for b in bad:
-            log("🔴 3확인 실패 — %s" % b)
-        log("STATUS: FAIL approval (%d건)" % len(bad))
-        _finish(a.ep, rcpt_dir, "approval")
+            log("🔴 자격 실패 — %s" % b)
+        log("STATUS: FAIL gate (%d건)" % len(bad))
+        _finish(a.ep, rcpt_dir, "gate")
         _write_report(out_dir, a.ep, lines)
         return 1
-    log("3확인 통과 — ep 일치 · 원고 해시 일치 · chain↔posts↔원고 seq 일치")
-    log("승인 출처: `%s` — **이동이 곧 서명이다**" % appr_path)
-    log("🔴 ② 는 이 스크립트가 재지 않는다 — «승인 파일이 `publish_approval\\` 에 있고 "
-        "그 폴더에 대한 에이전트 쓰기·이동배치 실행이 **이 회차에** 거부됐음» 을 "
-        "래퍼의 `permission_probe.py` 가 실증한다. "
-        "그것은 «만들 수 없다» 가 아니라 **«이 회차에 만들지 못했다»** 다(§0 4층 ④)")
+    _meta = read_sidecar(ms) or {}
+    log("자격 통과 — 게이트 FAIL 0건 · 원고 해시 = 게이트 당시 해시 (%s…)"
+        % str(_meta.get("body_sha256"))[:12])
+    log("검사 판본: %s" % _meta.get("gate_skill_revision", "미상"))
+
+    appr = build_plan(a.ep, ms, posts)
+    log("발행 계획: P%s (포스트 %d건)"
+        % ("·P".join(str(s) for s in appr["chain"]), len(appr["posts"])))
 
     token = load_token()
     api = Api(token, allow_publish=a.publish)
@@ -1267,33 +1197,14 @@ def _run(argv=None):
     return rc
 
 
-#: [승인 폴더 경로, 회차 시작 시 존재 여부]. 아래 `main` 이 **모든 출구에서** 다시 본다.
-_DIR_WATCH = []
-
-
 def main(argv=None):
-    """`_run` 을 감싸 **어느 출구로 나가든** 승인 폴더가 새로 생겼는지 확인한다.
+    """🔴 종전에는 여기서 «승인 폴더가 회차 도중에 생겼는가» 를 봤다 (2026-08-28).
 
-    🔴 첫 판은 이 검사를 함수 꼬리에만 뒀다가 **조기 반환 경로(승인 파일 없음)에서 건너뛰었다** —
-    역검증에서 «안 걸렸다» 로 잡혔다. 실제 회차의 대부분이 그 조기 반환 경로이므로,
-    꼬리에만 두면 거의 언제나 검사가 없는 것과 같다(정관 §0 «검사가 헛도는지»).
+    승인 장치를 폐기(2026-09-10)하면서 그 감시도 같이 뺐다 — 볼 폴더가 없다.
+    자격을 재는 자리는 `_run` 안의 `check_gate(ms)` 하나이고, 그 축의 역검증은
+    `_selftest()` ③ 에 있다.
     """
-    _DIR_WATCH[:] = []
-    # `finally` 안에서 `return` 하지 않는다 — 그렇게 하면 `_run` 이 던진 예외를 조용히 삼킨다
-    # (파이썬이 SyntaxWarning 으로 경고하는 자리이고, 정관 §0 «조용히 실패하는 코드» 그대로다).
-    # 판정만 `finally` 에서 세우고, 값은 밖에서 돌려준다.
-    created = [False]
-    try:
-        rc = _run(argv)
-    finally:
-        created[0] = (len(_DIR_WATCH) == 2 and (not _DIR_WATCH[1])
-                      and os.path.isdir(_DIR_WATCH[0]))
-        if created[0]:
-            for line in ("🔴 승인 폴더가 이 회차 도중에 생겼다: %s" % _DIR_WATCH[0],
-                         "   그 폴더는 사람이 만든다 — 코드가 만들면 «이동이 곧 서명» 이 성립하지 않는다.",
-                         "STATUS: FAIL approval-dir-created"):
-                print(line)
-    return 1 if created[0] else rc
+    return _run(argv)
 
 
 if __name__ == "__main__":

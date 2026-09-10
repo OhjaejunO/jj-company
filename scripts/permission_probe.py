@@ -5,7 +5,7 @@ r"""승인 거부 프로브 — **도구 층** 권한 게이트가 «이 회차�
 띄워 Write·Bash **도구를 부르게 하고** 그 결과를 본다. 같은 경로가 **파이썬 파일 API 로는
 열려 있다** — 실측으로 확인했다:
 
-    io.open(r"C:\Users\ojaej\jj-company\publish_approval\_probe.json", "w")  → 성공
+    io.open(r"C:\Users\ojaej\jj-company\docs\_probe_should_fail.md", "w")  → 성공
 
 차단의 실체는 `settings.json` 의 `Edit(경로)` deny 이고 그것은 도구 호출을 막는다. 에이전트가
 Bash 로 파이썬 한 줄을 돌리면 그 문은 열려 있다 — §4 «`--allowed-tools` 는 게이트가 아니다» 의

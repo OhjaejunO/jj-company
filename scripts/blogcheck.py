@@ -2,21 +2,20 @@
 r"""blogcheck — 네이버 블로그 초안(reports\blog\<날짜>_<이름>.md) 게이트.
 
 WHY (2026-09-05 · 네이버 벤치마크 리포트 §5-1 규격을 기계로)
-  잘 되는 글의 꼴(요약 3문장 → Q. 소제목 → 표 → FAQ → 한마디 → 관련글 → 태그 5~15)과
+  잘 되는 글의 꼴(요약 3문장 → Q. 소제목 → 표 → FAQ → 관련글 → 태그 5~15)과
   지는 글의 신호(자동 생성 문체 · 이미지 0~1 · 해시태그 30+ · 캡션 복붙 · 자기 서술)를
   발행 전에 잰다. 사람이 읽기 전에 기계가 먼저 거른다 (정관 §0 4층 ③).
 
 USAGE
   py scripts\blogcheck.py <md> [--publish] [--caption <caption.txt>]
-     기본은 draft 모드: 「[[JJ 한마디]]」 자리가 **비어 있어야** 통과 (기계가 채우면 FAIL).
-     --publish: 자리가 **채워져 있어야** 통과 (사람이 2문장을 넣었는가).
+     --publish: 발행 직전 회차라는 표시. 🔴 2026-09-10 에 «한마디» 축을 폐기해
+       **지금은 draft 와 판정이 같다** — 모드로 갈리는 축이 하나도 남지 않았다.
      --caption: 인스타 캡션과 20자 이상 같은 문장이 있으면 FAIL (복붙 금지).
   py scripts\blogcheck.py --self-test      역검증 (통과본 1 + 걸려야 하는 입력 8)
 
 OUTPUT  마지막 줄 STATUS: OK | STATUS: FAIL <n>건
 LIMITS (정관 §0 4층 ④ — 못 잡는 것)
   - 사실이 검증로그와 맞는지 (그건 편 게이트 [5-1] 몫 — 여기서는 «출처: 도메인 · 날짜» 꼴만 본다)
-  - 한마디가 «판단»인지 (사람 자리)
   - 네이버가 실제로 어떻게 판정하는지 (비공개)
 """
 import io
@@ -34,7 +33,6 @@ BANNED = [
 ]
 EP_NUM = re.compile(r"\bep\d{1,3}\b")
 SRC = re.compile(r"\(출처: (?:[a-z0-9.-]+\.[a-z]{2,}|X / @[A-Za-z0-9_]+)(?: [^)]*)? · 20\d\d-\d\d-\d\d\)")   # 도메인 또는 X 계정
-PLACEHOLDER = "[[JJ 한마디]]"
 
 
 def _section(md, name):
@@ -94,20 +92,12 @@ def check(md, publish=False, caption=None, kind=None):
     if faq is None or len(re.findall(r"\*\*Q\.", faq)) < 3:
         fails.append("FAQ 3문답 미만")
 
-    one = _section(md, "토망치랩 한마디")
-    if one is None:
-        fails.append("## 토망치랩 한마디 없음")
-    else:
-        has_ph = PLACEHOLDER in one
-        filled = _text_len(one.replace(PLACEHOLDER, "")) >= 20
-        if publish and (has_ph or not filled):
-            fails.append("발행 모드: 한마디가 비어 있음 (사람이 2문장을 채운다)")
-        if not publish and (not has_ph or filled):
-            fails.append("초안 모드: 한마디 자리는 «%s» 로 비워 둔다 (기계가 채우지 않는다)" % PLACEHOLDER)
-        if filled:
-            n = len(re.findall(r"[.!?요]\s", one.replace(PLACEHOLDER, "") + " "))
-            if n > 3:
-                fails.append("한마디 %d문장 (≤3)" % n)
+    # 🔴 «토망치랩 한마디» 축은 2026-09-10 에 폐기했다 (JJ 지시 «한마디 절을 없앤다»).
+    #    그 축은 «사람이 채워야 통과» 였고, 그래서 **JJ 서명 없이 발행하기로 한 뒤에는
+    #    남은 유일한 사람 자리**가 됐다 — 승인 파일을 없애고 이 축을 두면 이름만 바뀐
+    #    같은 잠금이 된다. 절 자체를 규격에서 뺐다(`docslog-format.md`).
+    #    글은 사실 정리 + FAQ 로 닫는다. 판단을 실을 자리가 다시 필요해지면
+    #    그때는 «누가 쓰는가» 를 먼저 정하고 축을 새로 세운다.
 
     if kind == "topic":
         # 한 소재 글의 뼈대 (테크토니형) — «핵심 정보 한눈에» 표 + «참고 자료» 목록
@@ -143,7 +133,7 @@ def check(md, publish=False, caption=None, kind=None):
     if not (5 <= len(tl) <= 15):
         fails.append("해시태그 %d개 (5~15)" % len(tl))
 
-    prose = (summ or "") + body + (faq or "") + (one or "")
+    prose = (summ or "") + body + (faq or "")
     for b in BANNED:
         if b in prose:
             fails.append("금지 문형 «%s»" % b)
@@ -223,10 +213,6 @@ kind: daily
 **Q. 셋?**
 답이에요.
 
-## 토망치랩 한마디
-
-[[JJ 한마디]]
-
 ## 관련글
 
 ☞ 카드 — instagram.com/p/x
@@ -257,12 +243,12 @@ def self_test():
     cases = []
     f, _ = check(good)
     cases.append(("통과본 통과", not f, f))
-    f, _ = check(good.replace("[[JJ 한마디]]", "한마디를 기계가 채웠어요."))
-    cases.append(("초안 모드에서 채워진 한마디 → FAIL", any("초안 모드" in x for x in f), f))
+    # 🔴 한마디 축이 폐기됐으니 **양쪽을 다 본다** (정관 §0 — 한쪽만 보면 «전부 통과시키는
+    #    검사» 도 정상으로 보인다). ⓐ 절이 없어도 통과한다(축이 실제로 사라졌다)
+    #    ⓑ --publish 를 줘도 판정이 같다(모드가 이 축 때문에 갈리던 것이 끝났다)
     f, _ = check(good, publish=True)
-    cases.append(("발행 모드에서 빈 한마디 → FAIL", any("발행 모드" in x for x in f), f))
-    f, _ = check(good.replace("[[JJ 한마디]]", "이번 주는 요금이 움직였어요. 지켜볼 자리예요."), publish=True)
-    cases.append(("발행 모드 채워진 한마디 → 통과", not f, f))
+    cases.append(("한마디 절 없이 --publish 통과", not f, f))
+    assert "토망치랩 한마디" not in good, "픽스처에 한마디 절이 남아 있다 — 축 폐기가 안 잰다"
     f, _ = check(good.replace("(출처: blog.google · 2026-09-07)", ""))
     cases.append(("출처 없는 소식 → FAIL", any("출처" in x for x in f), f))
     f, _ = check(good.replace("#AI뉴스 #AI소식 #Astra #제미나이 #토망치랩", "#AI뉴스 #AI소식"))

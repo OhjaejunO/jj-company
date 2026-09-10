@@ -2,7 +2,12 @@
 #
 # JJ Company OS - Naver blog publish worker wrapper
 # Spec: docs\blog-format.md (step 5)   Charter section 0 (publishing, Naver clause 2026-09-06).
-# Mirrors publish-threads.ps1 - same lock, same version gate, same permission probe.
+# Mirrors publish-threads.ps1 - same lock, same version gate.
+#
+# 2026-09-10: the permission probe that used to run here is GONE. It proved that the
+# approval folder was out of reach, and JJ retired the approval device, so the probe
+# had nothing left to measure. Qualification is now blogcheck.py --publish, which the
+# worker runs on itself right before it would click Publish.
 #
 # ASCII-only on purpose: Windows PowerShell 5.1 decodes BOM-less .ps1 files as the
 # system ANSI codepage, which mangles Korean. Korean lives in the Python worker.
@@ -22,7 +27,6 @@ $ErrorActionPreference = 'Continue'
 
 $Task    = 'publish-naver'
 $Stamp   = Get-Date -Format 'yyyyMMdd'
-$IsoDate = Get-Date -Format 'yyyy-MM-dd'
 $LogDir  = Join-Path $Hq 'logs\scheduled'
 $LogFile = Join-Path $LogDir ($Task + '_' + $Stamp + '.log')
 $LockFile = Join-Path $Hq ('logs\' + $Task + '.lock')
@@ -85,38 +89,6 @@ try {
     }
     $rev = (& git -C $Hq rev-parse --short HEAD 2>&1 | Select-Object -First 1)
     Write-Log ('operations server now at ' + $rev)
-
-    # --- check 2 of the three checks: the approval folder must be out of reach ----
-    $AllowedTools = @(
-        'Read', 'Glob', 'Grep',
-        'Edit(reports/**)'
-    )
-    $ProbePy = Join-Path $Hq 'scripts\permission_probe.py'
-    if (-not (Test-Path -LiteralPath $ProbePy)) {
-        Write-Log ('permission probe missing: ' + $ProbePy)
-        Write-Log 'STATUS: FAIL probe-script-missing'
-        exit 1
-    }
-    $DataDir = Join-Path $Hq 'logs\publish-data'
-    New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
-    $ProbeData  = Join-Path $DataDir ('probe_naver_' + $Post + '_' + $IsoDate + '.txt')
-    $ProbeDeny  = Join-Path $Hq 'publish_approval\_probe_should_fail.json'
-    $ProbeAllow = Join-Path $Hq 'reports\_probe_ok.md'
-    $MoveBat    = Join-Path $Hq 'scripts\move-approval.bat'
-    $ExecMarker = Join-Path $Hq 'logs\_move-approval-ran.marker'
-    Write-Log ('permission_probe.py -> ' + $ProbeData)
-    $probeOut  = & py $ProbePy --cwd $Hq --deny $ProbeDeny --allow $ProbeAllow `
-        --deny-exec ('"' + $MoveBat + '" --probe') --exec-marker $ExecMarker `
-        '--' @AllowedTools 2>&1
-    $probeCode = $LASTEXITCODE
-    Set-Content -LiteralPath $ProbeData -Value $probeOut -Encoding UTF8
-    foreach ($l in $probeOut) { Write-Log ('  probe| ' + $l) }
-    if ($probeCode -ne 0) {
-        $pv = ($probeOut | Select-String -Pattern '^PROBE_VERDICT=' | Select-Object -Last 1)
-        Write-Log ('STATUS: FAIL probe ' + $(if ($pv) { $pv.Line } else { 'no verdict line' }))
-        exit 1
-    }
-    Write-Log 'probe OK - approval folder refused, move batch not runnable, reports writable'
 
     # --- worker ------------------------------------------------------------------
     $WorkerPy = Join-Path $Hq 'scripts\publish_naver.py'

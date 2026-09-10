@@ -29,7 +29,7 @@ SKILL_MD = os.path.join(os.path.expanduser("~"), ".claude", "skills", "tomangchi
 TASKS = ["hermes-event-watch", "tomangchi-scout", "job-scout", "morning-vault-health", "skill-drift-audit"]   # 아침 회차 5 (정관 §4 현황판)
 REPOS = ["OhjaejunO/jj-company", "OhjaejunO/tomangchi-skill", "tomangchi-lab/tomangchi-lab.github.io", "OhjaejunO/OhjaejunO.github.io", "OhjaejunO/content-ops"]
 #: 승인 대기 큐의 «되돌림 비용» — 정관 §0 의 가르는 기준 그대로. 기계가 아는 만큼만 적는다.
-REVERSIBLE = {"pr": "revert 한 번", "approval": "파일 이동 취소", "publish_wait": "발행 전 — 전량 재생성", "fail": "재실행", "wait": "입력 한 줄"}
+REVERSIBLE = {"pr": "revert 한 번", "publish_wait": "발행 전 — 전량 재생성", "fail": "재실행", "wait": "입력 한 줄"}
 
 _cache = {}
 
@@ -140,9 +140,8 @@ def approvals(terminals=None, scheduled=None):
     for p in open_prs():
         q.append({"kind": "pr", "what": "PR #%s · %s" % (p["n"], p["repo"]), "detail": p["title"], "who": "JJ 머지 승인", "reversible": REVERSIBLE["pr"],
                   "flag": (p.get("mergeable") or "").lower()})
-    for f in glob.glob(os.path.join(HQ_REPORTS, "*.approval.json")):
-        q.append({"kind": "approval", "what": "Threads 승인 초안 · " + os.path.basename(f).split(".")[0], "detail": "move-approval.bat 으로 옮기면 서명",
-                  "who": "JJ 서명", "reversible": REVERSIBLE["approval"], "flag": ""})
+    # 🔴 «Threads 승인 초안» 칸은 2026-09-10 에 뺐다 — 승인 장치 자체를 폐기했다(JJ 지시).
+    #    남아 있으면 이미 없는 사람 자리를 «할 일» 로 계속 띄운다.
     # 게이트 통과했는데 발행로그에 없는 편 (02_제작중)
     pl = publog(); done = set()
     try:

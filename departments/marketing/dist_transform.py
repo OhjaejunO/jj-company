@@ -532,10 +532,12 @@ def pack(ep, posts, rows, gate, media=None):
     a("# ep%s Threads 발행 복붙 세트 — %s" % (ep["EP"], today))
     a("")
     a("> **JJ 는 이 섹션만 본다.** 포스트를 위에서부터 차례로 올리고, 2번째부터는 **답글로 이어 붙인다.**")
-    # §0 이 Threads 를 승인 장치와 함께 열었다 (2026-08-28) — 종전 «API 자동 게시는 범위 밖» 은
-    # 개정 전 문장이라 2026-09-02 에 갈았다. 워커는 아직 텍스트 전용이라 첨부 편은 사람이 올린다.
-    a("> 발행은 승인 파일(`publish_approval\\<ep>.json`)이 선 뒤에만 — 텍스트 전용 편은 워커")
-    a("> (`publish_threads.py --publish`)가, **첨부가 있는 편은 사람이** 올린다 (§0 · 워커는 텍스트 전용).")
+    # §0 이 Threads 를 승인 장치와 함께 열었고(2026-08-28), 2026-09-10 에 JJ 지시로
+    # **그 승인 장치를 폐기**했다 — 이 파일이 실재한다는 것이 곧 «게이트 통과» 다
+    # (`pack()` 은 FAIL 이 하나라도 있으면 아무것도 쓰지 않는다). 워커는 첨부를 싣는다.
+    a("> 발행은 게이트 통과가 자격이다 — 이 파일이 있다는 것이 그 증거다(FAIL 이면 안 써진다).")
+    a("> 워커(`publish_threads.py --publish`)가 올린다. 사이드카 해시가 이 원고와 다르면 선다.")
+    a("> 🔴 **첨부에 공개 URL·sha256 이 없는 편은 워커가 멈춘다** — 그 편은 사람이 올린다.")
     a("")
     a("## 발행 순서")
     a("")
@@ -635,17 +637,30 @@ def main(argv=None):
         return 1
     out = a.out or os.path.join(outdir, "%s_dist_ep%s.md" % (today, ep["EP"]))
     write_utf8(out, pack(ep, posts, rows, gate, media))
-    # 판본 기록은 **원고 밖**에 남긴다 (C-32 ①). 없애는 것이 아니라 자리를 옮기는 것이다 —
-    # 승인 초안이 이 파일을 읽어 메타 필드로 싣는다.
+    # 판본 기록은 **원고 밖**에 남긴다 (C-32 ①). 없애는 것이 아니라 자리를 옮기는 것이다.
+    #
+    # 🔴 **사이드카가 발행 자격의 증적이다 (2026-09-10 · 승인 파일 폐기).** 종전에는 JJ 가
+    #    옮긴 `publish_approval\<ep>.json` 이 트리거였고 그 파일이 원고 해시를 들고 있었다.
+    #    그 자리를 없앴으므로 **여기서 지금 쓴 파일의 해시를 박는다** — 워커는 발행 직전
+    #    원고를 다시 해싱해 이 값과 견주고, 다르면 «게이트 뒤에 손댄 원고» 로 보고 선다.
+    #    `gate_failed` 는 0 만 나온다(FAIL 이면 위에서 이미 돌아갔다). 그래도 **적는다** —
+    #    워커가 «0인지» 를 재게 해야 축이 실재하고, 옛 판 사이드카와도 구별된다.
+    import hashlib as _hl
     import json as _json
+    _sha = _hl.sha256(io.open(out, "rb").read()).hexdigest()
     write_utf8(out + ".meta.json", _json.dumps(
         {"gate_skill_revision": distcheck.skill_revision(),
-         "_왜_여기_있나": ("원고는 승인 해시의 대상이라 배포마다 바뀌는 값을 담으면 "
-                      "내용이 그대로인데 서명이 낡는다 (clause-backlog C-32)")},
+         "gate_failed": len(gate.failed),
+         "body_sha256": _sha,
+         "packed_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S KST"),
+         "_왜_여기_있나": ("발행 자격의 증적이다 — 워커가 `body_sha256` 을 지금 원고와 "
+                      "대조하고 `gate_failed` 가 0인지 본다. 판본을 원고 안에 두지 "
+                      "않는 이유는 clause-backlog C-32 ①.")},
         ensure_ascii=False, indent=2))
     print("복붙 세트: %s" % out)
     print("검사 판본: %s (원고 밖 · %s)"
           % (distcheck.skill_revision(), os.path.basename(out) + ".meta.json"))
+    print("자격 증적: body_sha256 %s… · gate_failed %d" % (_sha[:12], len(gate.failed)))
     return 0
 
 
