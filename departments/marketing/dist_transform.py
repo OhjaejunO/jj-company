@@ -149,7 +149,39 @@ class _Subst(ast.NodeTransformer):
                         for a in node.args)):
             return ast.copy_location(
                 ast.Constant(os.path.join(*[a.value for a in node.args])), node)
+        # 넷째 갈래: `max`·`min` 의 **상수 인자** (2026-09-10 · ep51 실측). 빌더가 팬 길이를
+        # `max(24.566667, 18.466667)` 로 적어 CARDS 전체가 안 읽혔다 — `len` 과 같은 꼴로
+        # **인자가 전부 상수 숫자일 때만** 접는다. 값을 손으로 적지 않은 편을 읽으려는 것이지
+        # 계산기를 만드는 것이 아니다(위 doctrine 그대로 — 갈래를 이름으로 열거한다).
+        if (isinstance(node.func, ast.Name) and node.func.id in ("max", "min")
+                and len(node.args) >= 2 and not node.keywords
+                and all(isinstance(a, ast.Constant) and isinstance(a.value, (int, float))
+                        and not isinstance(a.value, bool) for a in node.args)):
+            fn = max if node.func.id == "max" else min
+            return ast.copy_location(ast.Constant(fn(*[a.value for a in node.args])), node)
         return node
+
+    def visit_Subscript(self, node):
+        """이미 상수로 접힌 dict·list 에서 한 칸 꺼내기 (2026-09-10 · ep51/52/55 실측).
+
+        빌더가 `OFFICIAL_VIDEO["file"]`·`OFFICIAL_CLIPS["03"]["file"]` 로 자기 선언을
+        가리키기 시작해 **세 편의 CARDS 가 통째로 안 읽혔다.** 이름 쪽은 `visit_Name` 이
+        이미 상수 dict 로 바꿔 주는데 그 다음 칸 꺼내기가 없어 거기서 멈춘 것이다.
+        🔴 **계산이 아니라 «선언된 값 읽기»다** — 컨테이너와 키가 **둘 다 상수일 때만** 접고,
+        키가 없거나 꼴이 안 맞으면 **그대로 둔다**(조용히 틀린 값을 만들지 않는다).
+        """
+        node = self.generic_visit(node)
+        if not (isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, (dict, list, tuple, str))):
+            return node
+        sl = node.slice
+        if not (isinstance(sl, ast.Constant) and isinstance(sl.value, (str, int))
+                and not isinstance(sl.value, bool)):
+            return node
+        try:
+            return ast.copy_location(ast.Constant(node.value.value[sl.value]), node)
+        except (KeyError, IndexError, TypeError):
+            return node
 
     def visit_BinOp(self, node):
         node = self.generic_visit(node)
