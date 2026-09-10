@@ -1,17 +1,16 @@
 # -*- coding: utf-8 -*-
 r"""네이버 블로그 발행 워커 (2단계) — 임시글을 불러와 발행 창에서 카테고리·공개·태그·시각을 넣고 «발행»을 누른다.
 
-    py scripts\publish_naver.py --post 2026-09-07_Fable_Mythos5_1 --draft-approval      ← 승인 «초안» 을 reports\ 에
     py scripts\publish_naver.py --post 2026-09-07_Fable_Mythos5_1                       ← 드라이런: 발행 창까지 채우고 «발행» 은 안 누른다
-    py scripts\publish_naver.py --post 2026-09-07_Fable_Mythos5_1 --publish             ← 실제 발행 (publish_approval\ 승인 필수)
+    py scripts\publish_naver.py --post 2026-09-07_Fable_Mythos5_1 --publish             ← 실제 발행
     py scripts\publish_naver.py --self-test
 
-## 승인 (정관 §0 «승인은 채팅 문장이 아니라 파일이다» — Threads 장치 그대로)
-① 에이전트: `--draft-approval` → `reports\blog-<stem>.approval.json` 초안 (원고 해시·제목·태그·카테고리·시각)
-② JJ: `scripts\move-approval.bat` 으로 `publish_approval\blog-<stem>.json` 으로 옮긴다. **이동이 곧 서명이다.**
-③ 워커: 발행 직전 셋을 본다 — 승인 해시 = 지금 원고 파일 해시 · 대상 stem 일치 · 승인 파일이 `publish_approval\` 에 있을 것.
-   하나라도 어긋나면 «발행» 을 누르지 않고 `STATUS: FAIL approval-…` 로 멈춘다. 승인 폴더가 에이전트 손에 닿지 않는다는
-   증명은 래퍼 `publish-naver.ps1` 의 프로브가 매 회차 한다.
+## 🔴 발행 자격 (2026-09-10 개정 — 승인 파일 장치는 폐기했다)
+종전에는 `publish_approval\blog-<stem>.json` 이 트리거였다. JJ 지시로 그 자리를 없앴다 —
+**게이트 통과가 곧 자격이다.** 워커는 발행 직전 `blogcheck.py --publish` 를 스스로 돌리고,
+`STATUS: OK` 가 아니면 «발행» 을 누르지 않는다(`STATUS: FAIL blogcheck`).
+`--publish` 를 명시하지 않으면 어떤 경우에도 누르지 않는다(기본값 드라이런).
+근거는 되돌림 비용이다(정관 §0) — 네이버 글은 삭제·비공개 전환으로 되돌아가고 원고는 `reports\blog\` 에 남는다.
 
 ## 실측으로 정한 경로 (2026-09-06 · ai-tomangchi-lab)
 - 임시글 목록: 헤더 `save_count_btn__` → `.layer_popup__WjlfW` 의 `li` · 불러오기는 `article_button__` (삭제는 `delete_button__`, 안 누른다).
@@ -27,8 +26,6 @@ r"""네이버 블로그 발행 워커 (2단계) — 임시글을 불러와 발�
 """
 import argparse
 import base64
-import datetime
-import hashlib
 import io
 import json
 import os
@@ -36,28 +33,21 @@ import re
 import subprocess
 import sys
 
-try:  # cp949 콘솔에서 «—» 가 든 로그 줄이 UnicodeEncodeError 로 죽었다(2026-09-07 --draft-approval 실측 · 파일은 이미 써진 뒤)
+try:  # cp949 콘솔에서 «—» 가 든 로그 줄이 UnicodeEncodeError 로 죽었다(2026-09-07 실측 · 파일은 이미 써진 뒤)
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
     pass
-import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import naver_draft as nd  # noqa: E402
 
 HQ = nd.HQ
-APPROVAL_DIR = os.path.join(HQ, "publish_approval")
-DRAFT_DIR = os.path.join(HQ, "reports")
 SHOT_DIR = os.path.join(HQ, "logs", "naver-publish")
 BLOGCHECK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "blogcheck.py")
 TAG_CHARS = 100          # 네이버 태그 칸 글자 상한 (# 포함, JJ 실측 2026-09-06)
 TAG_MAX = 30
 P = "const p=d.querySelector('[class*=layer_content_set_publish]'); if(!p) return 'nopanel';"
-
-
-def sha256_file(path):
-    return hashlib.sha256(io.open(path, "rb").read()).hexdigest()
 
 
 def tags_problem(tags):
@@ -86,40 +76,21 @@ def load_post(stem):
     return p, meta, title, tags
 
 
-def build_draft(stem, md_path, title, tags, category, when):
-    return {
-        "ep": "blog-" + stem,
-        "body_sha256": sha256_file(md_path),
-        "title": title,
-        "tags": tags,
-        "category": category,
-        "open": "public",
-        "publish_time": when,
-        "drafted_by": "publish_naver.py --draft-approval",
-        "drafted_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S KST"),
-        "manuscript": os.path.basename(md_path),
-        "_승인_방법": ("이 파일을 scripts\\move-approval.bat 으로 publish_approval\\ 로 옮기면 "
-                   "그것이 승인이다. reports\\ 에 있는 동안은 승인이 아니다."),
-    }
+def plan_problem(tags, category, when):
+    """발행 전 «형식» 확인 — 종전 `check_approval` 이 승인 파일에 대고 재던 것들이다 (2026-09-10 개정).
 
-
-def check_approval(appr, stem, md_path, title, tags):
+    승인 파일이 사라졌으므로 잴 대상이 원고·인자로 바뀌었을 뿐 축은 그대로다:
+    태그 개수·글자 상한 · 카테고리 비었는가 · 예약 시각 꼴.
+    (원고 해시 대조는 축이 없어졌다 — 대조할 «승인 시점의 해시» 가 없다.
+     그 자리는 발행 직전 `blogcheck --publish` 가 대신한다 — 지금 파일을 지금 잰다.)
+    """
     bad = []
-    if appr.get("ep") != "blog-" + stem:
-        bad.append("ep-mismatch: 승인 %r ≠ 대상 %r" % (appr.get("ep"), "blog-" + stem))
-    got = sha256_file(md_path)
-    if appr.get("body_sha256") != got:
-        bad.append("approval-stale: 원고 해시 불일치 (승인 %s… / 실물 %s…)" % (str(appr.get("body_sha256"))[:12], got[:12]))
-    if appr.get("title") != title:
-        bad.append("title-mismatch")
-    if list(appr.get("tags") or []) != list(tags):
-        bad.append("tags-mismatch")
-    if not appr.get("category"):
+    if not category:
         bad.append("category-empty")
-    tp = tags_problem(appr.get("tags") or [])
+    tp = tags_problem(tags)
     if tp:
         bad.append("tags: " + tp)
-    tm = time_problem(appr.get("publish_time"))
+    tm = time_problem(when)
     if tm:
         bad.append("time: " + tm)
     return bad
@@ -248,34 +219,14 @@ def gate(md_path, log):
 
 def run(a, log):
     md_path, _meta, title, tags = load_post(a.post)
-    if a.draft_approval:
-        tp = tags_problem(tags) or time_problem(a.at)
-        if tp:
-            log("STATUS: FAIL draft " + tp); return 1
-        if not gate(md_path, log):
-            log("STATUS: FAIL blogcheck (승인 초안을 만들지 않는다)"); return 1
-        out = os.path.join(DRAFT_DIR, "blog-" + a.post + ".approval.json")
-        io.open(out, "w", encoding="utf-8").write(json.dumps(build_draft(a.post, md_path, title, tags, a.category, a.at), ensure_ascii=False, indent=1))
-        log("approval draft -> " + out)
-        log("STATUS: OK (초안 — 서명은 JJ 가 move-approval.bat 으로)"); return 0
-
-    appr = None
-    if a.publish:
-        ap = os.path.join(APPROVAL_DIR, "blog-" + a.post + ".json")
-        if not os.path.exists(ap):
-            log("STATUS: FAIL approval-missing " + ap); return 1
-        appr = json.loads(io.open(ap, encoding="utf-8").read())
-        bad = check_approval(appr, a.post, md_path, title, tags)
-        if bad:
-            for b in bad:
-                log("  approval| " + b)
-            log("STATUS: FAIL approval-" + bad[0].split(":")[0]); return 1
-        category, when = appr["category"], appr["publish_time"]
-    else:
-        category, when = a.category, a.at
-        tp = tags_problem(tags) or time_problem(when)
-        if tp:
-            log("STATUS: FAIL " + tp); return 1
+    category, when = a.category, a.at
+    bad = plan_problem(tags, category, when)
+    if bad:
+        for b in bad:
+            log("  plan| " + b)
+        log("STATUS: FAIL " + bad[0].split(":")[0]); return 1
+    # 🔴 게이트가 곧 발행 자격이다 (2026-09-10 · 승인 파일 폐기). 드라이런에서도 돈다 —
+    #    통과 못 한 원고로 에디터를 채워 두면 사람이 «발행» 을 누를 수 있게 된다.
     if not gate(md_path, log):
         log("STATUS: FAIL blogcheck"); return 1
 
@@ -307,27 +258,21 @@ def run(a, log):
 
 
 def self_test():
-    d = tempfile.mkdtemp()
-    md = os.path.join(d, "x.md")
-    io.open(md, "w", encoding="utf-8").write("---\nkind: topic\n---\n# 제목 (2026년 9월)\n## 태그\n#a #b\n")
     tags = ["a", "b"]
-    ok = build_draft("x", md, "제목 (2026년 9월)", tags, "AI 뉴스", "now")
     cases = [
-        ("정상 승인 통과", dict(ok), []),
-        ("ep 불일치 걸림", dict(ok, ep="blog-y"), ["ep-mismatch"]),
-        ("원고 바뀌면 걸림", dict(ok, body_sha256="0" * 64), ["approval-stale"]),
-        ("태그 바뀌면 걸림", dict(ok, tags=["a"]), ["tags-mismatch"]),
-        ("카테고리 비면 걸림", dict(ok, category=""), ["category-empty"]),
-        ("시각 꼴 틀리면 걸림", dict(ok, publish_time="9:05"), ["time"]),
+        ("정상 통과", (tags, "AI 뉴스", "now"), []),
+        ("카테고리 비면 걸림", (tags, "", "now"), ["category-empty"]),
+        ("시각 꼴 틀리면 걸림", (tags, "AI 뉴스", "9:05"), ["time"]),
+        ("태그 0개면 걸림", ([], "AI 뉴스", "now"), ["tags"]),
     ]
     fails = 0
-    for name, appr, expect in cases:
-        bad = check_approval(appr, "x", md, "제목 (2026년 9월)", tags)
-        got = [b.split(":")[0] for b in bad]
+    for name, args, expect in cases:
+        got = [b.split(":")[0] for b in plan_problem(*args)]
         res = got == expect
         fails += not res
         print("%s %s: %s" % ("ok  " if res else "FAIL", name, got))
-    _src = io.open(__file__, encoding="utf-8").read().split("def run(")[1]
+    _all = io.open(__file__, encoding="utf-8").read()
+    _src = _all.split("def run(")[1]
     extra = [
         ("태그 100자 초과 걸림", tags_problem(["가나다라마바사아자차"] * 10) is not None),
         ("태그 100자 안 통과", tags_problem(["가나다라"] * 10) is None),
@@ -335,6 +280,14 @@ def self_test():
         ("예약 09:00 통과", time_problem("09:00") is None),
         ("발행 클릭(o.confirm)이 코드에 한 번, --publish 분기 안에만 있다",
          _src.count("o.confirm(") == 1 and _src.index("if a.publish:") < _src.index("o.confirm(") < _src.index("_dry.png")),
+        # 🔴 승인 폐기의 역검증 — 축을 «없앴다» 는 코드가 남아 있지 않다는 것으로만 증명된다.
+        # 🔴 승인 폐기의 역검증 — 축을 «없앴다» 는 그 자리가 비었다는 것으로만 증명된다.
+        #    문서 문장(«종전에는 …») 은 대상이 아니라 **호출 가능한 자리**만 본다.
+        ("승인 장치 세 자리가 다 비었다",
+         not [n for n in ("APPROVAL_DIR", "check_approval", "build_draft") if n in globals()]),
+        ("--draft-approval 플래그가 없다", 'add_argument("--draft-' + 'approval"' not in _all),
+        # 게이트가 «발행 클릭보다 앞»에 있는가. 순서가 뒤집히면 자격 검사가 사후 확인이 된다.
+        ("gate() 가 o.confirm() 보다 앞에서 불린다", _src.index("if not gate(") < _src.index("o.confirm(")),
     ]
     for name, res in extra:
         fails += not res
@@ -349,7 +302,6 @@ if __name__ == "__main__":
     ap.add_argument("--blog", default=os.environ.get("NAVER_BLOG_ID", "ai-tomangchi-lab"))
     ap.add_argument("--category", default="AI 뉴스")
     ap.add_argument("--at", default="now", help="now 또는 HH:MM (오늘 예약, 분은 10분 단위)")
-    ap.add_argument("--draft-approval", action="store_true")
     ap.add_argument("--publish", action="store_true")
     ap.add_argument("--self-test", action="store_true")
     a = ap.parse_args()

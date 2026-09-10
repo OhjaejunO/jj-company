@@ -7,10 +7,14 @@
 # system ANSI codepage, which mangles Korean. Korean lives in the Python worker.
 #
 # WHAT THIS WRAPPER IS FOR
-#   The worker itself is a deterministic script - it does not need an agent. What it
-#   DOES need is proof, taken on this run, that the approval folder is out of reach.
-#   That proof is the whole of check 2 in the spec's three checks, so it runs FIRST
-#   and a failure stops the run before the worker is ever started.
+#   The worker itself is a deterministic script - it does not need an agent. What the
+#   wrapper adds is the lock, the log the audit can find, the version gate (never
+#   publish from stale code) and the post-publish backup.
+#
+#   2026-09-10: the permission probe that used to run here is GONE. It proved that
+#   the approval folder was out of reach, and JJ retired the approval device, so the
+#   probe had nothing left to measure. Qualification is now the gate itself, checked
+#   inside the worker (sidecar body_sha256 + gate_failed). See the worker's docstring.
 #
 # USAGE
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\publish-threads.ps1 -Ep ep39
@@ -20,7 +24,7 @@ param(
     [Parameter(Mandatory = $true)][string]$Ep,
     [switch]$Publish,
     # Test-only override of the operations server path. A run that uses it says so in
-    # the log, the same way the Python worker labels --approval-dir as a test detour.
+    # the log, the same way the Python worker labels --out-dir as a test detour.
     # Never pass this for a real publish.
     [string]$Hq = 'C:\Users\ojaej\jj-company'
 )
@@ -29,7 +33,6 @@ $ErrorActionPreference = 'Continue'
 
 $Task    = 'publish-threads'
 $Stamp   = Get-Date -Format 'yyyyMMdd'
-$IsoDate = Get-Date -Format 'yyyy-MM-dd'
 $LogDir  = Join-Path $Hq 'logs\scheduled'
 # run_audit.py looks for exactly '<task>_<yyyyMMdd>.log'. The episode used to sit in
 # the file name, which made every publish log invisible to the audit - the start line
@@ -119,51 +122,6 @@ try {
     }
     $rev = (& git -C $Hq rev-parse --short HEAD 2>&1 | Select-Object -First 1)
     Write-Log ('operations server now at ' + $rev)
-
-    # --- check 2 of the three checks: the approval folder must be out of reach ----
-    #
-    # The list below is the permission surface a session gets for this job. The
-    # approval folder appears in NO rule, so a write there must be refused. That is
-    # a claim until something measures it, so the probe measures it - on this run,
-    # in both directions, judged by whether the files exist rather than by what the
-    # model says about them. See scripts\permission_probe.py and charter section 4.
-    $AllowedTools = @(
-        'Read', 'Glob', 'Grep',
-        'Edit(reports/**)'
-    )
-    $ProbePy = Join-Path $Hq 'scripts\permission_probe.py'
-    if (-not (Test-Path -LiteralPath $ProbePy)) {
-        Write-Log ('permission probe missing: ' + $ProbePy)
-        Write-Log 'STATUS: FAIL probe-script-missing'
-        exit 1
-    }
-    $DataDir = Join-Path $Hq 'logs\publish-data'
-    New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
-    $ProbeData  = Join-Path $DataDir ('probe_' + $Ep + '_' + $IsoDate + '.txt')
-    # Deny target sits INSIDE the approval folder on purpose - probing a neighbour
-    # would prove nothing about the folder we actually care about.
-    $ProbeDeny  = Join-Path $Hq 'publish_approval\_probe_should_fail.json'
-    $ProbeAllow = Join-Path $Hq 'reports\_probe_ok.md'
-    # Third axis (2026-08-28): the move batch is JJ's tool and the move IS the
-    # signature, so an agent that can RUN it can sign its own approval. Writing to
-    # the folder being refused does not prove that - execution is a separate door.
-    # The batch's --probe mode only writes a marker and moves nothing, so this stays
-    # harmless even in the case it is meant to catch. Verdict is the marker's ABSENCE.
-    $MoveBat    = Join-Path $Hq 'scripts\move-approval.bat'
-    $ExecMarker = Join-Path $Hq 'logs\_move-approval-ran.marker'
-    Write-Log ('permission_probe.py -> ' + $ProbeData)
-    $probeOut  = & py $ProbePy --cwd $Hq --deny $ProbeDeny --allow $ProbeAllow `
-        --deny-exec ('"' + $MoveBat + '" --probe') --exec-marker $ExecMarker `
-        '--' @AllowedTools 2>&1
-    $probeCode = $LASTEXITCODE
-    Set-Content -LiteralPath $ProbeData -Value $probeOut -Encoding UTF8
-    foreach ($l in $probeOut) { Write-Log ('  probe| ' + $l) }
-    if ($probeCode -ne 0) {
-        $pv = ($probeOut | Select-String -Pattern '^PROBE_VERDICT=' | Select-Object -Last 1)
-        Write-Log ('STATUS: FAIL probe ' + $(if ($pv) { $pv.Line } else { 'no verdict line' }))
-        exit 1
-    }
-    Write-Log 'probe OK - approval folder refused, move batch not runnable, reports writable'
 
     # --- worker ------------------------------------------------------------------
     # The worker defaults to a dry run; -Publish is the only way past that, and it

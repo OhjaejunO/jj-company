@@ -33,7 +33,7 @@
           "instagram",
           "kit"
         ],
-        "note": "승인은 채팅이 아니라 파일이다. JJ 가 옮긴 승인 파일만 워커가 믿고, 인스타그램은 사람이 올린다."
+        "note": "발행 자격은 게이트 통과다. 사이드카 해시가 지금 원고와 같을 때만 워커가 올리고, 인스타그램은 사람이 올린다."
       },
       {
         "id": "boundaries",
@@ -244,8 +244,8 @@
     {
       "id": "approval",
       "type": "security",
-      "label": "publish_approval\\",
-      "sublabel": "JJ 서명 = 이동",
+      "label": "사이드카 .meta.json",
+      "sublabel": "게이트 증적 = 자격",
       "pos": [
         760,
         700
@@ -259,7 +259,7 @@
       "id": "publisher",
       "type": "security",
       "label": "publish_threads",
-      "sublabel": "3확인 · 순차",
+      "sublabel": "자격 3확인 · 순차",
       "pos": [
         940,
         700
@@ -569,7 +569,7 @@
     {
       "from": "jj",
       "to": "approval",
-      "label": "승인 파일 이동 = 서명",
+      "label": "게이트 통과분만 남는다",
       "variant": "security",
       "fromSide": "bottom",
       "toSide": "left",
@@ -587,7 +587,7 @@
     {
       "from": "approval",
       "to": "publisher",
-      "label": "3확인",
+      "label": "자격 3확인",
       "variant": "security",
       "route": "straight",
       "labelAt": [
@@ -645,7 +645,7 @@
       "items": [
         "스케줄 트리거는 Get-ScheduledTask",
         "배포 상태는 git fetch 뒤 origin/main",
-        "승인은 채팅이 아니라 publish_approval 파일"
+        "발행 자격은 사이드카 해시 = 원고 해시"
       ]
     },
     {
