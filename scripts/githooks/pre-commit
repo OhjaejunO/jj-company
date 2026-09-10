@@ -60,6 +60,35 @@ case "$git_dir" in
             *departments/marketing/distcheck.py*)
                 run_check "distcheck selftest" py departments/marketing/distcheck.py --selftest ;;
         esac
+
+        # --- gate regression: do already-passing episodes still pass? ---------
+        #
+        # WHY (2026-09-10, four times in one day). Adding a new gate axis broke
+        # episodes that had already passed, with no combination left that could
+        # pass:  [10-8] local-bytes compare (0 passable combos), [10-0] official
+        # media on P1 (ep50/ep54), [10-3] source key (same two), [11] "official"
+        # word budget (ep55). Two of the four were added that same day. One root:
+        # nothing measured whether EXISTING output could still satisfy the new
+        # axis. All four were found by a human running the next episode by hand.
+        #
+        # The baseline is the sidecar: pack() writes nothing when the gate fails,
+        # so `gate_failed: 0` plus `draft_sha256` means "this manuscript passed".
+        # Re-run the gate on it; a FAIL now means the CHECK changed, not the work.
+        #
+        # WHY THE PRIMARY TREE AND THE OPERATIONS SERVER
+        #   reports/ is gitignored, so a linked worktree has none. Same trick as
+        #   the untracked-file check below: --git-common-dir gives the shared
+        #   .git, its parent is the primary tree. The operations server is the
+        #   charter-fixed path (section 2) and holds the real corpus.
+        case "$staged" in
+            *departments/marketing/distcheck.py*|*departments/marketing/dist_transform.py*)
+                common=$(git rev-parse --git-common-dir 2>/dev/null)
+                primary=$(dirname "${common:-.git}")
+                run_check "gate regression (already-passing episodes)" \
+                    py departments/marketing/distcheck.py --regress \
+                    --corpus "$primary/reports" \
+                    --corpus "C:/Users/ojaej/jj-company/reports" ;;
+        esac
         case "$staged" in
             *.claude/hooks/bash-escape-guard.ps1*|*scripts/check-bash-guard.ps1*)
                 run_check "bash-escape-guard reverse check" powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/check-bash-guard.ps1 ;;

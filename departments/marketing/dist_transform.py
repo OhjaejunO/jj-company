@@ -658,6 +658,7 @@ def main(argv=None):
 
     if not a.draft:
         ap.error("pack 에는 --draft 가 필요하다")
+    a_draft = a.draft
     posts, rows, media = distcheck.parse_draft(io.open(a.draft, encoding="utf-8").read())
     gate = distcheck.check(posts, rows, ep["facts"], ep["kit_url"], ep["caption"],
                            distcheck.load_cardcheck(), media=media, ep=ep)
@@ -684,10 +685,17 @@ def main(argv=None):
         {"gate_skill_revision": distcheck.skill_revision(),
          "gate_failed": len(gate.failed),
          "body_sha256": _sha,
+         # 🔴 **회귀 기준선** (2026-09-10 신설 · JJ 지시 «다신 일어나지 않도록»).
+         # `body_sha256` 은 **팩 결과물**의 해시라 «어떤 원고가 통과했는가» 를 못 가리킨다.
+         # 게이트를 고쳤을 때 «이미 통과한 편이 지금도 통과하는가» 를 재려면 **그때 돈 원고
+         # 바이트**가 있어야 한다 — `distcheck --regress` 가 이 값을 기준선으로 쓴다.
+         "draft_sha256": _hl.sha256(io.open(a_draft, "rb").read()).hexdigest(),
+         "draft_path": os.path.basename(a_draft),
          "packed_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S KST"),
          "_왜_여기_있나": ("발행 자격의 증적이다 — 워커가 `body_sha256` 을 지금 원고와 "
                       "대조하고 `gate_failed` 가 0인지 본다. 판본을 원고 안에 두지 "
-                      "않는 이유는 clause-backlog C-32 ①.")},
+                      "않는 이유는 clause-backlog C-32 ①. `draft_sha256` 은 그와 "
+                      "다른 일을 한다 — 게이트 회귀 검사의 기준선이다.")},
         ensure_ascii=False, indent=2))
     print("복붙 세트: %s" % out)
     print("검사 판본: %s (원고 밖 · %s)"

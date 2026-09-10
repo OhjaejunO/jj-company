@@ -18,6 +18,7 @@
 """
 import argparse
 import io
+import json as _json
 import os
 import re
 import sys
@@ -784,14 +785,133 @@ def load_facts(ep_dir):
     return mod
 
 
+#: 회귀 검사가 «통과했던 것» 을 알아보는 자리. 사이드카가 곧 그 증적이다.
+_SIDECAR_SUFFIX = ".md.meta.json"
+
+
+def regress(corpus_dirs, verbose=True):
+    """🔴 **이미 통과한 편들이 지금도 통과하는가** (2026-09-10 신설 · JJ 지시 «다신 일어나지 않도록»).
+
+    **무엇을 막는가.** 2026-09-10 하루에 «검사가 못 고치는 것을 요구» 가 **네 번** 났다 —
+    `[10-8]`(로컬 대조 · 통과 조합 0) · `[10-0]`(P1 공식 미디어 · ep50·ep54 통과 불가) ·
+    `[10-3]`(출처키 · 같은 두 편) · `[11]`(«공식» 편 합산 · ep55 통과 불가). 그중 둘은 **그날
+    내가 넣은 축**이다. 한 뿌리다 — **새 축을 넣을 때 «지금 있는 산출물이 그것을 충족할 수
+    있는가» 를 재는 절차가 없었다.** 넷 다 «사람이 다음 편을 돌려 보다가» 발견됐다.
+
+    **어떻게 재는가.** `pack()` 은 게이트 FAIL 이 하나라도 있으면 **아무것도 쓰지 않는다** —
+    그래서 **사이드카의 존재 + `gate_failed 0` 이 곧 «그때 통과했다» 는 증적**이다. 그 원고를
+    지금 게이트로 다시 돌려 FAIL 이 나면 **산출물이 아니라 검사가 바뀐 것**이고, 그것이 회귀다.
+
+    🔴 **원고가 그 뒤에 바뀐 편은 판정하지 않는다.** 사이드카의 `body_sha256` 과 지금 원고
+    해시가 다르면 «검사가 바뀐 탓» 인지 «원고가 바뀐 탓» 인지 **가를 수 없다**. 모르는 것을
+    통과로도 회귀로도 적지 않고 `SKIP` 으로 세어 출력에 남긴다(§0 4층 ④).
+
+    🔴 **코퍼스가 0건이면 FAIL 이다.** 잴 것이 없는데 `OK` 를 내면 이 장치는 **있는데 안 도는
+    검사**가 된다 — 그 상태가 정확히 이 조항이 막으려는 것이다(§0 «감지 장치가 값을 담는지»).
+
+    반환 (회귀 건수, 검사한 편 수, 건너뛴 편 수).
+    """
+    import hashlib
+    import dist_transform
+    seen, n_ok, n_skip, regressions = set(), 0, 0, []
+    for d in corpus_dirs:
+        if not d or not os.path.isdir(d):
+            continue
+        # 🔴 **최신 사이드카가 이긴다** — 이름이 날짜로 시작하므로 내림차순이 곧 최신순이다.
+        #    같은 원고를 두 번 팩하면 사이드카가 둘 남는데(재팩), 오름차순이면 **옛 사이드카가
+        #    새것을 가려** 기준선이 영영 안 선다(ep49 실측: 09-10 판이 09-11 판을 덮었다).
+        for name in sorted(os.listdir(d), reverse=True):
+            if not name.endswith(_SIDECAR_SUFFIX):
+                continue
+            try:
+                side = _json.loads(io.open(os.path.join(d, name), encoding="utf-8").read())
+            except Exception as e:
+                n_skip += 1
+                if verbose:
+                    print("[ SKIP ] %s — 사이드카를 못 읽었다 (%s)" % (name, str(e)[:40]))
+                continue
+            # 🔴 원고 이름을 사이드카 이름에서 **유추하지 않는다.** 재팩하면 팩 파일에는 그날
+            #    날짜가 붙고 원고는 처음 쓴 날짜를 그대로 두므로 둘이 갈린다(ep49 실측:
+            #    사이드카 `2026-09-11_…`, 원고 `2026-09-10_…`). 사이드카가 이름을 싣는다.
+            draft = os.path.join(d, side.get("draft_path")
+                                 or (name[:-len(_SIDECAR_SUFFIX)] + ".draft.md"))
+            if not os.path.exists(draft):
+                continue
+            key = os.path.basename(draft)
+            if key in seen:          # 작업장과 운영 서버에 같은 편이 있으면 한 번만 잰다
+                continue
+            seen.add(key)
+            if side.get("gate_failed") != 0:
+                n_skip += 1        # 그때도 통과하지 않은 편 — 기준선이 아니다
+                continue
+            base = side.get("draft_sha256")
+            if not base:
+                # 2026-09-10 이전 사이드카 — 기준선 필드가 없다. **없는 것을 통과로 세지 않는다.**
+                n_skip += 1
+                if verbose:
+                    print("[ SKIP ] %s — 옛 사이드카에 draft_sha256 이 없다 (재팩하면 기준선이 선다)"
+                          % key)
+                continue
+            body = io.open(draft, "rb").read()
+            if hashlib.sha256(body).hexdigest() != base:
+                n_skip += 1
+                if verbose:
+                    print("[ SKIP ] %s — 원고가 팩 이후 바뀌었다 (검사 탓인지 원고 탓인지 못 가른다)"
+                          % key)
+                continue
+            m = re.search(r"_dist_ep(\d+)\.draft\.md$", key)
+            if not m:
+                n_skip += 1
+                continue
+            try:
+                ep = dist_transform.load_ep(dist_transform.find_ep_dir(int(m.group(1))))
+                posts, rows, media = parse_draft(body.decode("utf-8"))
+                r = check(posts, rows, ep["facts"], ep["kit_url"], ep["caption"],
+                          load_cardcheck(), media=media, ep=ep)
+            except Exception as e:
+                n_skip += 1
+                if verbose:
+                    print("[ SKIP ] %s — 편을 못 읽었다 (%s)" % (key, str(e)[:60]))
+                continue
+            if r.failed:
+                regressions.append((key, [i[0] for i in r.failed]))
+                if verbose:
+                    print("[ 회귀 ] %s — 통과했던 원고가 지금 FAIL: %s"
+                          % (key, ", ".join(i[0] for i in r.failed)))
+            else:
+                n_ok += 1
+                if verbose:
+                    print("[  OK  ] %s" % key)
+    return len(regressions), n_ok, n_skip
+
+
+def regress_cli(corpus_dirs):
+    n_reg, n_ok, n_skip = regress(corpus_dirs)
+    if n_ok == 0 and n_reg == 0:
+        # 🔴 잴 것이 0건인데 OK 를 내면 «있는데 안 도는 검사» 가 된다 (§0).
+        print("STATUS: FAIL 회귀 코퍼스가 0건이다 — 잴 것이 없다 (건너뜀 %d) · 찾은 자리: %s"
+              % (n_skip, ", ".join(corpus_dirs) or "(없음)"))
+        return 1
+    print("STATUS: %s — 기준선 %d편 · 건너뜀 %d편"
+          % ("OK" if not n_reg else "FAIL 회귀 %d편" % n_reg, n_ok, n_skip))
+    return 0 if not n_reg else 1
+
+
 def run_cli(argv=None):
     ap = argparse.ArgumentParser(description="유통 변환 게이트 (Threads 텍스트 스레드)")
     ap.add_argument("--ep", type=int)
     ap.add_argument("--ep-dir")
     ap.add_argument("--draft")
     ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--regress", action="store_true",
+                    help="이미 통과한 편들이 지금도 통과하는지 (게이트를 고쳤을 때 돌린다)")
+    ap.add_argument("--corpus", action="append", default=[],
+                    help="회귀 기준선이 있는 reports 폴더. 여러 번 줄 수 있다")
     a = ap.parse_args(argv)
+    if a.regress:
+        return regress_cli(a.corpus or [os.path.join(os.getcwd(), "reports")])
     if a.selftest:
+        return selftest()
         return selftest()
     if not a.draft:
         ap.error("--draft 가 필요하다 (또는 --selftest)")
@@ -1113,6 +1233,80 @@ def _media_selftest(cc):
 
 
 
+def _regress_selftest():
+    """`--regress` 자신의 역검증 — 🔴 **이 장치가 헛돌면 아무도 모른다.**
+
+    회귀 검사는 «아무 일도 없음» 이 정상 출력이라 고장 나도 `STATUS: OK` 로 보인다.
+    그래서 **일부러 회귀를 만들어 넣고 잡히는지** 본다(정관 §0 «감지 장치가 값을 담는지»).
+
+    네 면 — ⓐ 통과하는 기준선은 OK ⓑ **통과했던 원고가 지금 FAIL 이면 회귀로 잡힌다**
+    ⓒ 원고가 팩 이후 바뀌면 SKIP(모르는 것을 통과로도 회귀로도 세지 않는다) ⓓ 코퍼스 0건은 FAIL.
+    """
+    import hashlib
+    import shutil
+    import tempfile
+    import dist_transform
+    tmp = tempfile.mkdtemp(prefix="distregress_")
+    bad = 0
+    # 실물 편을 읽지 않는다 — 합성 코퍼스를 만들고 **게이트 호출을 갈아 끼워** 이 장치의
+    # «판정 부분» 만 잰다. 실물을 쓰면 편 내용이 바뀔 때마다 이 역검증이 같이 흔들린다.
+    _real_check = check
+    _real_find, _real_load = dist_transform.find_ep_dir, dist_transform.load_ep
+    _fail = {"on": False}
+
+    class _R(object):
+        @property
+        def failed(self):
+            return [("[가짜] 일부러 낸 FAIL", "FAIL", "")] if _fail["on"] else []
+
+    try:
+        draft = os.path.join(tmp, "2026-01-01_dist_ep99.draft.md")
+        io.open(draft, "w", encoding="utf-8", newline="").write("## P1\n한 줄이에요.\n")
+        side = os.path.join(tmp, "2026-01-01_dist_ep99" + _SIDECAR_SUFFIX)
+
+        def write_side(sha):
+            io.open(side, "w", encoding="utf-8", newline="").write(_json.dumps(
+                {"gate_failed": 0, "draft_sha256": sha,
+                 "draft_path": os.path.basename(draft)}, ensure_ascii=False))
+
+        good = hashlib.sha256(io.open(draft, "rb").read()).hexdigest()
+        globals()["check"] = lambda *a, **k: _R()
+        dist_transform.find_ep_dir = lambda ep: tmp
+        dist_transform.load_ep = lambda d: {"facts": None, "kit_url": "", "caption": "", "EP": "99"}
+
+        write_side(good)
+        for why, want_reg in [("ⓐ 통과하는 기준선은 OK", False),
+                              ("ⓑ 통과했던 원고가 지금 FAIL → 회귀로 잡힌다", True)]:
+            _fail["on"] = want_reg
+            n_reg, n_ok, _ = regress([tmp], False)
+            if (n_reg > 0) == want_reg and (want_reg or n_ok == 1):
+                print("[  OK  ] --regress %s" % why)
+            else:
+                bad += 1
+                print("[ FAIL ] --regress %s → 회귀 %d · 기준선 %d" % (why, n_reg, n_ok))
+
+        _fail["on"] = False
+        write_side("0" * 64)          # 기준선 해시를 어긋나게 둔다 = «원고가 바뀌었다»
+        if regress([tmp], False) == (0, 0, 1):
+            print("[  OK  ] --regress ⓒ 원고가 팩 이후 바뀌면 SKIP (통과로 세지 않는다)")
+        else:
+            bad += 1
+            print("[ FAIL ] --regress ⓒ 바뀐 원고를 SKIP 으로 안 센다 — %s" % (regress([tmp], False),))
+
+        empty = os.path.join(tmp, "비어있음")
+        os.makedirs(empty)
+        if regress_cli([empty]) == 1:
+            print("[  OK  ] --regress ⓓ 코퍼스 0건은 FAIL (있는데 안 도는 검사 금지)")
+        else:
+            bad += 1
+            print("[ FAIL ] --regress ⓓ 코퍼스 0건인데 통과했다 — 장치가 헛돈다")
+    finally:
+        globals()["check"] = _real_check
+        dist_transform.find_ep_dir, dist_transform.load_ep = _real_find, _real_load
+        shutil.rmtree(tmp, ignore_errors=True)
+    return bad
+
+
 def _officialword_selftest(cc):
     """`[11]` — «공식» 원고 몫. 🔴 **네 면을 다 본다** (2026-09-10 개정).
 
@@ -1299,6 +1493,7 @@ def selftest():
         else:
             bad += 1
             print("[ FAIL ] 문장 분할 — %s (%d개로 갈렸다)" % (why, got))
+    bad += _regress_selftest()
     bad += _officialword_selftest(cc)
     bad += _media_selftest(cc)
     bad += _nokit_selftest(cc)
