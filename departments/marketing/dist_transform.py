@@ -556,12 +556,23 @@ def pack(ep, posts, rows, gate, media=None):
                     % (os.path.join(ep["dir"], m["path"].replace("/", os.sep)),
                        m["shape"], m["credit"], m["tier"]))
             if m.get("url"):
-                # 발행용 공개 URL + 로컬 검증본의 sha256 — 워커가 발행 직전 URL 을 다시
-                # 받아 이 값과 대조한다. 해시는 기계가 센다(사람이 옮겨 적는 값이 아니다).
+                # 발행용 공개 URL + **그 URL 바이트**의 sha256 — 워커가 발행 직전 URL 을
+                # 다시 받아 이 값과 대조한다. 해시는 기계가 센다(사람이 옮겨 적는 값이 아니다).
+                #
+                # 🔴 **로컬 파일이 아니라 URL 을 잰다 (2026-09-10 개정).** 나가는 것은
+                #    URL 바이트다. 종전에는 로컬 검증본을 쟀는데, 실측(ep51)에서 같은
+                #    X 원본이 원격 20,965,746 · 로컬 20,959,125 로 달랐다 — 우리 로컬본은
+                #    yt-dlp 재먹싱분이다. 그 기준으로는 **통과할 수 있는 조합이 없었다.**
+                #    URL 이 열리는지·그 바이트 형상이 선언과 맞는지는 게이트 `[10-8]` 이
+                #    이미 봤고(같은 회차·같은 캐시), 여기서는 그 바이트의 해시만 박는다.
                 import hashlib as _hl
-                _sha = _hl.sha256(io.open(
-                    os.path.join(ep["dir"], m["path"].replace("/", os.sep)), "rb"
-                ).read()).hexdigest()
+                _blob, _err = distcheck.fetch_url_bytes(m["url"])
+                if _blob is None:
+                    # 게이트를 통과했는데 여기서 못 받는 경우는 «그 사이에 죽었다» 뿐이다.
+                    # 조용히 URL 없는 줄로 떨어뜨리지 않는다 — 그러면 워커가 텍스트만 올린다.
+                    raise SystemExit("🔴 발행 URL 을 못 받았다 (P%d · %s): %s"
+                                     % (m["post"], m["url"], _err))
+                _sha = _hl.sha256(_blob).hexdigest()
                 line += " · URL %s · sha256 %s" % (m["url"], _sha)
             a(line)
         if by_post.get(i):
