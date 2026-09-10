@@ -625,6 +625,15 @@ def check(posts, rows, facts, kit_url, caption, cardcheck, media=None, ep=None):
             elif k == "OFFICIAL_VIDEO" and isinstance(ep.get("OFFICIAL_VIDEO"), dict):
                 # 편 선언이 정본 — [10-3] 특례와 같은 근거 (2026-09-02 · ep42 실측)
                 continue
+            elif k == "VERIFY_LOG" and any(m.get("src_key") == "VERIFY_LOG"
+                                           for m in (media or [])):
+                # 🔴 `[10-3]` VERIFY_LOG 특례의 **짝** (2026-09-10 · 같은 날 뒤늦게 붙였다).
+                # 첨부 출처 줄(«이미지 출처: …»)의 근거 키다. 종전에 `[10-3]` 만 열고 이쪽을
+                # 안 열어서 **ep54 가 `[5-2]` 하나로 FAIL** 났다 — 특례를 열 때는 그 키가
+                # 지나가는 자리를 **전부** 훑어야 한다는 실측이다.
+                # 근거 자체는 `[10-3]` 이 이미 쟀다(그 첨부 파일이 검증로그에 실재). 여기서는
+                # **그 첨부가 실재하는지**만 본다 — 첨부 없이 이 키만 적으면 종전대로 걸린다.
+                continue
             elif not hasattr(facts, k):
                 unknown.append("P%d-%d %s" % (pi, si, k))
     r.ok("[5-2] 근거 키가 _facts.py 에 실재", not unknown, " / ".join(unknown[:4]))
@@ -1036,6 +1045,22 @@ def _media_selftest(cc):
             else:
                 bad += 1
                 print("[ FAIL ] [10-3]   %s → 걸린 검사 %s" % (why, sorted(got) or "없음"))
+
+        # `[5-2]` 쪽 VERIFY_LOG 짝 — **양방향.** 소스 맵의 출처 줄 근거 키가 통과하려면
+        #   그 키를 쓰는 첨부가 실재해야 한다. 첨부 없이 키만 적으면 걸린다.
+        _vl_posts = [_MEDIA_POSTS[0]] + _MEDIA_POSTS[1:]
+        _vl_rows = _BASE_ROWS + [(1, 3, "VERIFY_LOG")]
+        _vlog = "판 03 | `demo.png` 1508x1102 | 공식 삽화"
+        for why, mm, want_fail in [
+                ("[5-2] 출처 줄 근거 — 그 첨부가 있으면 통과", [_vl], False),
+                ("[5-2] 출처 줄 근거 — 첨부가 없으면 걸린다", [], True)]:
+            got = run(mm, posts=_vl_posts, rows=_vl_rows, verify_log=_vlog).labels_failed()
+            hit = "[5-2]" in got
+            if hit == want_fail:
+                print("[  OK  ] %s" % why)
+            else:
+                bad += 1
+                print("[ FAIL ] %s → 걸린 검사 %s" % (why, sorted(got) or "없음"))
 
         # `shape_mismatch` — `[10-5]`(로컬)와 `[10-8]`(URL 바이트)이 쓰는 한 함수.
         #   양방향으로 본다: 맞으면 None, 축마다 하나씩 걸린다.
