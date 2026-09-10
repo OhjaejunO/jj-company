@@ -287,12 +287,87 @@ def probe_media(path):
     return "알 수 없음", None, None, None
 
 
+#: 같은 URL 을 `[10-8]` 과 `pack()` 이 각각 받는다 — 한 회차에 두 번 내려받지 않는다.
+#: (ep51 실측 21MB · 영상 편은 이 캐시가 없으면 회차마다 수십MB 를 두 번 받는다.)
+_URL_CACHE = {}
+
+
+def fetch_url_bytes(url, timeout=120):
+    """URL 바이트를 받아 돌려준다 — `(bytes, None)` 또는 `(None, 사유)`.
+
+    🔴 **못 받은 것은 «빈 것» 이 아니다.** 사유를 같이 돌려주고, 부르는 쪽은 그것을
+    FAIL 로 적는다 — 조용히 통과시키면 워커가 발행 직전에야 알게 된다(정관 §0).
+    """
+    if url in _URL_CACHE:
+        return _URL_CACHE[url]
+    import urllib.request as _ur
+    try:
+        req = _ur.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        got = (_ur.urlopen(req, timeout=timeout).read(), None)
+    except Exception as e:                       # noqa: BLE001 — 확인 불가는 통과가 아니다
+        got = (None, str(e)[:80])
+    _URL_CACHE[url] = got
+    return got
+
+
+def probe_bytes(blob, name_hint):
+    """`probe_media` 를 **바이트에** 대고 돈다 — URL 로 받은 것을 잴 때 쓴다.
+
+    ffprobe·PIL 이 둘 다 «파일» 을 받으므로 임시 파일로 한 번 내렸다 지운다.
+    확장자는 URL 에서 따온다 — `probe_media` 가 확장자로 갈래를 가르기 때문이다.
+    """
+    import tempfile
+    ext = os.path.splitext(name_hint.split("?")[0])[1].lower() or ".bin"
+    fd, tmp = tempfile.mkstemp(suffix=ext)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(blob)
+        return probe_media(tmp)
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+
+def shape_mismatch(declared, kind, w, h, dur):
+    """선언 형상과 실측이 어긋난 사유 한 줄. 맞으면 `None`.
+
+    `[10-5]`(로컬 파일)와 `[10-8]`(URL 바이트)이 **같은 함수로** 잰다 — 두 벌로 두면
+    한쪽만 고쳐지고 그때부터 두 축이 다른 것을 재게 된다.
+    """
+    if not declared.startswith(kind):
+        return "선언«%s» 실물«%s»" % (declared, kind)
+    if w and ("%dx%d" % (w, h)) not in declared.replace("×", "x"):
+        return "해상도 선언«%s» 실물 %dx%d" % (declared, w, h)
+    if kind == "영상" and dur is not None and ("%gs" % dur) not in declared:
+        return "길이 선언«%s» 실측 %gs" % (declared, dur)
+    return None
+
+
 def check_media(media, posts, facts, ep, r):
     """`[10-*]` 첨부 미디어 — 공식 원본만, 크레딧은 본문에, 우리 카드는 금지.
 
     설계 근거: SKILL §6 소스 실물 위계·크레딧 형식 · v3.30 공식 프로모 자산(크레딧 = 회사명) ·
     v3.55 §6 서드파티 자작 시연 영상 4조건 · v3.54 §7 공식 영상 우선."""
     ep_dir = ep["dir"]
+
+    # [10-0] 🔴 **P1 에 공식 미디어 1건 필수** (2026-09-10 신설 · JJ 지시 · 레퍼런스 실측).
+    #
+    #   근거는 `reports\2026-09-10_threads-benchmark.md` 재조회다 — 팔로워 29.1만
+    #   `@choi.openai` 의 최근 10건 중 미디어가 붙은 8건이 **전부 이미지 1장**이었고
+    #   (영상 0건), 성격은 공식 발표 자료 캡처였다. 호스트는 전부 메타 자기 CDN 이라
+    #   **앱에서 직접 올린 것**이고, 그 자리를 우리는 공개 URL 로 대신한다.
+    #
+    #   🔴 **«무조건» 이 아니라 «P1 에» 다.** 같은 조회에서 우리 크기 계정
+    #   (`@ai.vibe.code` 661)은 **미디어 0건으로 51♥·56♥** 가 나왔다 — 미디어가
+    #   보편 법칙이라는 증거는 없다. 잰 것은 «소식 편의 첫 포스트» 뿐이라 거기까지만 건다.
+    #   P2(링크 포스트)는 대상이 아니다 — Threads 가 링크 썸네일을 스스로 붙인다(실측).
+    p1 = [m for m in media if m["post"] == 1]
+    p1_official = [m for m in p1 if "공식" in (m.get("tier") or "")]
+    r.ok("[10-0] P1 에 공식 미디어 1건 이상", bool(p1_official),
+         "P1 첨부 %d건 (공식 %d건)" % (len(p1), len(p1_official)))
+
     if not media:
         r.na("[10] 첨부 미디어", "선언 0건 — 텍스트 전용 스레드")
     else:
@@ -348,15 +423,11 @@ def check_media(media, posts, facts, ep, r):
             if not os.path.exists(p):
                 continue
             kind, w, h, dur = probe_media(p)
-            if not m["shape"].startswith(kind):
-                shape_bad.append("P%d 선언«%s» 실물«%s»" % (m["post"], m["shape"], kind))
-                continue
-            if w and ("%dx%d" % (w, h)) not in m["shape"].replace("×", "x"):
-                shape_bad.append("P%d 해상도 선언«%s» 실물 %dx%d" % (m["post"], m["shape"], w, h))
+            why = shape_mismatch(m["shape"], kind, w, h, dur)
+            if why:
+                shape_bad.append("P%d %s" % (m["post"], why))
             elif w is None:
                 shape_na.append("P%d %s" % (m["post"], os.path.basename(p)))
-            if kind == "영상" and dur is not None and ("%gs" % dur) not in m["shape"]:
-                shape_bad.append("P%d 길이 선언«%s» 실측 %gs" % (m["post"], m["shape"], dur))
         r.ok("[10-5] 선언 형상 = 실물 (해상도·영상 길이 실측 대조)", not shape_bad, " / ".join(shape_bad))
         if shape_na:
             r.na("[10-5] 실측 불가 항목", "ffprobe 로 못 잰 파일: %s" % " / ".join(shape_na))
@@ -385,28 +456,42 @@ def check_media(media, posts, facts, ep, r):
         r.na("[10-7ⓑ] 공식 UI 실물 여부",
              "육안 판정 — 기계가 **못 잡는다**. JJ 가 발행 전에 본다 (SKILL v3.55 §6)")
 
-    # [10-8] 발행 URL 실측 — URL 이 가리키는 바이트 = 편 폴더의 검증본 (2026-09-02 신설).
-    #   워커는 파일 업로드가 아니라 URL 로 발행한다. URL 열이 있으면 **지금 내려받아**
-    #   sha256 을 로컬 검증본과 대조한다 — 다르면 «게이트가 본 것»과 «올라갈 것»이 다른
-    #   상태라 원고를 낼 수 없다. 워커도 발행 직전 같은 대조를 한 번 더 한다(이중).
+    # [10-8] 발행 URL 실측 (2026-09-02 신설 · **2026-09-10 기준 개정**).
+    #
+    #   🔴 **종전 축은 틀린 것을 재고 있었다.** 「URL 바이트 == 편 폴더 로컬 검증본 바이트」
+    #   를 요구했는데, **나가는 것은 URL 바이트지 로컬 바이트가 아니다.** 실측(2026-09-10 ·
+    #   ep51): 같은 X 포스트의 1080p 원본이 원격 20,965,746 바이트인데 우리 로컬본은
+    #   20,959,125 바이트였다 — yt-dlp 가 HLS 로 받아 재먹싱한 판본이라 6,621 바이트가 다르다.
+    #   즉 **정상인 상태가 FAIL 로 잡혔고, 통과할 수 있는 조합이 사실상 없었다**
+    #   (`clause-backlog` C-26 «통과 조합이 없는 검사» 계열).
+    #   정관 §0 «검사가 틀린 것을 요구하고 있으면 산출물보다 검사부터 고친다» — ep28 선례.
+    #
+    #   **고친 기준: URL 바이트가 정본이다.** URL 이 있으면 그것이 올라갈 것이므로
+    #   ⓐ 열리는가 ⓑ **그 바이트의 형상이 선언과 맞는가** 를 잰다. 로컬 파일은 여전히
+    #   `[10-1]`(편 폴더 실재)·`[10-2]`(우리 카드 아님)에서 **출처 층위 판정**에 쓰인다 —
+    #   역할이 «올라갈 바이트의 기준» 에서 «출처가 무엇인가의 근거» 로 좁아졌을 뿐이다.
+    #   해시 대조는 사라지지 않는다 — `pack()` 이 여기서 받은 바이트의 sha256 을 박고,
+    #   워커가 발행 직전 다시 받아 그 값과 대조한다(회차 도중 CDN 이 갈리면 선다).
     withurl = [m for m in media if m.get("url")]
     if not withurl:
-        r.na("[10-8] 발행 URL = 검증본 (sha256 실측)", "URL 열 없음 — 텍스트 전용")
+        r.na("[10-8] 발행 URL 실측", "URL 열 없음 — 워커가 못 올린다(사람 자리)")
     else:
-        import hashlib as _hl
-        import urllib.request as _ur
-        bad_url = []
+        bad_url, url_na = [], []
         for m in withurl:
-            local = os.path.join(ep["dir"], m["path"].replace("/", os.sep))
-            try:
-                want = _hl.sha256(io.open(local, "rb").read()).hexdigest()
-                got = _hl.sha256(_ur.urlopen(m["url"], timeout=120).read()).hexdigest()
-                if want != got:
-                    bad_url.append("P%d sha 불일치 (로컬 %s… / URL %s…)"
-                                   % (m["post"], want[:12], got[:12]))
-            except Exception as e:  # noqa: BLE001 — 못 받으면 «확인 불가»고, 확인 불가는 통과가 아니다
-                bad_url.append("P%d 조회 실패: %s" % (m["post"], str(e)[:80]))
-        r.ok("[10-8] 발행 URL = 검증본 (sha256 실측)", not bad_url, " / ".join(bad_url))
+            blob, err = fetch_url_bytes(m["url"])
+            if blob is None:
+                bad_url.append("P%d 조회 실패: %s" % (m["post"], err))
+                continue
+            kind, w, h, dur = probe_bytes(blob, m["url"])
+            if kind == "알 수 없음":
+                url_na.append("P%d 형상 실측 불가 (ffprobe 부재?)" % m["post"])
+                continue
+            why = shape_mismatch(m["shape"], kind, w, h, dur)
+            if why:
+                bad_url.append("P%d URL 바이트 형상 불일치 — %s" % (m["post"], why))
+        r.ok("[10-8] 발행 URL 이 열리고 그 바이트 형상 = 선언", not bad_url, " / ".join(bad_url))
+        if url_na:
+            r.na("[10-8] URL 형상 실측 불가", " / ".join(url_na))
 
 
 def _tone_target(s):
@@ -894,6 +979,36 @@ def _media_selftest(cc):
             else:
                 bad += 1
                 print("[ FAIL ] %-8s %s → 걸린 검사 %s" % (tag, why, sorted(diff) or "없음"))
+        # [10-0] 🔴 **P1 공식 미디어 필수** 의 역검증 — 세 면을 따로 본다 (2026-09-10 신설).
+        #   `[10-1]`~`[10-6]` 케이스는 전부 «P1 에 공식 첨부가 있는» 기준선을 변형한 것이라
+        #   **이 축이 없어도 그대로 통과한다** — 즉 위 목록만으로는 이 축이 실재하는지 모른다.
+        #   ⓐ 첨부 0건이 걸린다 (닫힌 쪽) ⓑ P2 에만 있으면 걸린다 ⓒ 층위가 «공식» 이 아니면 걸린다.
+        #   그리고 기준선(P1 공식 1건)이 통과하는 것은 위 `base` 가 이미 본다 — 열린 쪽이다.
+        p1_cases = [
+            ("첨부 0건", []),
+            ("P2 에만 첨부", [dict(_MEDIA_BASE[0], post=2)]),
+            ("P1 첨부가 서드파티", [dict(_MEDIA_BASE[0], tier="서드파티")]),
+        ]
+        for why, mm in p1_cases:
+            got = run(mm).labels_failed()
+            if any(g.startswith("[10-0]") for g in got):
+                print("[  OK  ] [10-0]   %s → 걸린다" % why)
+            else:
+                bad += 1
+                print("[ FAIL ] [10-0]   %s → 안 걸린다 (걸린 검사 %s)" % (why, sorted(got) or "없음"))
+
+        # `shape_mismatch` — `[10-5]`(로컬)와 `[10-8]`(URL 바이트)이 쓰는 한 함수.
+        #   양방향으로 본다: 맞으면 None, 축마다 하나씩 걸린다.
+        _sm = [("맞는 선언은 통과", ("이미지 20x10", "이미지", 20, 10, None), None),
+               ("갈래가 다르면 걸림", ("이미지 20x10", "영상", 20, 10, 3.0), "실물"),
+               ("해상도가 다르면 걸림", ("이미지 20x10", "이미지", 99, 99, None), "해상도"),
+               ("영상 길이가 다르면 걸림", ("영상 20x10 3s", "영상", 20, 10, 9.0), "길이")]
+        for why, args, want in _sm:
+            got = shape_mismatch(*args)
+            okk = (got is None) if want is None else (got is not None and want in got)
+            print("[%s] shape_mismatch — %s" % ("  OK  " if okk else " FAIL ", why))
+            bad += not okk
+
         # ⓑ 는 기계가 못 잡는다 — «못 잡는다» 고 출력에 남는지를 본다(정관 §0 4층 ④).
         na = [i for i in run([tpv]).items if i[0].startswith("[10-7ⓑ]") and i[1] == "NA"]
         if na and "못 잡는다" in na[0][2]:
