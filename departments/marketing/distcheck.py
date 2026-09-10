@@ -728,10 +728,36 @@ def check(posts, rows, facts, kit_url, caption, cardcheck, media=None, ep=None):
                    for t in [_c.get("headline", ""), _c.get("key", "")] + list(_c.get("body") or [])]
         _n_card = sum(t.count(OFFICIAL_WORD) for t in _card_t)
         _n_post = sum(p.count(OFFICIAL_WORD) for p in posts)
-        r.ok("[11] «%s» 편 합산 %d회 이하 (원고+카드 · 예외 %d장 제외)"
-             % (OFFICIAL_WORD, OFFICIAL_WORD_MAX, len(_ex)),
-             _n_card + _n_post <= OFFICIAL_WORD_MAX,
-             "합계 %d회 (원고 %d · 카드 %d)" % (_n_card + _n_post, _n_post, _n_card))
+        # 🔴 **재는 것은 «원고 몫» 이다 (2026-09-10 개정 · ep55 실측).**
+        #
+        # 종전에는 `카드 + 원고 <= 2` 를 그대로 쟀는데, **카드는 이 워커가 못 고친다** —
+        # 인스타로 이미 나간 면이고 편 폴더는 `01_발행완료` 라 §2 예외 밖이다. ep55 는 카드
+        # 셋이 「공식 화면은 …」 을 쓰고 원고는 **0회**인데, 그 상태로 «합계 3회» FAIL 이
+        # 났다. **원고를 어떻게 고쳐 써도 통과할 수 있는 조합이 없다** — ep28·ep39·`[10-8]`·
+        # `[10-0]` 과 같은 꼴이고, 정관 §0 «검사가 틀린 것을 요구하고 있으면 산출물보다
+        # 검사부터 고친다» 자리다.
+        #
+        # 그래서 상한을 **남은 몫**으로 건다: `원고 <= max(0, 상한 - 카드)`.
+        #   · 카드가 상한 안이면 **종전과 값이 같다** (`카드+원고 <= 상한` 과 동치).
+        #   · 카드가 이미 상한을 넘었으면 **원고는 0이어야 한다** — 유통이 상태를 더
+        #     나쁘게 만드는 것만 막는다. 못 고치는 것을 못 고쳤다고 FAIL 내지 않는다.
+        # 즉 «원고 1 + 카드 3» 은 종전대로 걸리고, «원고 0 + 카드 3» 만 열렸다.
+        #
+        # 🔴 **못 잡는 것 (§0 4층 ④).** 카드 쪽 초과는 이 게이트가 **못 고친다** — 그것을
+        # 잡을 자리는 **편 제작 게이트**(`epcheck`)이고, 그쪽은 자회사 정본이라 본사가
+        # 수정하지 않는다(§1.5). 그래서 **지우지 않고 상세에 실어 출력에 남긴다** — 빼면
+        # 게이트가 «편 합산을 본다» 는 척을 하게 된다.
+        _room = max(0, OFFICIAL_WORD_MAX - _n_card)
+        _over = "" if _n_card <= OFFICIAL_WORD_MAX else (
+            " · 🔴 카드가 이미 상한 초과 — 발행된 면이라 유통이 못 고친다(편 제작 게이트 자리)")
+        r.ok("[11] «%s» 원고 몫 %d회 이하 (상한 %d − 카드 %d · 예외 %d장 제외)"
+             % (OFFICIAL_WORD, _room, OFFICIAL_WORD_MAX, _n_card, len(_ex)),
+             _n_post <= _room,
+             "원고 %d회 (허용 %d) · 카드 %d회%s" % (_n_post, _room, _n_card, _over))
+        if _n_card > OFFICIAL_WORD_MAX:
+            r.na("[11-c] 카드 쪽 «%s» 초과" % OFFICIAL_WORD,
+                 "카드 %d회 (상한 %d) — 이미 발행돼 못 고친다. 잡을 자리는 편 제작 게이트다"
+                 % (_n_card, OFFICIAL_WORD_MAX))
 
     if ep is not None:
         check_media(media or [], posts, facts, ep, r)
@@ -1087,6 +1113,51 @@ def _media_selftest(cc):
 
 
 
+def _officialword_selftest(cc):
+    """`[11]` — «공식» 원고 몫. 🔴 **네 면을 다 본다** (2026-09-10 개정).
+
+    카드가 상한 안일 때는 값이 종전(`카드+원고 <= 상한`)과 같아야 하고, 카드가 넘었을 때만
+    «원고 0 이면 통과» 가 열린다. 한쪽만 보면 «카드를 아예 안 세는» 상태와 구별되지 않는다."""
+    kit = "https://tomangchi-lab.github.io/kits/x.html"
+    rows = [(1, 1, "-"), (1, 2, "-"), (2, 1, "-"), (2, 2, "KIT_URL")]
+
+    def run(n_card, n_post):
+        #: 카드 한 장에 «공식» 을 한 번씩 넣어 개수를 만든다.
+        cards = {"%02d" % (i + 1): {"headline": "공식 화면은 이렇게 돼요.",
+                                    "key": "", "body": []} for i in range(n_card)}
+        tail = "".join("\n공식 문서에 그렇게 적혀 있어요." for _ in range(n_post))
+        posts = ["새 기능이 열렸어요.\n버튼 하나로 켜져요." + tail,
+                 "정리해 뒀어요.\n" + kit]
+        ep = {"SKILL_VER": "v3.60", "CARDS": cards, "OFFICIAL_WORD_EXEMPT": (), "dir": "."}
+        r = check(posts, rows, _Facts(), kit, _BASE_CAPTION, cc, ep=ep)
+        return [i[0] for i in r.failed if i[0].startswith("[11]")], r
+
+    bad = 0
+    cases = [
+        ("카드 1 · 원고 1 → 합계 2 로 통과 (종전과 같다)", 1, 1, False),
+        ("카드 1 · 원고 2 → 합계 3 으로 걸린다 (종전과 같다)", 1, 2, True),
+        ("🔴 카드 3 · 원고 0 → 통과한다 (카드는 발행돼 못 고친다)", 3, 0, False),
+        ("🔴 카드 3 · 원고 1 → 걸린다 (유통이 더 나쁘게 만들었다)", 3, 1, True),
+    ]
+    for why, nc, np_, want_fail in cases:
+        got, _r = run(nc, np_)
+        if bool(got) == want_fail:
+            print("[  OK  ] [11]     %s" % why)
+        else:
+            bad += 1
+            print("[ FAIL ] [11]     %s → 걸린 검사 %s" % (why, got or "없음"))
+
+    # 🔴 카드 초과가 **출력에 남는지** — 지우면 게이트가 «편 합산을 본다» 는 척을 한다(§0 4층 ④).
+    _got, _r = run(3, 0)
+    _na = [i for i in _r.items if i[0].startswith("[11-c]")]
+    if _na and "못 고친다" in _na[0][2]:
+        print("[  OK  ] [11-c]   카드 초과가 «못 고친다» 로 출력에 남는다")
+    else:
+        bad += 1
+        print("[ FAIL ] [11-c]   카드 초과가 출력에 안 남는다 — 검사가 완전한 척한다")
+    return bad
+
+
 def _attrib_selftest():
     """`[12]` — 발표 행위 서술 상한. 넣는 쪽·빼는 쪽·예외를 각각 본다."""
     # `dir` 은 첨부 검사가 먼저 읽는다 — 첨부 0건이어도 키가 없으면 죽는다.
@@ -1228,6 +1299,7 @@ def selftest():
         else:
             bad += 1
             print("[ FAIL ] 문장 분할 — %s (%d개로 갈렸다)" % (why, got))
+    bad += _officialword_selftest(cc)
     bad += _media_selftest(cc)
     bad += _nokit_selftest(cc)
     bad += _postsmin_selftest(cc)
