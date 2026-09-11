@@ -144,6 +144,10 @@ case "$git_dir" in
                 run_check "naver_blog selftest" py scripts/naver_blog.py --self-test ;;
         esac
         case "$staged" in
+            *scripts/class101.py*)
+                run_check "class101 selftest" py scripts/class101.py --self-test ;;
+        esac
+        case "$staged" in
             *scripts/cross-verify.ps1*|*scripts/prompts/cross-verify*)
                 run_check "cross-verify selftest" powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/cross-verify.ps1 -SelfTest ;;
         esac
