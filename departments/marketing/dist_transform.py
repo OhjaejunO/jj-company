@@ -264,7 +264,12 @@ def publog_post_url(ep_no):
         cells = [c.strip() for c in ln.strip("|").split("|")]
         if not cells or cells[0].strip("*") != key:
             continue
-        m = re.search(r"https://www\.instagram\.com/p/[A-Za-z0-9_-]+/?", ln)
+        # 🔴 **릴스는 `/reel/` 이다** (2026-09-11 · ep45·46·47·53 실측). 종전 정규식은 `/p/` 만
+        #    봐서 **URL 이 멀쩡히 적혀 있는데 «없다» 고 죽었다** — 릴스 편 넷이 유통에서 통째로
+        #    막힌 자리다(발행로그 전수: `/p/` 16건 · `/reel/` 4건). 「원류 없이 재유통하지
+        #    않는다」는 조건은 **이미 만족돼 있었고** 검사기가 그 꼴을 몰랐을 뿐이다
+        #    (정관 §0 «검사가 틀린 것을 요구하면 산출물보다 검사부터 고친다»).
+        m = re.search(r"https://www\.instagram\.com/(?:p|reel)/[A-Za-z0-9_-]+/?", ln)
         if m:
             return m.group(0)
         raise RuntimeError("발행로그 %s 행에 인스타 게시물 URL 이 없다 — 원류 없이 재유통할 수 없다" % key)
@@ -693,6 +698,17 @@ def _subst_selftest():
         ("Subscript 갈래", "V = {'file': 'a.mp4'}\nX = V['file']\n", "X", "a.mp4"),
         ("키가 없으면 **안 접는다**", "V = {'file': 'a.mp4'}\nX = V['nope']\n", "X", "<없음>"),
     ]
+    # 발행로그 URL 꼴 — 게시물과 **릴스** 둘 다 읽는가. 릴스 넷이 여기서 막혔었다.
+    _u = re.compile(r"https://www\.instagram\.com/(?:p|reel)/[A-Za-z0-9_-]+/?")
+    for label, ln, want in [
+        ("발행로그 URL — 게시물 `/p/`", "| **ep55** | x | https://www.instagram.com/p/Dc8faxakrTb/ |", True),
+        ("발행로그 URL — **릴스 `/reel/`** (ep45~47·53 이 막혔던 자리)",
+         "| **ep45** | x | https://www.instagram.com/reel/Dc-bY92o_OG |", True),
+        ("남의 도메인은 **안 읽는다**", "| x | https://www.facebook.com/reel/abc |", False),
+    ]:
+        got = bool(_u.search(ln))
+        print("[ %s ] %s" % ("  OK  " if got == want else " FAIL ", label))
+        bad += 0 if got == want else 1
     for label, src, name, want in cases:
         got = measure(src, name)
         okc = got == want
