@@ -47,6 +47,41 @@ POSTS_MIN, POSTS_MAX = 1, 5
 #: v3.56 — «공식» 빈도. **편 합산**이다(원고 포스트 + 카드 문안), 카드당이 아니다.
 #: 🔴 단위가 판정을 뒤집는다 — ep39 실측으로 카드 합계 8회·카드별 최대 2회라,
 #:    «카드당» 으로 읽으면 통과하고 «편 합산» 으로 읽으면 크게 걸린다. JJ 확정은 **편 합산**.
+#: [3-3] P1 완결 (경고). 하한은 레퍼런스 실측 대역(179~264자) 아래에서 잡았다 —
+#: 하한이지 목표가 아니다. 글자 수는 **한글만·공백 제외**로 센다(URL·영문 제품명이 부풀린다).
+P1_MIN_CHARS = 150
+P1_MIN_PARAS = 3
+
+#: [3-3ⓒ] 마지막 줄 소감 — 단정이 아니라 «내 생각»으로 닫는 꼴 (레퍼런스 ⓓ).
+#: 🔴 **어휘 목록이라 바닥선이다.** 새 표현으로 같은 일을 하면 못 잡는다(§0 4층 ④).
+#: 🔴 **목록은 우리 코퍼스로 교정했다.** 처음 넣은 좁은 목록으로 기발행 7편을 재니
+#:    **4편이 걸렸는데 넷 다 실제로 소감이었다** — 「…공통점이에요」·「…느낌이에요」·
+#:    「…눈에 띄어요」. 거짓 경보가 절반을 넘는 경고는 읽히지 않고,
+#:    읽히지 않는 경고는 없는 것과 같다. 그래서 실측에 맞춰 넓혔다.
+#: 🔴 **넓히면서 잃은 것**: 「…입니다」 꼴 사실 서술만 남아 잡히므로, 이 축이 재는 것은
+#:    이제 «소감인가» 가 아니라 «**적어도 소감 꼴로 닫았는가**» 다. 그 이상은 사람이 본다.
+#: 🔴 **«…정리해 둘게요» 는 일부러 안 넣었다** — 그것은 소감이 아니라 «다음 포스트 안내» 이고, 레퍼런스 ⓓ 가 말하는 닫기와 다른 물건이다.
+#:    넣으면 이 축이 «마무리 문형이면 통과» 가 되어 재려던 것을 놓친다. 실제로 ep39(레퍼런스 이전 원고)가 그 꼴이고
+#:    같은 편이 [3-3a]·[3-3b] 에도 걸린다 — 축이 같은 것을 가리키고 있다.
+OPINION_TAIL = re.compile(
+    r"(것 같\w*|듯\w*|싶\w*|네요|군요|겠\w*|보입니다|보여요|기대\w*|궁금\w*|\?"
+    r"|느낌\w*|눈에 (?:띄|띕)\w*|셈이\w*|편이\w*|점이\w*|만하\w*|만해\w*"
+    r")[.!?\u2026\u00bb\u300d)]*\s*$")
+
+#: [5-4] 수치 비교쌍 (경고) — 레퍼런스 ⓒ 「수치는 «대비»로 말한다」.
+#: 한 문장 안에 **다른 수치**가 또 있거나 아래 비교어가 있으면 짝이 있는 것으로 본다.
+#: 🔴 칸을 새로 만들지 않은 이유: 재려는 것은 «원고가 대비로 말하는가» 이고 그것은
+#:    문장 안에 이미 있다. 표에 칸을 더하면 옛 원고 전부가 다시 안 읽히고(회귀 말뭉치),
+#:    사람은 «칸 채우기»를 하게 된다 — 재는 대상이 문장에서 장부로 옮겨 간다.
+COMPARE_HINT = re.compile(
+    r"(대비|보다|에서\s|으로\s*줄|로\s*줄|으로\s*늘|로\s*늘|배\b|절반|두 배|세 배|"
+    r"\u2192|->|종전|기존|이전|처음|원래|같은 값|차이)")
+#: 🔴 **낱자가 아니라 수치 «덩어리»를 센다.** 처음엔 `r"\d"` 였는데 그러면
+#: 「20초」 한 개가 **두 글자라 «수치 둘»로 세어져** 아래 «둘이면 대비다» 가지에
+#: 통째로 걸린다 — 두 자리 수가 든 문장은 전부 조용히 통과했다. 역검증 케이스를
+#: 만들다 걸렸다(정관 §0 «장치가 값을 담는지»).
+NUMERIC = re.compile(r"\d+(?:[.,]\d+)*")
+
 OFFICIAL_WORD = "공식"
 OFFICIAL_WORD_MAX = 2
 #: 이 검사가 도는 최소 편 판본. 편 게이트의 `since=` 와 같은 뜻이고, 값도 같이 움직인다.
@@ -225,8 +260,23 @@ class Result(object):
     def ok(self, label, cond, detail=""):
         self.items.append((label, "OK" if cond else "FAIL", "" if cond else str(detail)[:220]))
 
+    def warn(self, label, cond, detail=""):
+        """**판정이 아니라 경고**인 축 (2026-09-11).
+
+        🔴 왜 층을 하나 더 두는가. 아래 셋(첫 줄 주어·P1 완결·수치 비교쌍)은 레퍼런스
+        실측에서 나온 «꼴» 이고, **틀렸다고 단정할 수 없는 예외가 실재한다** — 표본 1위
+        포스트가 제품명으로 열었다. FAIL 로 두면 그런 편을 만들 수 없고, 아무 말도 안 하면
+        지시서가 먹인 규격이 원고에서 조용히 빠진다. 경고는 `gate.failed` 에 안 들어가므로
+        **발행 자격(`gate_failed 0`)을 막지 않는다.**
+        """
+        self.items.append((label, "OK" if cond else "WARN", "" if cond else str(detail)[:220]))
+
     def na(self, label, why):
         self.items.append((label, "NA", why))
+
+    @property
+    def warned(self):
+        return [i for i in self.items if i[1] == "WARN"]
 
     @property
     def failed(self):
@@ -579,11 +629,50 @@ def check(posts, rows, facts, kit_url, caption, cardcheck, media=None, ep=None):
                 off.append("P%d-%d «%s»" % (i, j, s[:28]))
     r.ok("[2] 어미 해요체 (epcheck HAEYO/HAPSYO)", not off, " / ".join(off[:3]))
 
+    # [2-1] 첫 줄 주어 (경고 · 2026-09-11) — 레퍼런스 ⓐ 「첫 줄의 주어는 «독자가 무엇을
+    #   하게 되는가»이지 «무엇이 나왔다»가 아니다」(`reports/2026-09-10_threads-benchmark.md`).
+    # 🔴 **정규식을 여기 두지 않는다.** 같은 결함이 인스타 캡션에도 있고(백로그 C-48),
+    #   채널마다 목록을 따로 두면 **다음에 또 갈린다** — 이미 갈려 본 자리다(C-26·C-54).
+    #   `skill_regex` 로 라이브 `epcheck.py` 의 `NEWS_OPENER` 를 빌려 온다. 라이브가 아직
+    #   그 판본이 아니면 **조용히 통과시키지 않고 «못 쟀다»로 남긴다**(정관 §0).
+    _first_line = (posts[0].strip().split(chr(10))[0] if posts else "")
+    try:
+        _news_rx = skill_regex("NEWS_OPENER")
+    except RuntimeError as _e:
+        r.na("[2-1] 첫 줄 주어 (경고)", "라이브 스킬에 NEWS_OPENER 가 없다 — %s" % str(_e)[:80])
+    else:
+        r.warn("[2-1] 첫 줄이 «무엇이 나왔다» 꼴이 아니다 (레퍼런스 ⓐ · 경고)",
+               not _news_rx.search(_first_line), _first_line[:60])
+
     # [3-1] 포스트 수 · [3-2] 포스트당 글자 수 — 설계 ⓒ 의 텍스트 스레드 판.
     r.ok("[3-1] 포스트 수 %d~%d" % (POSTS_MIN, POSTS_MAX),
          POSTS_MIN <= len(posts) <= POSTS_MAX, "%d개" % len(posts))
     lng = ["P%d %d자" % (i, len(p)) for i, p in enumerate(posts, 1) if len(p) > THREADS_CHAR_MAX]
     r.ok("[3-2] 포스트당 %d자 이하 (Threads 공표값)" % THREADS_CHAR_MAX, not lng, " / ".join(lng))
+
+    # [3-3] P1 완결 (경고 · 2026-09-11) — 벤치마크 §5 「바꿀 것」 1.
+    #   `POSTS_MIN` 을 1 로 내린 것은 «분할 강제» 를 푼 것이고, 그것만으로 P1 이 완결이
+    #   되지는 않는다. 실측에서 상위 포스트는 **전부 단일 179~264자**이고 체인 자식은
+    #   같은 계정 같은 편에서 **13배** 떨어진다 — 즉 읽히는 것은 P1 이고 P1 이 곧 그 편이다.
+    # 🔴 **판정이 아니라 경고인 이유**: 이 셋은 «꼴» 이고 예외가 실재한다. 그리고 진짜
+    #   자리는 ③(검사)이 아니라 ②(생성) — 지시서가 이미 벤치마크 여섯 줄을 먹인다.
+    #   검사는 **그것이 원고에서 빠졌을 때 보이게** 하는 몫만 한다(정관 §0 4층).
+    if posts:
+        _p1 = _strip_urls(posts[0]).strip()
+        _p1_paras = [b for b in re.split(r"\n\s*\n", _p1) if b.strip()]
+        # 🔴 «마지막 줄» 을 그대로 집으면 **크레딧 줄**(`영상 출처: X / @…`)이 걸린다 —
+        #   기발행 7편이 전부 그 꼴이었다(2026-09-11 실측). 재려는 것은 산문의 끝이므로
+        #   `[2]` 어미 검사와 **같은 자**(`_tone_target`)로 산문 줄만 남긴다. 두 곳에 두면
+        #   크레딧 문형이 바뀔 때 한쪽만 따라가고, 그러면 이 축이 조용히 헛돈다.
+        _p1_lines = [l for l in _p1.split(chr(10)) if _tone_target(l).strip()]
+        _p1_n = len(_hangul(_p1).replace(" ", ""))
+        r.warn("[3-3a] P1 본문 %d자 이상 (레퍼런스 179~264자)" % P1_MIN_CHARS,
+               _p1_n >= P1_MIN_CHARS, "%d자" % _p1_n)
+        r.warn("[3-3b] P1 문단 %d개 이상 (끊어 읽기)" % P1_MIN_PARAS,
+               len(_p1_paras) >= P1_MIN_PARAS, "%d개" % len(_p1_paras))
+        r.warn("[3-3c] P1 마지막 줄이 소감·의견 (레퍼런스 ⓓ)",
+               bool(_p1_lines) and bool(OPINION_TAIL.search(_p1_lines[-1])),
+               _p1_lines[-1][:60] if _p1_lines else "(산문 줄이 없다)")
 
     # [4] 킷 URL 위치 — 설계 ⓓ. 마지막 포스트에만 1건, 값은 편 선언과 일치.
     urls = [(i, u) for i, p in enumerate(posts, 1) for u in URL_RE.findall(p)]
@@ -639,6 +728,19 @@ def check(posts, rows, facts, kit_url, caption, cardcheck, media=None, ep=None):
                 unknown.append("P%d-%d %s" % (pi, si, k))
     r.ok("[5-2] 근거 키가 _facts.py 에 실재", not unknown, " / ".join(unknown[:4]))
     r.ok("[5-3] 무주장 행(-)에는 수치 0개", not numbered, " / ".join(numbered[:3]))
+    # [5-4] 수치 비교쌍 (경고 · 2026-09-11) — 레퍼런스 ⓒ 「수치는 «대비»로 말한다」.
+    #   「20분」 은 안 남고 「보통 며칠 → 20분」 은 남는다. `[5-3]` 이 «이 수치에 근거가
+    #   있는가»를 본다면 이 축은 «이 수치가 무엇과 견줘 말해지는가»를 본다 — 다른 층이다.
+    _lonely = []
+    for _i, _p in enumerate(posts, 1):
+        for _j, _s in enumerate(sentences(_p), 1):
+            _sx = _strip_urls(_s)
+            if not NUMERIC.search(_sx) or COMPARE_HINT.search(_sx):
+                continue
+            if len(NUMERIC.findall(_sx)) >= 2:      # 한 문장에 수치가 둘이면 그 자체가 대비다
+                continue
+            _lonely.append("P%d-%d «%s»" % (_i, _j, _sx.strip()[:26]))
+    r.warn("[5-4] 수치는 비교쌍과 같이 (레퍼런스 ⓒ · 경고)", not _lonely, " / ".join(_lonely[:3]))
 
     # [6] 자기 언급 · 제작/검증 과정 서사 — 캡션 층 검사 재사용 (epcheck [6] PROCESS · [7] VERIFY_MENTION).
     #     카드 층의 SELF_REF 는 쓰지 않는다 — 그쪽은 «공식 발표» 를 금지해 [8] 라벨과 정면으로 부딪힌다.
@@ -1447,6 +1549,131 @@ def _postsmin_selftest(cc):
     return bad
 
 
+#: 경고 축 넷의 역검증 픽스처 — **넷을 전부 통과하는** P1.
+#: 기준 초안(`_BASE_POSTS`)은 두 줄짜리라 네 축이 전부 경고로 뜬다 — 그 상태로는
+#: «축이 값을 담는가»를 못 잰다. 그래서 통과하는 원고를 따로 두고 **한 축씩** 무너뜨린다.
+_REF_P1 = (
+    "회의록 정리에 매주 몇 시간씩 쓰고 있다면 이번 건 한 번 보셔도 좋아요.\n"
+    "\n"
+    "녹음 파일을 올리면 발언자별로 나눠서 요약을 만들어 줍니다.\n"
+    "반나절이 걸리던 정리가 종전 대비 30분이면 끝나고 공유 링크까지 같이 나와요.\n"
+    "며칠씩 미루던 회의록도 그날 안에 닫히는 셈이에요.\n"
+    "\n"
+    "회의가 끝나자마자 팀 채널에 붙일 수 있으니 따로 옮겨 적을 일이 없어요.\n"
+    "저희도 주간 회의부터 돌려 보고 있는데 손이 덜 가는 쪽으로 바뀐 것 같아요."
+)
+_REF_KIT_POST = "표는 아래 한 장에 묶어 뒀어요.\n" + _BASE_KIT
+#: 🔴 **진짜 `NEWS_OPENER` 를 베껴 오지 않는다** — 베끼면 이 역검증이 사본을 재게 된다
+#: (정관 §0). 여기서 재는 것은 **배선**이다: «라이브에서 뽑은 자로 첫 줄을 재는가 ·
+#: 없으면 NA 로 남기는가». 자 자체의 역검증은 스킬 쪽(`epcheck.py` 의 `[6]` 두 건)에 있다.
+#: 그래서 가짜 스킬은 **라이브 원문 그대로**에서 이 한 줄만 빼거나, 빼고 **표적 문자열**을
+#: 넣은 것이다 — 빈 파일로 두면 `check()` 가 빌려 쓰는 다른 자(`HAEYO` 등)까지 사라진다.
+_NEWS_LINE = re.compile(r"^\s*NEWS_OPENER\s*=\s*re\.compile\(.*$", re.M)
+_SENTINEL_NEWS = 'NEWS_OPENER = re.compile(r"(핏대가 섰)")'
+
+
+def _live_skill_src():
+    return io.open(os.path.join(skill_dir(), "epcheck.py"), encoding="utf-8").read()
+
+
+def _ref_verdicts(p1, cc):
+    """(경고 난 축, 못 잰 축) — 라벨 앞머리만."""
+    r = check([p1, _REF_KIT_POST], [], _Facts(), _BASE_KIT, _BASE_CAPTION, cc)
+    head = lambda i: i[0].split("]")[0] + "]"   # noqa: E731
+    return ({head(i) for i in r.warned},
+            {head(i) for i in r.items if i[1] == "NA"})
+
+
+def _with_fake_skill(with_sentinel, fn):
+    import shutil
+    import tempfile
+    body = _NEWS_LINE.sub("", _live_skill_src())
+    if with_sentinel:
+        body += chr(10) + _SENTINEL_NEWS + chr(10)
+    tmp = tempfile.mkdtemp(prefix="distskill_")
+    old = os.environ.get("TOMANGCHI_SKILL")
+    try:
+        io.open(os.path.join(tmp, "epcheck.py"), "w", encoding="utf-8", newline="").write(body)
+        os.environ["TOMANGCHI_SKILL"] = tmp
+        _RX_CACHE.clear()
+        return fn()
+    finally:
+        if old is None:
+            os.environ.pop("TOMANGCHI_SKILL", None)
+        else:
+            os.environ["TOMANGCHI_SKILL"] = old
+        _RX_CACHE.clear()
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _reference_selftest(cc):
+    r"""경고 축 넷의 역검증 (2026-09-11 · 벤치마크 §5 «바꿀 것 셋»).
+
+    🔴 **넷 다 «경고»라 `labels_failed` 로는 한 건도 안 보인다** — 기존 역검증 틀
+    (`_CASES` · «그 검사만 FAIL 하는가»)에 얹으면 **전부 통과한 얼굴로 0건이 돈다.**
+    있는데 안 도는 검사가 되는 자리라 틀을 따로 둔다(`docs\selftest-coverage.md` 규칙 2).
+
+    축마다 **걸리는 쪽과 안 걸리는 쪽**을 같이 본다. 넷 다 «넓히는» 것이 아니라
+    «새로 재는» 축이라 한쪽만 보면 «전부 경고하는 검사»와 구별되지 않는다.
+    """
+    bad = 0
+    axes = {"[2-1]", "[3-3a]", "[3-3b]", "[3-3c]", "[5-4]"}
+
+    # ⓐ 기준 원고 — 다섯 축이 **하나도** 경고되지 않아야 한다.
+    warned, _ = _ref_verdicts(_REF_P1, cc)
+    if not (warned & axes):
+        print("[  OK  ] 경고 축 — 기준 원고는 다섯 축 전부 통과")
+    else:
+        bad += 1
+        print("[ FAIL ] 경고 축 — 기준 원고가 경고났다: %s" % sorted(warned & axes))
+
+    # ⓑ 한 축씩 무너뜨린다 — **그 축만** 경고로 바뀌어야 한다.
+    short3 = ("회의록 정리에 시간 쓰고 있다면 한 번 보셔도 좋아요.\n\n"
+              "녹음을 올리면 요약이 나옵니다.\n\n"
+              "손이 덜 가는 쪽으로 바뀐 것 같아요.")
+    flat_tail = _REF_P1.rsplit(chr(10), 1)[0] + chr(10) + \
+        "저희도 주간 회의부터 돌려 보고 있고 지금은 팀 전체가 같이 씁니다."
+    lonely = _REF_P1.replace("며칠씩 미루던 회의록도 그날 안에 닫히는 셈이에요.",
+                             "요약은 20초 만에 올라와요.")
+    paired = _REF_P1.replace("며칠씩 미루던 회의록도 그날 안에 닫히는 셈이에요.",
+                             "전작은 55.8 이고 이번 건 62.5 예요.")
+    for tag, why, p1, want in [
+            ("[3-3a]", "P1 이 짧으면 걸린다 (문단·소감은 그대로)", short3, True),
+            ("[3-3b]", "빈 줄을 없애면 걸린다 (글자 수는 그대로)",
+             _REF_P1.replace(chr(10) * 2, chr(10)), True),
+            ("[3-3c]", "마지막 줄이 단정이면 걸린다", flat_tail, True),
+            ("[5-4]", "짝 없는 수치는 걸린다", lonely, True),
+            ("[5-4]", "한 문장에 수치가 둘이면 통과한다 (반대쪽)", paired, False),
+            ("[3-3c]", "크레딧 줄이 뒤에 붙어도 소감 판정은 그대로다 (실측 사고)",
+             _REF_P1 + chr(10) + "영상 출처: X / @bot", False)]:
+        warned, _ = _ref_verdicts(p1, cc)
+        got = tag in warned
+        extra = sorted((warned & axes) - {tag})
+        if got == want and not extra:
+            print("[  OK  ] %-7s %s" % (tag, why))
+        else:
+            bad += 1
+            print("[ FAIL ] %-7s %s → %s%s" % (
+                tag, why, "경고남" if got else "안 남",
+                (" · 딸려 걸림 %s" % extra) if extra else ""))
+
+    # ⓒ [2-1] 은 **라이브 스킬에서 자를 빌려 온다** — 배선 셋을 본다.
+    hit_p1 = "핏대가 섰다는 얘기부터 해 볼게요.\n" + _REF_P1.split(chr(10), 1)[1]
+    for sent, p1, want, why in [
+            (True, hit_p1, "WARN", "자가 걸리는 첫 줄이면 경고한다"),
+            (True, _REF_P1, "OK", "안 걸리는 첫 줄은 통과한다 (반대쪽)"),
+            (False, hit_p1, "NA",
+             "라이브에 자가 없으면 «못 쟀다» 로 남는다 (조용히 통과 아님)")]:
+        warned, na = _with_fake_skill(sent, lambda p1=p1: _ref_verdicts(p1, cc))
+        got = "WARN" if "[2-1]" in warned else ("NA" if "[2-1]" in na else "OK")
+        if got == want:
+            print("[  OK  ] [2-1]   %s" % why)
+        else:
+            bad += 1
+            print("[ FAIL ] [2-1]   %s (실제 %s)" % (why, got))
+    return bad
+
+
 def selftest():
     cc = load_cardcheck()
     quote_bad = _quote_tone_selftest()
@@ -1498,6 +1725,7 @@ def selftest():
     bad += _media_selftest(cc)
     bad += _nokit_selftest(cc)
     bad += _postsmin_selftest(cc)
+    bad += _reference_selftest(cc)
     # 규격 추출 자체의 역검증 — 못 찾으면 던져야 한다.
     try:
         skill_regex("__NOT_A_REAL_REGEX__")
