@@ -67,6 +67,28 @@ REPORTS_DIR = os.path.join(HQ, "reports")
 #: «확인 불가» 로 끝날 뻔했다. 넓게 잡힌 금지는 조사를 막고, 막힌 자리가 «불가능» 으로 오독된다.
 PUBLISH_SEGMENTS = {"threads_publish"}
 
+#: 발행 재시도 간격(초). 한 자리에만 쓴다 — `threads_publish` 가 «Media not ready» 로
+#: 죽었을 때. 선형 백오프 넷이면 약 50초를 기다리고, 그래도 안 되면 멈춰 보고한다.
+PUBLISH_RETRY_WAITS = (5, 10, 15, 20)
+
+#: 🔴 메타가 «미디어가 아직 준비되지 않았다» 를 말하는 자리. 메시지 문구가 아니라
+#:    **subcode 숫자**로 가른다 — 문구는 «The requested resource does not exist» 라
+#:    자원이 없다는 뜻으로 읽히고, 그렇게 읽으면 «원고가 틀렸나» 를 뒤지게 된다.
+MEDIA_NOT_READY_SUBCODE = 4279009
+
+
+def is_media_not_ready(status, resp):
+    """발행 실패가 «아직 안 나갔다» 가 확정된 간헐 오류인가.
+
+    🔴 **다른 어떤 실패도 참이 되면 안 된다.** 참이면 워커가 발행을 한 번 더 부르고,
+    그 실패가 «나갔는지 모르는» 종류였다면 **두 번 나간다**. 그래서 이 함수는
+    HTTP 400 · `error.error_subcode == 4279009` 정확히 그 조합만 참이다.
+    """
+    if status == 200 or not isinstance(resp, dict):
+        return False
+    err = resp.get("error")
+    return isinstance(err, dict) and err.get("error_subcode") == MEDIA_NOT_READY_SUBCODE
+
 #: `FINISHED` 대기 상한 — **잠정값이다.** 조사 회차 표본이 2건뿐이라 «정상값» 을 모른다.
 #: 실제 회차 로그가 쌓이면 그것으로 조인다(명세 «status 대기» 절).
 RECEIPT_DIR = os.path.join(HQ, "logs", "publish-receipts")
@@ -703,6 +725,22 @@ def run_chain(api, uid, ep, ms_path, appr, log, publish,
         append_event(ep, {"stage": "post.claim", "seq": seq, "container_id": cid},
                      base=rcpt_dir)
         st, r = api.call("POST", "%s/%s/threads_publish" % (API, uid), {"creation_id": cid})
+        # 🔴 **«Media not ready» 는 한 번 더 묻는다** (2026-09-11 · ep45 실측).
+        #    컨테이너 조회가 `FINISHED` 를 주고도 발행이 subcode **4279009** 로 죽었다 —
+        #    메타 쪽에서 미디어가 아직 서빙 준비가 안 된 간헐 상태이고, 문서상 이름이
+        #    그대로 «Media not ready» 다. ep45 P2 가 **세 회차 연속** 같은 자리에서 죽어
+        #    스레드가 반쪽으로 남았다(P1 만 나감).
+        #
+        #    🔴 **이 한 subcode 만 다시 묻는다.** 발행은 되돌림 비용이 있는 외부 발송이라
+        #    «실패했으니 일단 다시» 는 두 번 나가는 길이다. 4279009 는 **아직 안 나갔다**
+        #    가 확정된 자리이고(그래서 이름이 not ready 다), 그 밖의 오류는 나갔는지
+        #    모르므로 종전대로 멈춘다 — 정관 §0 «부분 발행은 보고하고 멈춘다».
+        for _wait in PUBLISH_RETRY_WAITS:
+            if not is_media_not_ready(st, r):
+                break
+            log("    media-not-ready (4279009) — %d초 뒤 다시 묻는다" % _wait)
+            time.sleep(_wait)
+            st, r = api.call("POST", "%s/%s/threads_publish" % (API, uid), {"creation_id": cid})
         if st != 200 or not isinstance(r, dict) or "id" not in r:
             return done, "FAIL publish P%d (HTTP %s · %s)" % (seq, st, api.scrub(json.dumps(r, ensure_ascii=False))[:160])
         mid = r["id"]
@@ -823,6 +861,21 @@ def _selftest():
     assert not is_publish_path("/v1.0/123/threads_publishing_limit"), \
         "쿼터 조회를 막는다 — «문자열 포함» 으로 판정하고 있다 (C-8)"
     assert not is_publish_path("/v1.0/123/threads"), "컨테이너 생성을 막는다"
+
+    # ①-1 «Media not ready» 판정 (2026-09-11 · ep45). 재시도는 **한 번 더 발행을 부르는
+    #     일**이라, 이 함수가 헐거우면 «나갔는지 모르는» 실패까지 다시 나간다. 그래서
+    #     참이어야 하는 하나와 **거짓이어야 하는 넷**을 같이 잰다.
+    _nr = {"error": {"message": "The requested resource does not exist",
+                     "type": "OAuthException", "code": 24, "error_subcode": 4279009}}
+    assert is_media_not_ready(400, _nr), "4279009 를 못 알아본다 — 재시도가 영영 안 돈다"
+    assert not is_media_not_ready(200, _nr), "성공(200)을 재시도 대상으로 본다"
+    assert not is_media_not_ready(400, {"error": {"code": 24, "error_subcode": 1}}), \
+        "다른 subcode 까지 다시 발행한다 — 두 번 나갈 수 있다"
+    assert not is_media_not_ready(400, {"error": {"message": "The requested resource does not exist"}}), \
+        "문구로 판정하고 있다 — subcode 없는 같은 문구는 다른 오류다"
+    assert not is_media_not_ready(400, "500 Internal Server Error"), "본문이 dict 가 아닌 응답에서 터진다"
+    assert len(PUBLISH_RETRY_WAITS) >= 1 and all(w > 0 for w in PUBLISH_RETRY_WAITS), \
+        "재시도 간격이 비었거나 0 이다 — 장치가 있는데 안 돈다"
 
     # ② 원고 파싱 — 정상 / 코드펜스 없음
     import tempfile
