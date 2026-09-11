@@ -89,6 +89,15 @@ case "$git_dir" in
                     --corpus "$primary/reports" \
                     --corpus "C:/Users/ojaej/jj-company/reports" ;;
         esac
+        # cross-verify carries the author!=auditor refusal (backlog C-44). Its
+        # self-test is deterministic - no model call - and covers the refusal in
+        # BOTH directions plus template substitution. The prompts are in the
+        # trigger list because the script reads them next to itself: a renamed
+        # placeholder breaks the report silently, it just renders as braces.
+        case "$staged" in
+            *scripts/cross-verify.ps1*|*scripts/prompts/cross-verify*)
+                run_check "cross-verify selftest" powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/cross-verify.ps1 -SelfTest ;;
+        esac
         case "$staged" in
             *.claude/hooks/bash-escape-guard.ps1*|*scripts/check-bash-guard.ps1*)
                 run_check "bash-escape-guard reverse check" powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/check-bash-guard.ps1 ;;
