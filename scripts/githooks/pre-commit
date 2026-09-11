@@ -136,6 +136,10 @@ case "$git_dir" in
                 run_check "publog_check selftest" py scripts/publog_check.py --self-test ;;
         esac
         case "$staged" in
+            *scripts/blogcheck.py*)
+                run_check "blogcheck selftest" py scripts/blogcheck.py --self-test ;;
+        esac
+        case "$staged" in
             *scripts/naver_blog.py*)
                 run_check "naver_blog selftest" py scripts/naver_blog.py --self-test ;;
         esac

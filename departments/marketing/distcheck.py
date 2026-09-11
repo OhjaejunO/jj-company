@@ -138,6 +138,7 @@ def skill_dir():
 
 
 _RX_CACHE = {}
+_SKILL_MOD = None
 
 
 def skill_regex(name):
@@ -156,6 +157,30 @@ def skill_regex(name):
     rx = re.compile(m.group("p"))
     _RX_CACHE[name] = rx
     return rx
+
+
+def skill_module():
+    """라이브 `epcheck.py` 를 **모듈로** 불러온다 (v3.80).
+
+    🔴 `skill_regex()` 는 정규식만 빌려 오는데, 광고 표기는 «표기 줄을 떼는 절차»가
+    규격의 일부라 정규식 하나로 안 옮겨진다. 그 절차를 여기 다시 적으면 **사본이 둘**이
+    되고, 그것이 C-48(같은 자를 채널마다 따로 두어 갈린 자리)에서 이미 겪은 결함이다.
+    라이브가 그 판본이 아니면 **던진다** — 조용히 통과시키지 않는다(정관 §0).
+    """
+    global _SKILL_MOD
+    if _SKILL_MOD is not None:
+        return _SKILL_MOD
+    path = os.path.join(skill_dir(), "epcheck.py")
+    if not os.path.exists(path):
+        raise RuntimeError("라이브 스킬 epcheck.py 를 못 찾았다: %s" % path)
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_live_epcheck", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    if not hasattr(mod, "strip_ad_label") or not hasattr(mod, "ad_label_ok"):
+        raise RuntimeError("라이브 스킬에 광고 표기 규격(v3.80)이 없다 — 배포 판본 확인")
+    _SKILL_MOD = mod
+    return mod
 
 
 def skill_revision():
@@ -635,7 +660,37 @@ def check(posts, rows, facts, kit_url, caption, cardcheck, media=None, ep=None):
     #   채널마다 목록을 따로 두면 **다음에 또 갈린다** — 이미 갈려 본 자리다(C-26·C-54).
     #   `skill_regex` 로 라이브 `epcheck.py` 의 `NEWS_OPENER` 를 빌려 온다. 라이브가 아직
     #   그 판본이 아니면 **조용히 통과시키지 않고 «못 쟀다»로 남긴다**(정관 §0).
-    _first_line = (posts[0].strip().split(chr(10))[0] if posts else "")
+    # v3.80 — **광고 편이면 표기 줄을 뗀 뒤** 첫 줄과 P1 을 잰다. 문자 매체 규정은
+    #   표기를 **게시물 맨 앞**에 요구하고, 첫 줄 규격은 «독자 행동» 주어를 요구한다 —
+    #   자리를 양보하면 법을 어기고 문구를 줄이면 규격을 어긴다. **재는 쪽이 비켜 준다.**
+    #   떼는 절차의 정본은 라이브 스킬이다(사본을 만들지 않는다 · C-48).
+    _sponsor = (ep or {}).get("SPONSOR")
+    _sk = None
+    if _sponsor:
+        try:
+            _sk = skill_module()
+        except RuntimeError as _e:
+            # 🔴 **여기서는 «못 쟀다»(NA)가 아니라 FAIL 이다.** NA 는 `gate.failed` 에
+            #   들어가지 않아 **발행 자격이 그대로 선다** — 표기를 재지 못한 광고 편이
+            #   그대로 나간다는 뜻이고, 그것이 이 축이 막으려던 바로 그 상태다.
+            #   경고 축(`[2-1]`)과 갈리는 자리다: 저쪽은 취향이고 이쪽은 법이다.
+            r.ok("[AD] 광고 표기 규격을 라이브 스킬에서 읽었다", False,
+                 "라이브에 v3.80 규격이 없다 — deploy-skill 먼저 (%s)" % str(_e)[:60])
+    _p1_raw = posts[0] if posts else ""
+    _p1_text = _sk.strip_ad_label(_p1_raw, _sponsor) if _sk else _p1_raw
+
+    if _sk:
+        _ad_label = (_sponsor.get("label") or "").strip()
+        r.ok("[AD-1] 표기 문구가 «광고·유료광고·상업광고» 를 담는다 (공정위 지침)",
+             _sk.ad_label_ok(_ad_label),
+             "선언 %r — 「협찬·체험단·파트너십」 만으로는 미표기다" % _ad_label)
+        # 🔴 자리: 문자 매체는 **게시물 맨 앞**이다. 스레드는 P1 만 읽히는 매체라
+        #   (벤치마크 §5 — 체인 자식은 13배 떨어진다) «둘째 포스트에 적었다»는 미표기다.
+        r.ok("[AD-2] 표기가 스레드 맨 앞에 있다 (문자 매체 규정)",
+             bool(_ad_label) and _p1_raw.lstrip().startswith(_ad_label),
+             "P1 머리 %r" % _p1_raw.lstrip()[:40])
+
+    _first_line = (_p1_text.strip().split(chr(10))[0] if posts else "")
     try:
         _news_rx = skill_regex("NEWS_OPENER")
     except RuntimeError as _e:
@@ -658,7 +713,7 @@ def check(posts, rows, facts, kit_url, caption, cardcheck, media=None, ep=None):
     #   자리는 ③(검사)이 아니라 ②(생성) — 지시서가 이미 벤치마크 여섯 줄을 먹인다.
     #   검사는 **그것이 원고에서 빠졌을 때 보이게** 하는 몫만 한다(정관 §0 4층).
     if posts:
-        _p1 = _strip_urls(posts[0]).strip()
+        _p1 = _strip_urls(_p1_text).strip()
         _p1_paras = [b for b in re.split(r"\n\s*\n", _p1) if b.strip()]
         # 🔴 «마지막 줄» 을 그대로 집으면 **크레딧 줄**(`영상 출처: X / @…`)이 걸린다 —
         #   기발행 7편이 전부 그 꼴이었다(2026-09-11 실측). 재려는 것은 산문의 끝이므로
@@ -679,9 +734,19 @@ def check(posts, rows, facts, kit_url, caption, cardcheck, media=None, ep=None):
     early = ["P%d %s" % (i, u) for i, u in urls if i != len(posts)]
     last_urls = [u.rstrip(".,)»") for i, u in urls if i == len(posts)]
     r.ok("[4-1] 마지막 포스트 앞에는 URL 0건", not early, " / ".join(early))
+    # v3.80 — 광고 편은 **선언한 제휴 링크 하나를** 마지막 포스트에 더 쓸 수 있다.
+    #   선언이 없으면 목록이 그대로라 광고 아닌 편의 판정은 한 글자도 안 느슨해진다.
+    _sp_link = ((_sponsor or {}).get("link") or "").strip()
+    _kit_urls = [u for u in last_urls
+                 if not (_sp_link and u.rstrip("/") == _sp_link.rstrip("/"))]
+    if _sk and _sp_link:
+        r.ok("[AD-3] 선언한 제휴 링크가 마지막 포스트에 1건",
+             [u for u in last_urls if u.rstrip("/") == _sp_link.rstrip("/")] == [_sp_link.rstrip("/")]
+             or _sp_link in last_urls,
+             "발견 %s / 선언 %s" % (last_urls, _sp_link))
     if kit_url:
         r.ok("[4-2] 마지막 포스트에 킷 URL 1건 · 편 선언과 일치",
-             last_urls == [kit_url], "발견 %s / 선언 %s" % (last_urls, kit_url))
+             _kit_urls == [kit_url], "발견 %s / 선언 %s" % (_kit_urls, kit_url))
     else:
         # 킷 없는 편 규격 (2026-09-02 JJ 확정 · ep40 계기) — 마지막 포스트는 **원류 안내**다:
         # 본편 인스타 게시물 URL 1건, 값의 정본은 발행로그(load_ep 이 읽어 ep["post_url"] 로
@@ -1674,6 +1739,102 @@ def _reference_selftest(cc):
     return bad
 
 
+def _ad_selftest(cc):
+    """`[AD]` 축 셋의 역검증 (v3.80 · 광고 대가성 표기).
+
+    🔴 **«새로 재는» 축이라 한쪽만 보면 «전부 통과시키는 검사»와 구별되지 않는다.**
+    자리마다 걸리는 쪽·안 걸리는 쪽을 같이 둔다. 그리고 **선언이 없는 편에서 축이
+    돌지 않는가**를 따로 본다 — 그것이 이 축의 기본값이고, 그게 깨지면 기발행 전편이
+    광고 미표기로 걸린다.
+    """
+    LABEL = "광고 · 클래스101 파트너스 수수료 지급"
+    SP = {"label": LABEL, "link": "https://example.invalid/c101"}
+    cover = _REF_P1
+
+    # 🔴 `ep` 를 넘기면 `check_media` 까지 딸려 돈다 — 그쪽 판정은 이 역검증의 대상이
+    #   아니므로 빈 편 폴더를 하나 세워 두고 `[AD*]`·`[4-2]` 만 본다.
+    import tempfile
+    _epdir = tempfile.mkdtemp(prefix="distad_")
+
+    def verdicts(p1, sponsor, last=None):
+        r = check([p1, last if last is not None else _REF_KIT_POST], [], _Facts(),
+                  _BASE_KIT, _BASE_CAPTION, cc,
+                  ep=None if sponsor is None else {"SPONSOR": sponsor, "dir": _epdir})
+        head = lambda i: i[0].split("]")[0] + "]"   # noqa: E731
+        return ({head(i) for i in r.failed},
+                {head(i) for i in r.items if i[1] == "NA"},
+                {head(i) for i in r.items})
+
+    bad = 0
+
+    def t(why, cond):
+        nonlocal bad
+        if cond:
+            print("[  OK  ] [AD]    %s" % why)
+        else:
+            bad += 1
+            print("[ FAIL ] [AD]    %s" % why)
+
+    # ⓐ 선언이 없으면 **축 자체가 없다** — 부재가 기본값이다.
+    _, _, items = verdicts(cover, None)
+    t("🔴 SPONSOR 선언이 없으면 축이 돌지 않는다",
+      not {i for i in items if i.startswith("[AD")})
+
+    # ⓑ 제대로 적은 광고 편은 셋 다 통과하고, 첫 줄 규격도 안 깨진다.
+    ok_p1 = LABEL + chr(10) + cover
+    failed, _, items = verdicts(ok_p1, SP, _REF_KIT_POST + chr(10) + SP["link"])
+    t("제대로 적은 광고 편은 [AD] 셋이 다 통과한다",
+      {"[AD-1]", "[AD-2]", "[AD-3]"} <= items and not {i for i in failed if i.startswith("[AD")})
+    t("🔴 표기 줄을 떼므로 킷 URL 판정(4-2)이 안 깨진다", "[4-2]" not in failed)
+
+    # ⓒ 한 축씩 무너뜨린다 — **그 축만** FAIL 이어야 한다.
+    vague = {"label": "클래스101 협찬", "link": SP["link"]}
+    failed, _, _ = verdicts("클래스101 협찬" + chr(10) + cover, vague,
+                            _REF_KIT_POST + chr(10) + SP["link"])
+    t("🔴 «협찬» 만으로 때우면 [AD-1] 이 걸린다",
+      "[AD-1]" in failed and "[AD-2]" not in failed)
+
+    failed, _, _ = verdicts(cover + chr(10) + LABEL, SP,
+                            _REF_KIT_POST + chr(10) + SP["link"])
+    t("🔴 표기를 맨 앞이 아닌 데 두면 [AD-2] 가 걸린다",
+      "[AD-2]" in failed and "[AD-1]" not in failed)
+
+    failed, _, _ = verdicts(ok_p1, SP, _REF_KIT_POST)
+    t("🔴 선언한 제휴 링크가 없으면 [AD-3] 이 걸린다", "[AD-3]" in failed)
+
+    # ⓓ 링크 선언이 없는 광고 편 — [AD-3] 은 아예 안 선다(없는 것을 요구하지 않는다).
+    _, _, items = verdicts(LABEL + chr(10) + cover, {"label": LABEL})
+    t("링크 선언이 없으면 [AD-3] 은 서지 않는다", "[AD-3]" not in items)
+
+    # ⓔ 라이브 스킬이 그 판본이 아니면 **«못 쟀다»** 로 남는다 — 조용히 통과 아님.
+    import shutil
+    import tempfile
+    tmp = tempfile.mkdtemp(prefix="distskill_ad_")
+    old = os.environ.get("TOMANGCHI_SKILL")
+    global _SKILL_MOD
+    try:
+        body = _live_skill_src()
+        for fn_name in ("strip_ad_label", "ad_label_ok"):
+            body = body.replace("def %s(" % fn_name, "def _removed_%s(" % fn_name)
+        io.open(os.path.join(tmp, "epcheck.py"), "w", encoding="utf-8",
+                newline="").write(body)
+        os.environ["TOMANGCHI_SKILL"] = tmp
+        _RX_CACHE.clear()
+        _SKILL_MOD = None
+        failed, na, items = verdicts(ok_p1, SP)
+        t("🔴 라이브에 규격이 없으면 FAIL 이다 (NA 로 두면 발행 자격이 그대로 선다)",
+          "[AD]" in failed and "[AD-1]" not in items and "[AD]" not in na)
+    finally:
+        if old is None:
+            os.environ.pop("TOMANGCHI_SKILL", None)
+        else:
+            os.environ["TOMANGCHI_SKILL"] = old
+        _RX_CACHE.clear()
+        _SKILL_MOD = None
+        shutil.rmtree(tmp, ignore_errors=True)
+    return bad
+
+
 def selftest():
     cc = load_cardcheck()
     quote_bad = _quote_tone_selftest()
@@ -1726,6 +1887,7 @@ def selftest():
     bad += _nokit_selftest(cc)
     bad += _postsmin_selftest(cc)
     bad += _reference_selftest(cc)
+    bad += _ad_selftest(cc)
     # 규격 추출 자체의 역검증 — 못 찾으면 던져야 한다.
     try:
         skill_regex("__NOT_A_REAL_REGEX__")

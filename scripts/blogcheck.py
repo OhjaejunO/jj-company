@@ -22,6 +22,7 @@ import io
 import os
 import re
 import sys
+import shutil
 import tempfile
 
 BANNED = [
@@ -32,6 +33,30 @@ BANNED = [
     "확인 못 했", "확인 못 한", "재현한 게", "저희가 돌려",             # 지면 자기 유보 (2026-09-05 JJ «빼자» · 카드 BANNED 와 같은 계열)
 ]
 EP_NUM = re.compile(r"\bep\d{1,3}\b")
+
+
+def skill_epcheck():
+    """라이브 스킬 `epcheck.py` 를 모듈로 — 광고 표기 규격의 정본 (v3.80).
+
+    🔴 **여기에 사본을 두지 않는다.** 「광고·유료광고·상업광고」 목록과 표기 줄을 떼는
+    절차는 캡션·Threads·블로그 셋이 같이 쓰는 하나의 규격이고, 채널마다 목록을 두면
+    **다음에 또 갈린다**(C-48 · C-26 이 그 자리다). 못 읽으면 던진다 — 부르는 쪽이
+    «못 쟀다»가 아니라 **FAIL** 로 받는다(아래 주석).
+    """
+    p = os.environ.get("TOMANGCHI_SKILL") or os.path.join(
+        os.path.expanduser("~"), ".claude", "skills", "tomangchi")
+    path = os.path.join(p, "epcheck.py")
+    if not os.path.exists(path):
+        raise RuntimeError("라이브 스킬 epcheck.py 를 못 찾았다: %s" % path)
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_live_epcheck_blog", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    if not hasattr(mod, "ad_label_ok"):
+        raise RuntimeError("라이브 스킬에 광고 표기 규격(v3.80)이 없다 — deploy-skill 먼저")
+    return mod
+
+
 SRC = re.compile(r"\(출처: (?:[a-z0-9.-]+\.[a-z]{2,}|X / @[A-Za-z0-9_]+)(?: [^)]*)? · 20\d\d-\d\d-\d\d\)")   # 도메인 또는 X 계정
 
 
@@ -132,6 +157,36 @@ def check(md, publish=False, caption=None, kind=None):
     tl = re.findall(r"#\S+", tags)
     if not (5 <= len(tl) <= 15):
         fails.append("해시태그 %d개 (5~15)" % len(tl))
+
+    # ── [AD] 광고(대가성) 표기 (v3.80 · 공정위 「추천·보증 등에 관한 표시·광고 심사지침」) ──
+    # 🔴 **부재가 기본값이다** — 프런트매터에 `sponsor_label:` 이 없으면 광고 글이 아니므로
+    #    축이 **안 돈다**(정관 §0 4층 ①). 「광고인데 선언을 안 한 글」은 못 잡는다(④ · 사람 자리).
+    # 자리는 문자 매체 규정대로 **제목 또는 글 맨 앞**이다 — 네이버 본문의 맨 앞은
+    #    `## 요약` 절이므로 그 첫 줄을 본다.
+    sp_label = (meta.get("sponsor_label") or "").strip()
+    if sp_label:
+        try:
+            _sk = skill_epcheck()
+        except RuntimeError as _e:
+            # 🔴 «못 쟀다» 로 넘기지 않는다. 이 게이트의 `STATUS: OK` 가 곧 발행 자격이라
+            #    (정관 §0 발행 절), 재지 못한 채 통과시키면 표기 없는 광고 글이 나간다.
+            fails.append("[AD] 광고 표기 규격을 못 읽었다 — %s" % _e)
+        else:
+            if not _sk.ad_label_ok(sp_label):
+                fails.append("[AD-1] 표기 «%s» 에 «광고/유료광고/상업광고» 가 없다 "
+                             "— 「협찬·체험단·파트너십」 만으로는 미표기다" % sp_label)
+            _title = (re.search(r"^# (.+)$", md, re.M) or [None, ""])[1] \
+                if re.search(r"^# (.+)$", md, re.M) else ""
+            _head = next((l.strip() for l in (summ or "").splitlines() if l.strip()), "")
+            if sp_label not in _title and not _head.startswith(sp_label):
+                fails.append("[AD-2] 표기가 제목에도 글 맨 앞에도 없다 (문자 매체 규정) "
+                             "— 맨 앞 «%s»" % _head[:30])
+            sp_link = (meta.get("sponsor_link") or "").strip()
+            # 🔴 프런트매터를 빼고 본다 — 안 빼면 **선언 그 자체가 «있다»로 읽혀**
+            #    이 축이 영원히 통과한다(자체 검사에서 실제로 그랬다).
+            _rendered = md[fm.end():] if fm else md
+            if sp_link and sp_link not in _rendered:
+                fails.append("[AD-3] 선언한 제휴 링크가 글에 없다: %s" % sp_link)
 
     prose = (summ or "") + body + (faq or "")
     for b in BANNED:
@@ -275,6 +330,46 @@ def self_test():
     cases.append(("한 소재 글에 핵심 정보 표 없음 → FAIL", any("핵심 정보" in x for x in f), f))
     f, _ = check(good.replace("- blog.google — 블로그 (2026-09-07)\n", ""))
     cases.append(("참고 자료 2줄 → FAIL", any("참고 자료" in x for x in f), f))
+
+    # ── [AD] 광고 표기 (v3.80) — 양방향. 🔴 «선언이 없으면 안 돈다» 를 맨 먼저 본다.
+    LABEL = "광고 · 클래스101 파트너스 수수료 지급"
+    cases.append(("🔴 sponsor_label 선언이 없으면 [AD] 축이 돌지 않는다",
+                  not any(x.startswith("[AD") for x in check(good)[0]), check(good)[0]))
+    ad_fm = "kind: daily\nsponsor_label: " + LABEL
+    ad_good = good.replace("kind: daily", ad_fm).replace(
+        "## 요약\n\n세 가지", "## 요약\n\n" + LABEL + "\n세 가지")
+    f, _ = check(ad_good)
+    cases.append(("표기를 글 맨 앞에 두면 통과한다", not any(x.startswith("[AD") for x in f), f))
+    f, _ = check(good.replace("kind: daily", ad_fm))
+    cases.append(("🔴 선언만 하고 지면에 안 적으면 [AD-2] FAIL",
+                  any(x.startswith("[AD-2]") for x in f), f))
+    vague = "클래스101 협찬"
+    f, _ = check(good.replace("kind: daily", "kind: daily\nsponsor_label: " + vague).replace(
+        "## 요약\n\n세 가지", "## 요약\n\n" + vague + "\n세 가지"))
+    cases.append(("🔴 «협찬» 만으로 때우면 [AD-1] FAIL",
+                  any(x.startswith("[AD-1]") for x in f) and
+                  not any(x.startswith("[AD-2]") for x in f), f))
+    f, _ = check(ad_good.replace(
+        "sponsor_label: " + LABEL,
+        "sponsor_label: " + LABEL + "\nsponsor_link: https://example.invalid/c101"))
+    cases.append(("🔴 선언한 제휴 링크가 글에 없으면 [AD-3] FAIL",
+                  any(x.startswith("[AD-3]") for x in f), f))
+    # 🔴 라이브에 규격이 없을 때 **통과시키지 않는다.** «못 쟀다» 로 넘기면 이 게이트의
+    #    `STATUS: OK` 가 곧 발행 자격이라(정관 §0) 표기 없는 광고 글이 그대로 나간다.
+    _old_sk = os.environ.get("TOMANGCHI_SKILL")
+    _tmp = tempfile.mkdtemp(prefix="blogad_")
+    try:
+        os.environ["TOMANGCHI_SKILL"] = _tmp          # epcheck.py 가 없는 디렉토리
+        f, _ = check(ad_good)
+        cases.append(("🔴 라이브에 규격이 없으면 [AD] FAIL (조용히 통과 아님)",
+                      any(x.startswith("[AD]") for x in f), f))
+    finally:
+        if _old_sk is None:
+            os.environ.pop("TOMANGCHI_SKILL", None)
+        else:
+            os.environ["TOMANGCHI_SKILL"] = _old_sk
+        shutil.rmtree(_tmp, ignore_errors=True)
+
     ok = all(c[1] for c in cases)
     for name, v, f in cases:
         print(("PASS " if v else "FAIL ") + name + ("" if v else "  <- " + "; ".join(f)))
