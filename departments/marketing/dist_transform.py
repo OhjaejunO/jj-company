@@ -278,18 +278,41 @@ def publog_post_url(ep_no):
 
 def load_ep(ep_dir):
     builds = [f for f in os.listdir(ep_dir) if re.match(r"^build_ep\d+\.py$", f)]
-    if not builds:
-        raise RuntimeError("빌더 선언 파일이 없다: %s" % ep_dir)
     # `_facts.py` 를 먼저 읽어 `F.` 참조를 풀 수 있게 한다 — 안 그러면 영상 카드가 든 편의
     # `CARDS` 가 통째로 안 읽힌다(위 `_Subst` 주석).
     _facts_p = os.path.join(ep_dir, "_facts.py")
-    _tables = {"F": _module_literals(_facts_p)} if os.path.exists(_facts_p) else {}
-    decl = _module_literals(os.path.join(ep_dir, sorted(builds)[0]), _tables)
-    if not decl.get("CARDS"):
-        # 🔴 조용히 넘어가지 않는다. 카드가 0건인 편은 존재하지 않으므로 **읽기 실패**다.
+    _facts_lit = _module_literals(_facts_p) if os.path.exists(_facts_p) else {}
+    _tables = {"F": _facts_lit} if _facts_lit else {}
+
+    # 🔴 **릴스 단독 편은 빌더가 없다** (2026-09-11 · ep45·ep47 실측 · SKILL §6.6 A).
+    #    카드가 0장이고 `assemble_reel.py` 하나가 편의 전부라, 종전 코드는 첫 줄에서
+    #    「빌더 선언 파일이 없다」로 죽었다 — **릴스 편 넷이 유통에서 통째로 막힌 자리**다.
+    #
+    #    판별 축은 «빌더 없음» 하나가 아니라 **«빌더 없음 ∧ `assemble_reel.py` 있음»** 둘이다.
+    #    하나만 보면 «빌더를 아직 안 만든 제작 중인 편»까지 조용히 통과해 카드 0장짜리
+    #    스레드를 내보낸다 — 그것이 종전 `CARDS` 필수 검사가 막던 것이고, 여기서 그 몫을
+    #    잃지 않는다. 릴스 편에서 카드 0장은 **결함이 아니라 그 편의 꼴**이다.
+    #
+    #    선언은 `_facts.py` 가 진다. `assemble_reel.py` 에 적지 않는 이유는 그 파일이
+    #    **이미 발행된 편의 산출물**이라서다(정관 §2 — `01_발행완료` 는 못 고친다).
+    reel_only = not builds and os.path.exists(os.path.join(ep_dir, "assemble_reel.py"))
+    if not builds and not reel_only:
         raise RuntimeError(
-            "편 선언에서 CARDS 를 읽지 못했다: %s — 리터럴이 아닌 참조가 들어 있으면 "
-            "`_facts.py` 에 올리거나 `_Subst` 에 그 모듈을 더해라" % ep_dir)
+            "빌더 선언 파일이 없다: %s — 릴스 단독 편이면 `assemble_reel.py` 가 있어야 한다" % ep_dir)
+
+    if reel_only:
+        if not _facts_lit:
+            raise RuntimeError(
+                "릴스 편에 `_facts.py` 가 없다: %s — 빌더가 없는 편은 선언(EP·KIT·"
+                "ATTACH_OFFICIAL·OFFICIAL_VIDEO)을 그 파일이 진다" % ep_dir)
+        decl = _facts_lit
+    else:
+        decl = _module_literals(os.path.join(ep_dir, sorted(builds)[0]), _tables)
+        if not decl.get("CARDS"):
+            # 🔴 조용히 넘어가지 않는다. 빌더가 있는 편에서 카드 0건은 **읽기 실패**다.
+            raise RuntimeError(
+                "편 선언에서 CARDS 를 읽지 못했다: %s — 리터럴이 아닌 참조가 들어 있으면 "
+                "`_facts.py` 에 올리거나 `_Subst` 에 그 모듈을 더해라" % ep_dir)
     kit = decl.get("KIT") or {}
     if kit and not kit.get("url"):
         raise RuntimeError("편 선언 KIT 에 url 이 없다 — 킷이 있으면 url 을 적고, 킷 없는 편이면 KIT 선언 자체를 빼라")
@@ -715,6 +738,37 @@ def _subst_selftest():
         print("[ %s ] %s" % ("  OK  " if okc else " FAIL ", label),
               "" if okc else "— 기대 %r · 실제 %r" % (want, got))
         bad += 0 if okc else 1
+    # --- 릴스 단독 편 판별 (2026-09-11) ------------------------------------
+    #
+    # 판별 축이 **둘**이라는 것이 이 묶음의 전부다. «빌더 없음» 하나만 보면
+    # 「빌더를 아직 안 만든 제작 중인 편」까지 카드 0장으로 통과한다 — 종전 `CARDS`
+    # 필수 검사가 막던 그것이다. 그래서 통과해야 하는 쪽과 **거부해야 하는 쪽**을
+    # 같이 잰다(정관 §0 — 한쪽만 보면 전부 거부하는 코드도 정상으로 보인다).
+    for label, files, want in [
+        ("릴스 편(빌더 없음 + assemble_reel.py + _facts.py)은 읽힌다",
+         {"assemble_reel.py": "", "_facts.py": "EP = 45\nCARDS = {}\n"}, "ok"),
+        ("빌더가 있으면 종전 그대로 — CARDS 0장은 읽기 실패",
+         {"build_ep99.py": "CARDS = {}\n"}, "raise"),
+        ("빌더도 assemble_reel.py 도 없으면 거부",
+         {"_facts.py": "EP = 99\n"}, "raise"),
+        ("릴스 편인데 _facts.py 가 없으면 거부 (선언이 그 파일에 있다)",
+         {"assemble_reel.py": ""}, "raise"),
+    ]:
+        with tempfile.TemporaryDirectory() as d:
+            for n, body in files.items():
+                io.open(os.path.join(d, n), "w", encoding="utf-8").write(body)
+            try:
+                load_ep(d)
+                got = "ok"
+            except RuntimeError:
+                got = "raise"
+            except Exception as e:                       # noqa: BLE001
+                got = "other:%s" % type(e).__name__
+        okc = got == want
+        print("[ %s ] %s" % ("  OK  " if okc else " FAIL ", label),
+              "" if okc else "— 기대 %r · 실제 %r" % (want, got))
+        bad += 0 if okc else 1
+
     print("STATUS: %s" % ("OK" if not bad else "FAIL %d건" % bad))
     return bad
 
