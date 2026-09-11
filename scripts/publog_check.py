@@ -42,6 +42,22 @@ TS = re.compile(
 WARN_HOURS = 2.0     # 이보다 늦으면 🟡 — 「즉시」가 아니다
 FAIL_HOURS = 24.0    # 이보다 늦으면 🔴 — 기억으로 적은 것이다
 
+# ── 알려진 지각 (기준선 · 2026-09-11) ────────────────────────────────────────
+#
+# 🔴 **고칠 수 없는 FAIL 은 기준선으로 얼린다.** ep40 은 발행 30.8시간 뒤에 적혔고 그것은
+#    사실이다 — 갱신 규칙 8 이 「소급해 채우지 않는다」이고 정관 §2 예외 5 는 기존 행의
+#    «값» 수정을 어느 경로로도 열지 않으므로, **이 FAIL 은 영영 남는다.** 그대로 두면
+#    `STATUS: FAIL` 이 상시가 되고, 상시 FAIL 은 **다음에 진짜로 생긴 FAIL 을 덮는다.**
+#
+# **그래서 «없던 일» 로 만들지 않고 «이미 아는 일» 로 적는다** — 화면에는 KNOWN 으로
+# 계속 찍히고 STATUS 에만 안 들어간다. 키에 **기록 시각 실값**을 같이 박아서, 그 칸이
+# 한 글자라도 달라지면 기준선이 안 맞아 **다시 FAIL 로 돌아온다**(값을 몰래 고쳐
+# 통과시키는 길을 막는다).
+KNOWN_LATE = {
+    ("ep40", "2026-09-02 20:45 KST"):
+        "2026-09-01 14:00 발행 · 칸 설치 직후라 꼬리 회차에서 적었다 (규칙 8 대로 소급 수정 안 함)",
+}
+
 
 def parse_ts(text):
     """표 칸 하나에서 시각을 꺼낸다. 돌려주는 것은 `(datetime|None, 사유)`."""
@@ -64,11 +80,34 @@ def parse_ts(text):
 
 
 def split_rows(text):
-    """표의 «| … |» 줄만 칸 리스트로. 구분선(`|---|`)은 뺀다."""
+    """표의 «| … |» 줄만 칸 리스트로. 구분선(`|---|`)은 뺀다.
+
+    🔴 **행은 여러 줄일 수 있다 (2026-09-11 실측).** `| ` 로 열고 다음 줄들에 이어 쓴 뒤
+    마지막 줄에서 `|` 로 닫는 행이 다섯이다(ep15·ep16·ep17 과 「번호 미배정」 둘). 종전에는
+    «한 줄이 `|` 로 시작하고 `|` 로 끝날 때»만 행으로 봐서 **그 다섯이 통째로 빠졌다** —
+    발행 행을 62 로 세고 62 를 다 봤다는 얼굴로 `STATUS: OK` 를 냈다. `main_table` 의
+    docstring 이 「덜 보는 검사가 통과를 내는 것이 가장 나쁜 꼴」이라고 적은 그 결함이
+    **한 겹 안쪽에 그대로 남아 있었다**: 표는 다 잘라 냈는데 행을 덜 읽었다.
+    """
     out = []
+    buf = []
     for ln in text.split("\n"):
         s = ln.strip()
-        if not (s.startswith("|") and s.endswith("|")):
+        if buf:
+            # 열려 있는 행을 잇는다. 빈 줄이나 새 행이 오면 «닫히지 않은 행» 으로 보고 버린다
+            # (마크다운에서도 그 꼴은 표가 아니다).
+            if not s or s.startswith("|"):
+                buf = []
+            else:
+                buf.append(s)
+                if not s.endswith("|"):
+                    continue
+                s = " ".join(buf)
+                buf = []
+        if not s.startswith("|"):
+            continue
+        if not s.endswith("|"):
+            buf = [s]
             continue
         cells = [c.strip() for c in s[1:-1].split("|")]
         if cells and all(set(c) <= set("-: ") and c for c in cells):
@@ -151,12 +190,152 @@ def audit(text):
         if gap < 0:
             results.append((ep, "FAIL", "\uae30\ub85d\uc774 \ubc1c\ud589\ubcf4\ub2e4 \uc55e\uc120\ub2e4 (%.1f\uc2dc\uac04)" % gap))
         elif gap > FAIL_HOURS:
-            results.append((ep, "FAIL", "\uc9c0\uc5f0 %.1f\uc2dc\uac04 — \uae30\uc5b5\uc73c\ub85c \uc801\uc740 \uac12\uc774\ub2e4" % gap))
+            known = KNOWN_LATE.get((ep, rec_raw.strip()))
+            if known:
+                results.append((ep, "KNOWN", "\uc9c0\uc5f0 %.1f\uc2dc\uac04 — \uae30\uc900\uc120: %s" % (gap, known)))
+            else:
+                results.append((ep, "FAIL", "\uc9c0\uc5f0 %.1f\uc2dc\uac04 — \uae30\uc5b5\uc73c\ub85c \uc801\uc740 \uac12\uc774\ub2e4" % gap))
         elif gap > WARN_HOURS:
             results.append((ep, "WARN", "\uc9c0\uc5f0 %.1f\uc2dc\uac04 — «\uc989\uc2dc»\uac00 \uc544\ub2c8\ub2e4" % gap))
         else:
             results.append((ep, "OK", "\uc9c0\uc5f0 %.1f\uc2dc\uac04" % gap))
     return True, results, {"rows": len(rows) - 1}
+
+
+# ── 축 ⑥ 누적 수치 (2026-09-11 신설) ────────────────────────────────────────
+#
+# **왜 필요한가.** 누적 수치 표는 본 표를 센 **파생값**인데 손으로 적어 왔다. 그래서
+# 2026-08-28 이후 아무도 안 고쳤고, 실측 51편/65건인 표가 **35편/36건**을 가리키고
+# 있었다 — 13편 뒤처진 값이다. 「이 표가 편수의 정본이다」라고 적혀 있어서 포트폴리오·
+# 지원서·DB 가 그 틀린 값을 베꼈다.
+#
+# 🔴 **고치는 자리는 ③(검사)이 아니라 ①(구조)이다** (정관 §0 4층). 파생값은 사람이
+#    적지 않는다 — `--tally-write` 가 센 값으로 적고, 이 축은 «적힌 값 = 센 값» 인지만
+#    잰다. 검사만 달면 매번 사람이 손으로 맞추러 불려 나오고, 그러면 또 밀린다.
+#
+# **채널이 갈린다.** 종전 「게시물 수 = 발행 행 수」는 재유통 행이 없던 시절의 정의다.
+# 지금은 `epNN-Threads` 가 13행이라 한 값으로 두면 인스타 게시물 수를 물었을 때
+# 65 가 나온다. 편 키의 꼬리(`-Threads`·`-X`)가 곧 채널이므로 **칸을 늘리지 않고** 갈랐다.
+
+TALLY_HEAD = "## 누적 수치"          # 「## 누적 수치」
+REDIST_SUFFIX = re.compile(r"^ep\d+-(?:Threads|X)\b")
+EPNO = re.compile(r"^ep(\d+)")
+
+TALLY_KEYS = ("편수",                                   # 편수
+              "게시물 수 · 인스타",        # 게시물 수 · 인스타
+              "게시물 수 · 재유통")        # 게시물 수 · 재유통
+
+
+def tally(text):
+    """본 표를 세어 `(편수, 인스타건, 재유통건)`. 이것이 파생값의 **정본 계산**이다."""
+    rows = split_rows(main_table(text))
+    if not rows:
+        return (0, 0, 0)
+    head = rows[0]
+    i_state = head.index("상태") if "상태" in head else 2
+    eps, insta, redist = set(), 0, 0
+    for cells in rows[1:]:
+        if len(cells) <= i_state:
+            continue
+        # 🔴 `발행취소` 가 걸리지 않게 **정확히 일치**시킨다 (누적 수치 표의 그 주석).
+        if re.sub(r"[*` ]", "", cells[i_state]) != STATE_PUB:
+            continue
+        ep = re.sub(r"[*` ]", "", cells[0])
+        m = EPNO.match(ep)
+        if m:
+            eps.add(int(m.group(1)))        # ep1 과 ep1-릴스·ep45-Threads 는 한 편이다
+        if REDIST_SUFFIX.match(ep):
+            redist += 1
+        else:
+            insta += 1
+    return (len(eps), insta, redist)
+
+
+def tally_declared(text):
+    """누적 수치 표·제목에 **적혀 있는** 값. 못 읽은 자리는 `None`."""
+    out = {}
+    body = text[text.index(TALLY_HEAD):] if TALLY_HEAD in text else ""
+    if not body:
+        return out
+    head_line = body.split("\n", 1)[0]
+    m = re.search(r"\*\*(\d+)편\s*/\s*(\d+)건\*\*", head_line)   # 「**51편 / 65건**」
+    out["title"] = (int(m.group(1)), int(m.group(2))) if m else None
+    for ln in body.split("\n"):
+        if not ln.startswith("|"):
+            continue
+        cells = [c.strip() for c in ln.strip().strip("|").split("|")]
+        if len(cells) < 2:
+            continue
+        key = cells[0].strip("* ")
+        for want in TALLY_KEYS:
+            if key == want:
+                d = re.search(r"(\d+)", cells[1])
+                out[want] = int(d.group(1)) if d else None
+    return out
+
+
+def tally_audit(text):
+    """`(결과행목록, 틀린수)` — 「적힌 값 = 센 값」인가."""
+    ep_n, insta, redist = tally(text)
+    got = dict(zip(TALLY_KEYS, (ep_n, insta, redist)))
+    decl = tally_declared(text)
+    res, bad = [], 0
+    if not decl:
+        return ([("누적 수치", "NA", "표가 없다")], 0)
+    for k in TALLY_KEYS:
+        d = decl.get(k)
+        if d is None:
+            res.append((k, "FAIL", "적힌 값을 못 읽었다"))
+            bad += 1
+        elif d != got[k]:
+            res.append((k, "FAIL", "적힌 값 %d ≠ 센 값 %d" % (d, got[k])))
+            bad += 1
+        else:
+            res.append((k, "OK", "%d" % d))
+    t = decl.get("title")
+    want_t = (ep_n, insta + redist)
+    if t is None:
+        res.append(("제목 줄", "FAIL", "«**N편 / N건**» 을 못 읽었다"))
+        bad += 1
+    elif t != want_t:
+        res.append(("제목 줄", "FAIL", "%s ≠ %s" % (t, want_t)))
+        bad += 1
+    else:
+        res.append(("제목 줄", "OK", "%d편 / %d건" % want_t))
+    return (res, bad)
+
+
+def tally_write(text):
+    """센 값으로 누적 수치 표·제목을 **다시 적는다**. 본 표는 한 글자도 안 건드린다."""
+    ep_n, insta, redist = tally(text)
+    got = dict(zip(TALLY_KEYS, (ep_n, insta, redist)))
+    units = dict(zip(TALLY_KEYS, ("편", "건", "건")))
+    if TALLY_HEAD not in text:
+        raise RuntimeError("누적 수치 표를 못 찾았다")
+    at = text.index(TALLY_HEAD)
+    before, body = text[:at], text[at:]
+    lines = body.split("\n")
+    lines[0] = re.sub(r"\*\*\d+편\s*/\s*\d+건\*\*",
+                      "**%d편 / %d건**" % (ep_n, insta + redist), lines[0], count=1)
+    for i, ln in enumerate(lines):
+        if not ln.startswith("|"):
+            continue
+        cells = ln.strip().strip("|").split("|")
+        if len(cells) < 2:
+            continue
+        key = cells[0].strip().strip("* ")
+        if key not in got:
+            continue
+        cells[1] = " **%d%s** " % (got[key], units[key])
+        lines[i] = "|" + "|".join(cells) + "|"
+    new = before + "\n".join(lines)
+    # 🔴 **본 표 무변경을 기계로 증명한다** — 파생값만 고치는 동작이므로 여기서
+    #    본 표가 한 글자라도 달라지면 그것은 이 경로가 할 일이 아니다 (정관 §2 예외 5).
+    # (본 표 «행» 으로 재는 이유: `main_table` 은 다음 표 머리글 앞까지 잘라 오므로
+    #  그 사이 산문·제목 줄이 딸려 온다 — 텍스트로 대면 누적 표 제목만 고쳐도 걸린다.)
+    if split_rows(main_table(new)) != split_rows(main_table(text)):
+        raise RuntimeError("본 표가 바뀌었다 — 쓰지 않는다")
+    return new
 
 
 # ── 표 구조 변경 검증 (정관 §2 예외 5 · 2026-08-31) ──────────────────────────
@@ -490,6 +669,77 @@ def _self_test():
     b, _ = parse_ts("2026-08-29T16:38+00:00")
     case("KST 01:38 = UTC 16:38 (ep39 \ub8e8\ud2b8 \uc2e4\uce21)", a == b, "%s == %s" % (a, b))
 
+    print("[R] 역검증 — 여러 줄에 걸친 행 (2026-09-11)")
+    WRAP = "\n".join([
+        H_NEW, SEP,
+        row("ep40", "발행", "2026-08-30 10:00 KST", "2026-08-30 10:30 KST"),
+        "| ep41 | 제목 | 발행 | 2026-08-30 11:00 KST | 2026-08-30 11:10 KST | 비고가",
+        "둘째 줄로 이어지고",
+        "셋째 줄에서 닫힌다 |",
+        row("ep42", "발행", "2026-08-30 12:00 KST", "2026-08-30 12:10 KST")])
+    _, resw, _ = audit(WRAP)
+    case("여러 줄 행도 센다 (종전에는 통째로 빠졌다)",
+         [r[0] for r in resw] == ["ep40", "ep41", "ep42"],
+         "본 행 %s" % [r[0] for r in resw])
+    OPEN = "\n".join([
+        H_NEW, SEP,
+        "| ep41 | 제목 | 발행 | 2026-08-30 11:00 KST | 2026-08-30 11:10 KST | 안 닫힌다",
+        "",
+        row("ep42", "발행", "2026-08-30 12:00 KST", "2026-08-30 12:10 KST")])
+    _, reso, _ = audit(OPEN)
+    case("🔴 닫히지 않은 행은 세지 않는다 (반대쪽 — 이어붙이기가 폭주하지 않는다)",
+         [r[0] for r in reso] == ["ep42"], "본 행 %s" % [r[0] for r in reso])
+
+    print("[R] 역검증 — 축 ⑥ 누적 수치")
+
+    def tally_doc(decl_ep, decl_in, decl_re):
+        return "\n".join([
+            H_NEW, SEP,
+            row("ep40", "발행", "2026-08-30 10:00 KST", "2026-08-30 10:30 KST"),
+            row("ep41", "발행", "2026-08-30 11:00 KST", "2026-08-30 11:10 KST"),
+            row("ep41-Threads", "발행", "2026-08-30 11:30 KST", "2026-08-30 11:40 KST"),
+            row("ep42", "발행취소", "—", "—"),
+            "",
+            "## 누적 수치 — **%d편 / %d건** (테스트)" % (decl_ep, decl_in + decl_re),
+            "",
+            "| 층 | 값 | 세는 법 |",
+            "|---|---|---|",
+            "| **편수** | **%d편** | x |" % decl_ep,
+            "| **게시물 수 · 인스타** | **%d건** | x |" % decl_in,
+            "| **게시물 수 · 재유통** | **%d건** | x |" % decl_re])
+
+    ok_doc = tally_doc(2, 2, 1)
+    case("센 값 = (편 2 · 인스타 2 · 재유통 1)", tally(ok_doc) == (2, 2, 1),
+         "%s" % (tally(ok_doc),))
+    case("적힌 값이 맞으면 통과한다 (반대쪽)", tally_audit(ok_doc)[1] == 0)
+    case("🔴 `발행취소` 는 어느 층에도 안 센다 (부분 문자열 함정)", tally(ok_doc)[1] == 2)
+    case("🔴 편수가 틀리면 잡는다", tally_audit(tally_doc(3, 2, 1))[1] >= 1)
+    case("🔴 인스타 건수가 틀리면 잡는다", tally_audit(tally_doc(2, 5, 1))[1] >= 1)
+    case("🔴 재유통을 인스타에 섞으면 잡는다 (3/0 은 종전 «행 수» 정의)",
+         tally_audit(tally_doc(2, 3, 0))[1] >= 1)
+    case("🔴 제목 줄만 틀려도 잡는다",
+         tally_audit(ok_doc.replace("**2편 / 3건**", "**9편 / 9건**"))[1] == 1)
+    fixed = tally_write(tally_doc(3, 9, 9))
+    case("--tally-write 가 센 값으로 고쳐 놓는다", tally_audit(fixed)[1] == 0,
+         "%s" % (tally_declared(fixed),))
+    case("🔴 --tally-write 는 본 표를 안 건드린다",
+         split_rows(main_table(fixed)) == split_rows(main_table(tally_doc(3, 9, 9))))
+
+    print("[R] 역검증 — 알려진 지각 기준선")
+    KEY_EP, KEY_REC = list(KNOWN_LATE)[0]
+    known_doc = tbl(H_NEW, SEP, row(KEY_EP, "발행", "2026-09-01 14:00 KST", KEY_REC))
+    _, resk, _ = audit(known_doc)
+    case("기준선에 적힌 행은 KNOWN 이다 (FAIL 이 아니다)",
+         resk and resk[0][1] == "KNOWN", "%s" % (resk[0][1] if resk else "-"))
+    _, resk2, _ = audit(tbl(H_NEW, SEP,
+                            row(KEY_EP, "발행", "2026-09-01 14:00 KST", "2026-09-05 09:00 KST")))
+    case("🔴 같은 편이어도 기록 시각이 다르면 FAIL 로 돌아온다 (값 몰래 고치기 차단)",
+         resk2 and resk2[0][1] == "FAIL", "%s" % (resk2[0][1] if resk2 else "-"))
+    _, resk3, _ = audit(tbl(H_NEW, SEP,
+                            row("ep99", "발행", "2026-09-01 14:00 KST", KEY_REC)))
+    case("🔴 기준선에 없는 편의 지각은 그대로 FAIL 이다",
+         resk3 and resk3[0][1] == "FAIL", "%s" % (resk3[0][1] if resk3 else "-"))
+
     bad += _selftest_structure()
 
     print()
@@ -531,11 +781,32 @@ def _run_verify_structure(argv):
     return 1
 
 
+def _run_tally_write():
+    """누적 수치를 센 값으로 다시 적는다. **파생값 전용** — 본 표는 안 건드린다."""
+    text = io.open(PUBLOG, encoding="utf-8").read()
+    before = tally_declared(text)
+    new = tally_write(text)                      # 본 표 무변경은 그 안에서 증명한다
+    if new == text:
+        print("  바뀐 값 없다 — 적힌 값이 이미 센 값이다")
+        print("\nSTATUS: OK")
+        return 0
+    io.open(PUBLOG, "w", encoding="utf-8", newline="").write(new)
+    after = tally_declared(new)
+    for k in ("title",) + TALLY_KEYS:
+        if before.get(k) != after.get(k):
+            print("  %-22s %s → %s" % (k, before.get(k), after.get(k)))
+    res, bad = tally_audit(new)
+    print("\nSTATUS: %s" % ("OK" if not bad else "FAIL tally-write %d건" % bad))
+    return 1 if bad else 0
+
+
 def main():
     if "--self-test" in sys.argv:
         return _self_test()
     if "--verify-structure" in sys.argv:
         return _run_verify_structure(sys.argv)
+    if "--tally-write" in sys.argv:
+        return _run_tally_write()
     if not os.path.exists(PUBLOG):
         print("  FAIL \ubc1c\ud589\ub85c\uadf8\ub97c \ubabb \ucc3e\uc558\ub2e4: %s" % PUBLOG)
         print("\nSTATUS: FAIL no-publog")
@@ -558,6 +829,14 @@ def main():
         print("  OK   ⑤ 편 행이 전부 본 표 안에 있다")
         print()
 
+    tres, tbad = tally_audit(text)
+    for key, verdict, why in tres:
+        print("  %-4s ⑥ %-22s %s" % (verdict, key, why))
+    if tbad:
+        print("       고치기: py scripts\\publog_check.py --tally-write "
+              "(파생값만 다시 적는다 · 본 표 무변경을 기계로 증명)")
+    print()
+
     inst, res, meta = audit(text)
     if not inst:
         print("  N/A  \uce78\uc774 \uc5c6\ub2e4 — %s" % meta.get("reason"))
@@ -566,13 +845,13 @@ def main():
         print(PROPOSAL)
         print("STATUS: OK (\ubd80\ubd84: \uce78 \ubbf8\uc124\uce58 — \uc0ac\ub78c \uc190)")
         return 0
-    n = {"OK": 0, "WARN": 0, "FAIL": 0, "NA": 0}
+    n = {"OK": 0, "WARN": 0, "FAIL": 0, "NA": 0, "KNOWN": 0}
     for ep, verdict, why in res:
         n[verdict] += 1
         print("  %-4s %-16s %s" % (verdict, ep, why))
     print()
-    print("  \ubc1c\ud589 \ud589 %d — OK %d · WARN %d · FAIL %d · NA %d"
-          % (len(res), n["OK"], n["WARN"], n["FAIL"], n["NA"]))
+    print("  \ubc1c\ud589 \ud589 %d — OK %d · WARN %d · FAIL %d · NA %d · KNOWN %d"
+          % (len(res), n["OK"], n["WARN"], n["FAIL"], n["NA"], n["KNOWN"]))
     print()
     # \ud83d\udd34 **\ucd95 \u2464 \ub97c STATUS \uc5d0 \ubc18\uc601\ud55c\ub2e4.** \ud654\uba74\uc5d0 FAIL \uc744 \ucc0d\uc5b4 \ub193\uace0 `STATUS: OK` \ub97c \ub0b4\uba74
     #    \uae30\uacc4\ub85c \uc77d\ub294 \ucabd\uc740 \ud1b5\uacfc\ub85c \ubc1b\ub294\ub2e4 \u2014 \uac80\uc0ac\uac00 \uc7a1\uc740 \uac83\uc744 \uc885\uacb0\ubd80\uac00 \ubc84\ub9ac\ub294 \uad6c\uc870\ub2e4
@@ -582,6 +861,8 @@ def main():
         why.append("\uae30\ub85d\uc2dc\uac01 %d\uac74" % n["FAIL"])
     if stray:
         why.append("\ud45c\ubc16\ud589 %d\uac74" % len(stray))
+    if tbad:
+        why.append("\ub204\uc801\uc218\uce58 %d\uac74" % tbad)
     if not why:
         print("STATUS: OK")
         return 0
