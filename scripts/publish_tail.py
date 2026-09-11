@@ -37,8 +37,13 @@ sys.path.insert(0, str(HERE))
 import graph_runner as gr  # noqa: E402
 import ig_watch  # noqa: E402
 import publog_check  # noqa: E402
+import publish_threads  # noqa: E402
 
 ROOT = HERE.parent
+#: 🔴 영수증은 **운영 서버**에 쌓인다 — 워커(`publish_threads`)가 쓰는 그 자리를 그대로 쓴다.
+#:    `ROOT/logs` 로 잡으면 워크트리에서 «0편» 이 조용히 나온다(`logs\` 는 gitignore).
+#:    「적을 것이 없다」와 「볼 곳을 잘못 봤다」가 구별되지 않는 꼴이라 상수를 빌려 온다.
+RECEIPTS = Path(publish_threads.RECEIPT_DIR)
 WORKSHOP = Path(os.environ.get("TOMANGCHI_WORKSHOP", r"C:\Users\ojaej\orca\tomangchi-lab.github.io\workshop"))
 PUBLOG = Path(os.environ.get("TOMANGCHI_PUBLOG", str(WORKSHOP / "발행로그.md")))
 KST = dt.timezone(dt.timedelta(hours=9))
@@ -158,6 +163,95 @@ def record(s):
     return {"recorded": row}
 
 
+# ---------------------------------------------------------------- 재유통 (Threads)
+#
+# 🔴 **왜 여기 붙는가 (2026-09-11).** Threads 재유통 13편 중 **8편이 발행로그에 없었다**
+#    (ep45·47·49·50·51·52·54·55 · 마지막 `-Threads` 행이 ep43 · 9/4). 정관 §2 예외 5 는
+#    행 추가를 «JJ 가 준 값» 또는 «`publish_tail` 이 API 에서 읽은 값» 으로만 여는데,
+#    Threads 를 읽는 코드가 이 파일에 **없었다** — 그래서 아무도 못 적었다. 조문이 막은
+#    것이 아니라 **도구가 그 문장을 따라오지 못한 것**이다.
+#
+# 🔴 **값의 정본은 영수증이 아니라 API 다.** 영수증은 «어느 media 가 나갔는가» 를 알고,
+#    **시각과 permalink 는 Threads 에서 되읽는다**(§0 «실물을 조회할 수 있는 것은 실물이
+#    정본»). 되읽지 못하면 **적지 않는다** — 추측한 값을 정본 표에 넣지 않는다.
+#
+# 인스타 꼬리 그래프에 노드로 넣지 않은 이유: 재유통은 인스타 발행과 **다른 회차**에
+# 일어난다. 같은 회차에 묶으면 매번 «아직 안 나갔다» 로 서서 그래프가 안 끝난다.
+def threads_posted(ep):
+    """영수증에서 **실제로 나간** 포스트만 (seq, media_id) 로. `post.claim` 은 선점이라 뺀다."""
+    import json
+    p = RECEIPTS / ("%s.jsonl" % ep)
+    if not p.exists():
+        return []
+    out = {}
+    for ln in p.read_text("utf-8", errors="replace").split("\n"):
+        ln = ln.strip()
+        if not ln:
+            continue
+        try:
+            e = json.loads(ln)
+        except ValueError:
+            continue                      # 깨진 줄은 «없음» 과 구별해 세지 않는다
+        if e.get("stage") == "post.receipt" and e.get("media_id"):
+            out[e.get("seq")] = e["media_id"]
+    return sorted(out.items())
+
+
+def threads_media(media_id, token):
+    """Threads media 단건 조회 — 읽기만 한다(A등급)."""
+    import json
+    import urllib.request
+    url = ("https://graph.threads.net/v1.0/%s?fields=id,media_type,permalink,timestamp"
+           % media_id)
+    req = urllib.request.Request(url)
+    req.add_header("Authorization", "Bearer " + token)
+    return json.loads(urllib.request.urlopen(req, timeout=30).read().decode("utf-8"))
+
+
+def redist(ep_no, token, dry=False):
+    """`| **epNN-Threads** | …` 행 하나를 본 표 끝에 붙인다. 이미 있으면 건너뛴다."""
+    text = PUBLOG.read_text("utf-8")
+    key = "%s-Threads" % ep_no
+    if any("발행" in r for r in ep_rows(text, key)):
+        return {"ep": ep_no, "recorded": "already"}
+
+    posted = threads_posted(ep_no)
+    if not posted:
+        return {"ep": ep_no, "recorded": "skip", "why": "영수증에 나간 포스트가 없다"}
+
+    root = threads_media(posted[0][1], token)
+    if not root.get("permalink") or not root.get("timestamp"):
+        raise RuntimeError("%s P1 을 Threads 에서 못 읽었다 — 값을 추측해 적지 않는다" % ep_no)
+    ts = dt.datetime.fromisoformat(root["timestamp"].replace("+0000", "+00:00")).astimezone(KST)
+
+    # 위치·제목은 그 편의 **인스타 행**에서 가져온다 — 재유통은 «같은 편» 이라 새로 짓지 않는다.
+    own = ep_rows(text, ep_no)
+    if not own:
+        raise RuntimeError("%s 의 인스타 행이 발행로그에 없다 — 원류 없이 재유통 행을 적지 않는다" % ep_no)
+    cells = [c.strip() for c in own[0].strip().strip("|").split("|")]
+    where = cells[6] if len(cells) > 6 else ""
+
+    video = "· P1 공식 영상 첨부 " if root.get("media_type") == "VIDEO" else ""
+    now = dt.datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")
+    # 🔴 킷 칸에 «위와 같음» 을 쓰지 않는다 — 행은 **본 표 끝에만** 붙으므로(§2 예외 5 ④)
+    #    바로 위가 그 편의 인스타 행이라는 보장이 없다. 종전 다섯 행이 그 꼴이고
+    #    ep41-Threads 는 실제로 ep42 바로 아래에 앉아 남의 킷을 가리키고 있다.
+    row = ("| **%s** | 같은 편 · Threads 텍스트 체인 (재유통) | **발행** | **%s** | — | %s 본행과 같음 | %s | "
+           "**%d포스트 체인** %s· 루트 `%s` · 워커 자동 발행 · 영수증 `logs\\publish-receipts\\%s.jsonl` "
+           "— 자동 기록(`publish_tail --redist` · Threads API timestamp 환산) | %s |"
+           % (key, ts.strftime("%Y-%m-%d %H:%M KST"), ep_no, where, len(posted), video,
+              root["permalink"], ep_no, now))
+    if dry:
+        return {"ep": ep_no, "recorded": "dryrun", "row": row}
+
+    new = append_main_table_row(text, row)
+    before, after = publog_check.main_table(text), publog_check.main_table(new)
+    assert after.count("\n") == before.count("\n") + 1 and before.split("\n") == [l for l in after.split("\n") if l != row], "기존 행이 바뀌었다"
+    assert ep_rows(new, key), "새 행이 본 표 밖에 붙었다"
+    PUBLOG.write_text(new, "utf-8")
+    return {"ep": ep_no, "recorded": row}
+
+
 def move(s):
     src, dst = WORKSHOP / "02_제작중" / s["ep"], WORKSHOP / "01_발행완료" / s["ep"]
     if not src.exists() and dst.exists():
@@ -204,6 +298,38 @@ def main(argv):
     if "--dump" in argv:
         print(gr.dump(GRAPH))
         return 0
+
+    # --redist: Threads 재유통 행. 인스타 꼬리와 다른 회차에 도는 별개 진입점이다.
+    #   --redist --ep ep45      한 편
+    #   --redist --all          영수증이 있는 편 전부 (이미 적힌 편은 건너뛴다)
+    #   --dry 를 붙이면 행만 찍고 쓰지 않는다.
+    if "--redist" in argv:
+        import publish_threads
+        token = publish_threads.load_token()
+        dry = "--dry" in argv
+        if "--all" in argv:
+            eps = sorted({p.stem for p in RECEIPTS.glob("ep*.jsonl")
+                          if re.fullmatch(r"ep\d+", p.stem)},
+                         key=lambda e: int(e[2:]))
+        else:
+            eps = [argv[argv.index("--ep") + 1].split("_")[0]]
+        wrote = 0
+        for e in eps:
+            try:
+                r = redist(e, token, dry=dry)
+            except Exception as exc:                    # noqa: BLE001 — 한 편이 죽어도 나머지는 돈다
+                print("  %-6s 🔴 %s" % (e, exc))
+                continue
+            state = r.get("recorded")
+            if state in ("already", "skip"):
+                print("  %-6s %s%s" % (e, state, (" — " + r["why"]) if r.get("why") else ""))
+            else:
+                wrote += 1
+                print("  %-6s %s" % (e, "dryrun" if dry else "기록"))
+                print("      %s" % r["row" if dry else "recorded"][:150])
+        print("STATUS: OK (%d편 %s)" % (wrote, "적을 것" if dry else "기록"))
+        return 0
+
     ep = argv[argv.index("--ep") + 1]
     token = ig_watch.load_token()
     _, media = ig_watch.fetch(token)
@@ -290,7 +416,59 @@ def _self_test():
                 assert "불일치" in str(e) and (WORKSHOP / "02_제작중" / "ep97_y").exists(), "되돌리지 않았다"
         finally:
             globals()["tree_hashes"] = orig
+
+        # ── 역검증 — 재유통 기록 (`--redist` · 2026-09-11) ────────────────────
+        #
+        # 🔴 **네 갈래 중 셋이 «적지 않아야 하는 쪽» 이다.** 발행로그는 「무엇이 나갔는가」의
+        #    정본이라, 안 나간 것을 적는 실수가 못 적는 실수보다 비싸다.
+        global RECEIPTS
+        RECEIPTS = Path(d) / "receipts"
+        RECEIPTS.mkdir()
+        PUBLOG.write_text(
+            "# 발행로그\n\n| ep | 제목 | 상태 | 발행일 | 트리거 | 키트 | 위치 | 비고 | 기록 시각 |\n"
+            "|---|---|---|---|---|---|---|---|---|\n"
+            "| **ep1** | 첫 편 | **발행** | 2026-08-01 | — | k.html | `01_발행완료/ep1` | — | 2026-08-01 10:00 KST |\n"
+            "\n## 편수\n\n| 층 | 값 |\n|---|---|\n| 편 | 1 |\n", "utf-8")
+        (RECEIPTS / "ep1.jsonl").write_text(
+            '{"stage": "post.claim", "seq": 1}\n'
+            '{"stage": "post.receipt", "seq": 1, "media_id": "M1"}\n'
+            '{"stage": "post.receipt", "seq": 2, "media_id": "M2"}\n', "utf-8")
+        (RECEIPTS / "ep2.jsonl").write_text('{"stage": "post.claim", "seq": 1}\n', "utf-8")
+        orig_media = threads_media
+        globals()["threads_media"] = lambda mid, tok: {
+            "id": mid, "media_type": "VIDEO", "permalink": "https://www.threads.com/p/" + mid,
+            "timestamp": "2026-08-01T02:00:00+0000"}
+        try:
+            r = redist("ep1", "TOK")
+            t2 = PUBLOG.read_text("utf-8")
+            assert r["recorded"].startswith("| **ep1-Threads**"), r
+            assert len(ep_rows(t2, "ep1-Threads")) == 1, "행이 안 붙었다"
+            assert "2026-08-01 11:00 KST" in r["recorded"], "UTC→KST 환산이 틀렸다"
+            assert "2포스트 체인" in r["recorded"] and "P1 공식 영상 첨부" in r["recorded"]
+            assert "`01_발행완료/ep1`" in r["recorded"], "위치를 인스타 행에서 안 가져왔다"
+            assert len(publog_check.split_rows(publog_check.main_table(t2))) == 3, "본 표 밖에 붙었다"
+            assert "| 편 | 1 |" in t2, "다른 표가 변했다"
+            assert redist("ep1", "TOK")["recorded"] == "already", "두 번 붙었다"
+            assert redist("ep2", "TOK")["recorded"] == "skip", "선점(claim)만 있는데 적었다"
+            assert redist("ep9", "TOK")["recorded"] == "skip", "영수증이 없는데 적었다"
+            # 🔴 원류(인스타 행)가 없으면 적지 않는다
+            (RECEIPTS / "ep3.jsonl").write_text('{"stage": "post.receipt", "seq": 1, "media_id": "M3"}\n', "utf-8")
+            try:
+                redist("ep3", "TOK"); raise AssertionError("인스타 행이 없는데 적었다")
+            except RuntimeError as e:
+                assert "인스타 행이" in str(e)
+            # 🔴 Threads 에서 못 읽으면 값을 추측해 적지 않는다
+            globals()["threads_media"] = lambda mid, tok: {"id": mid}
+            try:
+                redist("ep4", "TOK")
+                (RECEIPTS / "ep4.jsonl").write_text('{"stage": "post.receipt", "seq": 1, "media_id": "M4"}\n', "utf-8")
+                redist("ep4", "TOK"); raise AssertionError("permalink 없이 적었다")
+            except RuntimeError as e:
+                assert "못 읽었다" in str(e)
+        finally:
+            globals()["threads_media"] = orig_media
     print("ok   WAIT→재개→행(본 표 끝·값 정확)→해시 이동→재실행 안전 · 역검증: 행 선재 없이 이동 FAIL · 애매 감지 FAIL · 해시 불일치 롤백")
+    print("ok   재유통(--redist): 행 1건 기록 · 재기록·선점만·영수증없음 3건 건너뜀 · 원류없음·조회실패 2건 FAIL")
     print("STATUS: OK")
     return 0
 

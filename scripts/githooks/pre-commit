@@ -112,6 +112,21 @@ case "$git_dir" in
             *scripts/publish_threads.py*)
                 run_check "publish_threads selftest" py scripts/publish_threads.py --self-test ;;
         esac
+        # publish_tail writes rows into the publication log, which is the one
+        # record of "what went out" (charter s2 exception 5). Its self-test is
+        # hermetic - temp workshop, stubbed Threads read - and three of the
+        # redist cases are the "must NOT write" side: a claim without a receipt,
+        # a row already there, an episode with no Instagram row to hang off.
+        # publog_check is the counter for that same table, including the
+        # derived tally that nobody kept up to date for two weeks.
+        case "$staged" in
+            *scripts/publish_tail.py*)
+                run_check "publish_tail selftest" py scripts/publish_tail.py --self-test ;;
+        esac
+        case "$staged" in
+            *scripts/publog_check.py*)
+                run_check "publog_check selftest" py scripts/publog_check.py --self-test ;;
+        esac
         case "$staged" in
             *scripts/cross-verify.ps1*|*scripts/prompts/cross-verify*)
                 run_check "cross-verify selftest" powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/cross-verify.ps1 -SelfTest ;;
