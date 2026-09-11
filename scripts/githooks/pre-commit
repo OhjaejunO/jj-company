@@ -104,6 +104,14 @@ case "$git_dir" in
         # BOTH directions plus template substitution. The prompts are in the
         # trigger list because the script reads them next to itself: a renamed
         # placeholder breaks the report silently, it just renders as braces.
+        # The Threads worker is the only code here that sends something outward.
+        # Its self-test covers the publish-path guard (a "contains" match once
+        # blocked the quota read, C-8) and the media-not-ready retry predicate -
+        # a loose predicate there would re-send a post that may already be out.
+        case "$staged" in
+            *scripts/publish_threads.py*)
+                run_check "publish_threads selftest" py scripts/publish_threads.py --self-test ;;
+        esac
         case "$staged" in
             *scripts/cross-verify.ps1*|*scripts/prompts/cross-verify*)
                 run_check "cross-verify selftest" powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/cross-verify.ps1 -SelfTest ;;
