@@ -126,6 +126,24 @@ class _Subst(ast.NodeTransformer):
     #    빌더를 «실행» 하기 시작하고, 실행하지 않는 것이 이 추출기의 존재 이유다.
     def visit_Call(self, node):
         node = self.generic_visit(node)
+        # 첫째 갈래: **빌더가 자기 폴더를 가리키는 관용구** (2026-09-11 · ep44 실측).
+        # `D = os.path.dirname(os.path.abspath(__file__))` 는 빌더 36개가 전부 쓰는 꼴이고,
+        # 그 위에 `EPS = os.path.join(D, "_eps")` · `p(EPS, "x.png")` 로 카드 경로를 만든다.
+        # `D` 가 리터럴이 아니라 **ep44 CARDS 가 통째로 안 읽혔다**(주간 편 유통이 여기서 막혔다).
+        # 🔴 **절대경로로 풀지 않는다 — 빈 문자열로 접는다.** 이 파이프라인의 카드 경로는
+        #    이미 «편 폴더 기준 상대경로»이고(`shots/x.png`), `os.path.join("", "_eps")` 는
+        #    `"_eps"` 다 — 다른 편이 손으로 적는 것과 **같은 값**이 된다. 절대경로로 풀면
+        #    기계마다 다른 값이 나와 게이트 `[10-1]`·`[10-2]` 의 대조가 어긋난다.
+        # 🔴 **이 한 꼴만 이름으로 열거한다** — `__file__` 이 든 다른 조립은 접지 않는다.
+        if (isinstance(node.func, ast.Attribute) and node.func.attr == "dirname"
+                and len(node.args) == 1 and not node.keywords
+                and isinstance(node.args[0], ast.Call)
+                and isinstance(node.args[0].func, ast.Attribute)
+                and node.args[0].func.attr == "abspath"
+                and len(node.args[0].args) == 1
+                and isinstance(node.args[0].args[0], ast.Name)
+                and node.args[0].args[0].id == "__file__"):
+            return ast.copy_location(ast.Constant(""), node)
         if (isinstance(node.func, ast.Name) and node.func.id == "len"
                 and len(node.args) == 1 and not node.keywords
                 and isinstance(node.args[0], ast.Constant)):
@@ -633,14 +651,69 @@ def write_utf8(path, text):
 
 
 # ── CLI ─────────────────────────────────────────────────────────────────
+def _subst_selftest():
+    """`_module_literals` 추출 갈래의 역검증 — 걸리는 쪽과 **안 걸리는 쪽**을 같이 본다.
+
+    이 추출기는 **빌더를 실행하지 않고** 최상위 리터럴만 뽑는 것이 존재 이유다. 갈래를 넓힐
+    때마다 «계산기가 되는 쪽»으로 한 걸음씩 가므로, 넓힌 갈래가 **그 꼴만** 접는지 매번 잰다.
+    🔴 2026-09-11 까지 이 자리에 역검증이 **0건**이었다 — len·%·`p()`·max/min·Subscript 가
+    전부 실측 사고를 보고 붙었는데 «그 갈래가 제 몫만 하는지» 를 잰 적이 없다(정관 §0).
+    """
+    import tempfile
+    bad = 0
+
+    def measure(src, name):
+        with tempfile.TemporaryDirectory() as d:
+            f = os.path.join(d, "build_ep99.py")
+            io.open(f, "w", encoding="utf-8").write(src)
+            return _module_literals(f).get(name, "<없음>")
+
+    cases = [
+        # (이름, 소스, 기대값, 왜)
+        ("D 관용구는 «빈 문자열»로 접힌다 (ep44 · 빌더 36개 공통)",
+         "import os\nD = os.path.dirname(os.path.abspath(__file__))\nX = D\n", "X", ""),
+        ("그 위에 쌓은 `os.path.join(D, …)` 도 상대경로로 접힌다",
+         "import os\nD = os.path.dirname(os.path.abspath(__file__))\n"
+         "EPS = os.path.join(D, '_eps')\n", "EPS", "_eps"),
+        ("`p(EPS, '<파일>')` 이 다른 편과 **같은 상대경로**가 된다",
+         "import os\nD = os.path.dirname(os.path.abspath(__file__))\n"
+         "EPS = os.path.join(D, '_eps')\n"
+         "def p(*a):\n    return os.path.join(*a)\nS = p(EPS, 'a.png')\n",
+         "S", os.path.join("_eps", "a.png")),
+        # 🔴 **반대쪽** — `__file__` 이 들었다고 다 접지 않는다. 이 케이스가 없으면
+        #    «전부 접는» 추출기도 위 셋을 통과시킨다.
+        ("`os.path.abspath(__file__)` 만 쓴 것은 **안 접는다** (그 꼴이 아니다)",
+         "import os\nX = os.path.abspath(__file__)\n", "X", "<없음>"),
+        ("`os.path.dirname(어떤 변수)` 도 **안 접는다**",
+         "import os\nY = 'x'\nX = os.path.dirname(Y)\n", "X", "<없음>"),
+        # 앞서 붙은 갈래들의 바닥선 — 넓히다 옛 갈래를 깨면 여기서 선다.
+        ("`len(상수)` 갈래", "X = len('abcd')\n", "X", 4),
+        ("`%` 갈래", "N = 3\nX = '%d개' % 3\n", "X", "3개"),
+        ("`max(상수, 상수)` 갈래", "X = max(1.5, 2.5)\n", "X", 2.5),
+        ("Subscript 갈래", "V = {'file': 'a.mp4'}\nX = V['file']\n", "X", "a.mp4"),
+        ("키가 없으면 **안 접는다**", "V = {'file': 'a.mp4'}\nX = V['nope']\n", "X", "<없음>"),
+    ]
+    for label, src, name, want in cases:
+        got = measure(src, name)
+        okc = got == want
+        print("[ %s ] %s" % ("  OK  " if okc else " FAIL ", label),
+              "" if okc else "— 기대 %r · 실제 %r" % (want, got))
+        bad += 0 if okc else 1
+    print("STATUS: %s" % ("OK" if not bad else "FAIL %d건" % bad))
+    return bad
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="유통 변환 워커 (Threads 텍스트 스레드)")
-    ap.add_argument("cmd", choices=["brief", "pack"])
+    ap.add_argument("cmd", choices=["brief", "pack", "selftest"])
     ap.add_argument("--ep", type=int)
     ap.add_argument("--ep-dir")
     ap.add_argument("--draft")
     ap.add_argument("--out")
     a = ap.parse_args(argv)
+
+    if a.cmd == "selftest":
+        return 1 if _subst_selftest() else 0
 
     ep = load_ep(a.ep_dir or find_ep_dir(a.ep))
     today = datetime.date.today().isoformat()

@@ -60,6 +60,16 @@ case "$git_dir" in
             *departments/marketing/distcheck.py*)
                 run_check "distcheck selftest" py departments/marketing/distcheck.py --selftest ;;
         esac
+        # The literal extractor in dist_transform reads builders WITHOUT running them.
+        # Every widening of it (len, %, p(), max/min, subscript, the __file__ idiom)
+        # was added after a real episode failed to load - and until 2026-09-11 none of
+        # them had a test. Each case checks the branch folds its own shape AND that a
+        # near-miss shape is left alone; without the second half a "fold everything"
+        # extractor would pass.
+        case "$staged" in
+            *departments/marketing/dist_transform.py*)
+                run_check "dist_transform selftest" py departments/marketing/dist_transform.py selftest ;;
+        esac
 
         # --- gate regression: do already-passing episodes still pass? ---------
         #
