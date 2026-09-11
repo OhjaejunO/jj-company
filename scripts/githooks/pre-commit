@@ -40,8 +40,16 @@ case "$git_dir" in
         rc=0
         run_check() {
             # $1 = label, rest = command
+            #
+            # WHY PYTHONIOENCODING (2026-09-11): we capture output into a shell
+            # variable, so Python sees a pipe, not a console, and falls back to
+            # the system locale encoding (cp949 here). Any checker that prints a
+            # guillemet -- and most of them do -- dies with UnicodeEncodeError
+            # and the commit is refused for a reason that has nothing to do with
+            # the code. Found when consistency_audit.py was first added here.
+            # Setting it once covers every checker, present and future.
             label=$1; shift
-            if ! out=$("$@" 2>&1); then
+            if ! out=$(PYTHONIOENCODING=utf-8 "$@" 2>&1); then
                 printf '\n  [repo-guard] %s FAILED - commit refused\n\n%s\n\n' "$label" "$out" >&2
                 rc=1
             else
