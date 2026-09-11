@@ -44,11 +44,18 @@
 from __future__ import annotations
 
 import argparse
+import io
 import os
 import re
 import sqlite3
 import sys
 from datetime import datetime
+
+# 출력이 콘솔 코드페이지(cp949)에 좌우되지 않게 한다 — 이 리포트는 «» 를 쓴다.
+# 같은 관용구가 `departments\marketing\distcheck.py` 에 있다(2026-09-11).
+if hasattr(sys.stdout, "buffer") and not getattr(sys.stdout, "_utf8_wrapped", False):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stdout._utf8_wrapped = True
 
 # ── 경로 (환경변수로 덮어쓸 수 있다 — skill_drift_audit.py 와 같은 방식) ──────
 WORKSHOP = os.environ.get(
@@ -64,12 +71,19 @@ CONFIG_MD = os.environ.get(
 #: 식별자 실재 여부를 찾을 곳. 없는 경로는 조용히 건너뛰지 않고 🟡 로 보고한다.
 #: **편 폴더를 넣는 이유**: `verify.py`·`build_kitcard.py` 는 브랜드에셋이 아니라
 #: **편마다 하나씩** 있다. 1차 실행에서 둘 다 «레포에 없다»로 걸렸는데 거짓 경보였다.
+#: 🔴 **본사 레포가 빠져 있었다 (2026-09-11).** 자회사 조문이 본사 코드를 부르는
+#: 자리가 생겼다 — v3.79 가 `distcheck.skill_regex()` 를 가리키는데 그 함수는
+#: `jj-company\departments\marketing\distcheck.py` 에 있다. 경로가 없으니
+#: **«조문이 부르는 함수가 레포에 없다»** 로 걸렸고, 그것은 어긋남이 아니라
+#: **감사가 그 레포를 안 본 것**이다. 종전에도 게이트 이름은 조문에 있었지만
+#: 전부 자회사 쪽 파일이라 이 구멍이 잠복해 있었다.
 SYMBOL_ROOTS = [
     os.environ.get("TOMANGCHI_SKILL_DIR",
                    r"C:\Users\ojaej\.claude\skills\tomangchi"),
     os.path.join(WORKSHOP, "00_브랜드에셋"),
     os.path.join(WORKSHOP, "01_발행완료"),
     CONTENT_OPS,
+    os.environ.get("JJ_COMPANY", r"C:\Users\ojaej\jj-company"),
 ]
 
 #: 발행로그 상태 → DB status
@@ -240,6 +254,20 @@ EXTERNAL_MODULES = {
     "pathlib", "datetime", "hashlib", "sqlite3", "yt_dlp", "requests",
     "PIL", "numpy", "np", "cv2",
 }
+#: 🔴 **파이썬 내장 컨테이너 메서드는 대조 대상이 아니다 (2026-09-11).**
+#: v3.67 조문이 `_body.index()` 가 `ValueError` 로 터졌다고 적고 있는데, 이건
+#: **리스트의 메서드**이지 우리 레포의 함수가 아니다. `EXTERNAL_MODULES` 로는 못 막는다 —
+#: 앞에 오는 것이 모듈 이름이 아니라 **지역 변수**라 목록에 적을 수가 없다.
+#: 🔴 **못 잡게 되는 것 (§0 4층 ④)**: 우리 레포에 진짜로 `index()` 라는 함수가 있고
+#: 그것이 사라져도 이제 안 걸린다. 이름이 너무 흔해 어차피 «있는지»만으로는
+#: 뜻을 못 가르는 자리라, 소음을 줄이는 쪽을 택했다.
+BUILTIN_METHODS = {
+    "index", "append", "extend", "insert", "remove", "pop", "count",
+    "sort", "reverse", "copy", "clear", "get", "keys", "values", "items",
+    "update", "setdefault", "split", "rsplit", "join", "strip", "lstrip",
+    "rstrip", "replace", "format", "encode", "decode", "startswith",
+    "endswith", "find", "read", "write", "close", "add", "discard",
+}
 #: «이건 실재하지 않는다»고 적은 문장에 등장한 이름은 부재가 곧 조문의 내용이다.
 #: 1차 실행에서 `manychat_std.py` 가 걸렸는데, 그 줄은 v3.36.1 이 **없다고 기록한** 줄이었다.
 ABSENT_MARK_RE = re.compile(r"(실재하지 않|존재하지 않|전수 0건|레포에 없|삭제|폐기|철회)")
@@ -314,7 +342,7 @@ def audit_symbol(skill_md: str, roots: list) -> list:
     for i, line in enumerate(lines):
         ctx = ctx_of[i]
         for mod, fn in CALL_RE.findall(line):
-            if mod in EXTERNAL_MODULES:
+            if mod in EXTERNAL_MODULES or fn in BUILTIN_METHODS:
                 continue
             note(funcs, fn, ctx)
         for fn in FUNC_RE.findall(line):
@@ -466,6 +494,34 @@ def selftest() -> int:
         rC = [f for f in audit_symbol(md_z, [root]) if f[0] == "🔴"]
         check("symbol 부재 기록이 아닌 줄이 섞이면 다시 걸린다",
               len(rC) == 1 and "manychat_std.py" in rC[0][1], str(rC))
+
+        # 내장 메서드 오탐 (2026-09-11 `_body.index()` 재현) — 양쪽을 본다.
+        md_b1 = os.path.join(tmp, "b1.md")
+        open(md_b1, "w", encoding="utf-8").write(
+            "본문 목록에 없어 `_body.index()` 가 ValueError 로 터졌다.\n")
+        rE = [f for f in audit_symbol(md_b1, [root]) if f[0] == "🔴"]
+        check("symbol 파이썬 내장 메서드는 대조하지 않는다 (_body.index 재현)",
+              not rE, str(rE))
+
+        md_b2 = os.path.join(tmp, "b2.md")
+        open(md_b2, "w", encoding="utf-8").write(
+            "조회는 `scenes.find_scene(` 이고 목록은 `_body.index()` 다.\n")
+        rF = [f for f in audit_symbol(md_b2, [root]) if f[0] == "🔴"]
+        check("symbol 내장 메서드를 빼도 같은 줄의 진짜 함수는 계속 걸린다 (반대쪽)",
+              len(rF) == 1 and "find_scene" in rF[0][1], str(rF))
+
+        # 탐색 경로가 여럿일 때 — 어느 한 곳에만 있어도 통과해야 한다 (2026-09-11)
+        root2 = os.path.join(tmp, "code2")
+        os.makedirs(root2)
+        open(os.path.join(root2, "gate.py"), "w", encoding="utf-8").write(
+            "def skill_regex(name):\n    pass\n")
+        md_r1 = os.path.join(tmp, "r1.md")
+        open(md_r1, "w", encoding="utf-8").write("게이트는 `distcheck.skill_regex(` 로 빌린다.\n")
+        rG = [f for f in audit_symbol(md_r1, [root]) if f[0] == "🔴"]
+        check("symbol 경로에 없으면 걸린다 (skill_regex 재현 · 걸리는 쪽)",
+              len(rG) == 1 and "skill_regex" in rG[0][1], str(rG))
+        rH = [f for f in audit_symbol(md_r1, [root, root2]) if f[0] == "🔴"]
+        check("symbol 경로를 더하면 통과한다 (반대쪽)", not rH, str(rH))
 
         # 주석 블록 — 이름은 첫 줄, 부재 문구는 뒷줄 (SKILL.md 757행 재현)
         md_c = os.path.join(tmp, "c.md")
