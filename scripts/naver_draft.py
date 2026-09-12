@@ -490,11 +490,15 @@ class Orca(object):
         🔴 **자리표를 «없다» 로 읽지 않는다.** 수정 화면을 열면 이미 실린 그림이 잠깐
            `data:image/svg+xml` 자리표로 앉아 있다(오늘 `UPLOADED_JS` 에서 고친 그 자리표다).
            그 순간에 재면 없는 것으로 보여 **한 벌 더 끼운다** — 2026-09-12 실측으로 그렇게 됐다.
-           그래서 자리표가 하나라도 남아 있으면 **기다리고**, 끝내 안 뜨면 **세운다**(추측 금지).
+        🔴 **그리고 기다리기만 해서는 안 뜬다** — 아래쪽 그림은 **화면에 들어와야** 주소를 받는다
+           (30초를 기다려도 안 떴다 · 실측). 그래서 자리표를 **스크롤로 들여보내고** 다시 잰다.
+           끝내 안 뜨면 **세운다**(추측 금지 — 모르는 채로 끼우면 두 벌이 된다).
         """
         js = ("const im=[...d.querySelectorAll('.se-component.se-image img')];"
               "if(im.some(i=>i.src.includes(%s))) return 'ok';"
-              "return im.some(i=>i.src.startsWith('data:')) ? 'pending' : 'none';") % json.dumps(name)
+              "const ph=im.filter(i=>i.src.startsWith('data:'));"
+              "if(!ph.length) return 'none';"
+              "ph[0].scrollIntoView({block:'center'}); return 'pending';") % json.dumps(name)
         end = time.time() + wait
         while True:
             r = self.in_frame(js)
@@ -955,8 +959,9 @@ def self_test():
         ("«이미 실렸는가» 는 alt 가 아니라 주소 속 이름으로 잰다 (발행되면 alt 가 지워진다)",
             ("has_image_" + "named") not in src and src.count("def gif_" + "placed") == 1
             and "i.src.includes(" in src),
-        ("🔴 자리표를 «없다» 로 읽지 않는다 — 기다리고, 끝내 안 뜨면 세운다",
-            "'pending'" in src and "자리표가 %d초 안에 안 떴다" in src),
+        ("🔴 자리표를 «없다» 로 읽지 않는다 — 스크롤로 들여보내고, 끝내 안 뜨면 세운다",
+            "'pending'" in src and "자리표가 %d초 안에 안 떴다" in src
+            and "scrollIntoView" in src),
         ("자리표 문단이 여럿이면 세운다 (어느 자리인지 모르는 채로 안 바꾼다)",
             "if(ps.length!==1) return 'n=' + ps.length;" in src.split("def replace_" + "paragraph")[1]),
         ("🔴 영상 줄의 주소는 지면에 싣지 않는다 (링크 카드·맨 URL 줄 0건)",
