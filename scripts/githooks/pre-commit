@@ -143,6 +143,15 @@ case "$git_dir" in
             *scripts/naver_blog.py*)
                 run_check "naver_blog selftest" py scripts/naver_blog.py --self-test ;;
         esac
+        # The ledger checker measures "what did JJ ask twice" - and since 2026-09-12
+        # also "was a deferred item closed without the ledger following". Its own
+        # self-test injects a REAL backlog id so the place-anchor check cannot
+        # fire alongside and hide whether the new axis did any work.
+        case "$staged" in
+            *scripts/ledger_check.py*|*docs/correction-ledger.md*|*docs/clause-backlog.md*)
+                run_check "ledger_check selftest" py scripts/ledger_check.py --self-test
+                run_check "ledger_check ledger" py scripts/ledger_check.py ;;
+        esac
         case "$staged" in
             *scripts/class101.py*)
                 run_check "class101 selftest" py scripts/class101.py --self-test ;;
