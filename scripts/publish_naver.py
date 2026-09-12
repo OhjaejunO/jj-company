@@ -231,25 +231,46 @@ def run(a, log):
         log("STATUS: FAIL blogcheck"); return 1
 
     os.makedirs(SHOT_DIR, exist_ok=True)
-    o = Pub(nd.find_page(a.blog, fresh=True))
-    if not nd.open_editor(o, a.blog, log):
-        return 1
+    if a.update:
+        # ── 발행글 수정 (2026-09-12 신설) ────────────────────────────────────
+        # 🔴 **왜 여기인가.** 「이미 나간 글을 고치는」 길이 없어서, 규격이 늘어도
+        #    나간 글은 그대로였다(JJ 지적 — gpt2.5 글에 영상이 없다). 채우기는
+        #    `naver_draft` 가 하고, «발행» 을 누르는 것은 이 워커만 한다.
+        # 🔴 **실물 글은 «발행» 을 누르기 전까지 한 글자도 안 바뀐다** — 그 앞의 비우기·
+        #    채우기는 전부 에디터 안에서 일어난다. 그래서 드라이런이 안전하다.
+        prep = nd.prepare(a.post, log)
+        if prep is None:
+            return 1
+        o = Pub(nd.find_update_page(a.blog, a.update))
+        if not nd.open_update(o, title, log):
+            return 1
+    else:
+        o = Pub(nd.find_page(a.blog, fresh=True))
+        if not nd.open_editor(o, a.blog, log):
+            return 1
     try:
-        o.load_draft(title); log("draft loaded: " + title[:40])
+        if a.update:
+            nd.fill(o, prep, log); log("update filled: " + title[:40])
+        else:
+            o.load_draft(title); log("draft loaded: " + title[:40])
         o.open_panel()
-        o.set_category(category); log("category: " + category)
-        o.set_public(); log("open: public")
-        for t in tags:
-            o.add_tag(t)
-        log("tags: %d" % len(tags))
-        o.set_time(when); log("time: " + when)
+        if a.update:
+            # 카테고리·공개·태그·예약은 **원래 글의 설정 그대로 둔다** — 고치는 것은 본문이다.
+            log("update: 카테고리·공개·태그·시각은 원 글 설정 유지")
+        else:
+            o.set_category(category); log("category: " + category)
+            o.set_public(); log("open: public")
+            for t in tags:
+                o.add_tag(t)
+            log("tags: %d" % len(tags))
+            o.set_time(when); log("time: " + when)
         if a.publish:
             url = o.confirm()
             shot = o.screenshot(os.path.join(SHOT_DIR, a.post + "_published.png"))
             log("published url=%s shot=%s" % (url, shot))
             log("STATUS: OK published %s" % url); return 0
         shot = o.screenshot(os.path.join(SHOT_DIR, a.post + "_dry.png"))
-        left = o.clear_tags()
+        left = "(수정 회차 — 원 글 태그는 건드리지 않는다)" if a.update else o.clear_tags()
         log("dry: panel filled, «발행» not clicked, tags cleared (left: %s) shot=%s" % (left, shot))
         log("STATUS: OK (dry run — 발행 안 함)"); return 0
     except nd.Missing as e:
@@ -288,6 +309,14 @@ def self_test():
         ("--draft-approval 플래그가 없다", 'add_argument("--draft-' + 'approval"' not in _all),
         # 게이트가 «발행 클릭보다 앞»에 있는가. 순서가 뒤집히면 자격 검사가 사후 확인이 된다.
         ("gate() 가 o.confirm() 보다 앞에서 불린다", _src.index("if not gate(") < _src.index("o.confirm(")),
+        # ── 수정 모드 (2026-09-12) — 실물 글을 덮는 길이라 축을 따로 둔다 ──────
+        ("수정 모드도 gate() 를 먼저 지난다 (본문을 채우기 전)",
+         _src.index("if not gate(") < _src.index("nd.open_update(")),
+        ("수정 화면을 여는 자리가 한 곳뿐이다", _src.count("nd.find_update_page(") == 1),
+        ("🔴 수정 모드에서 태그를 지우지 않는다 (원 글 설정을 건드리지 않는다)",
+         "if a.update else o.clear_tags()" in _src),
+        ("🔴 발행 클릭은 여전히 --publish 분기 안에만 있다 (수정 모드가 길을 하나 더 내지 않았다)",
+         _src.count("o.confirm(") == 1),
     ]
     for name, res in extra:
         fails += not res
@@ -302,6 +331,7 @@ if __name__ == "__main__":
     ap.add_argument("--blog", default=os.environ.get("NAVER_BLOG_ID", "ai-tomangchi-lab"))
     ap.add_argument("--category", default="AI 뉴스")
     ap.add_argument("--at", default="now", help="now 또는 HH:MM (오늘 예약, 분은 10분 단위)")
+    ap.add_argument("--update", help="이미 발행된 글의 번호(logNo) — 그 글의 본문을 이 원고로 **다시 채운다**")
     ap.add_argument("--publish", action="store_true")
     ap.add_argument("--self-test", action="store_true")
     a = ap.parse_args()

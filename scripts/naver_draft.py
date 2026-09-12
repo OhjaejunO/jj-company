@@ -418,6 +418,31 @@ class Orca(object):
                 return "카드"
         return "글자"
 
+    def clear_body(self):
+        """본문을 통째로 지운다 (발행글 수정 화면 전용).
+
+        🔴 **지워졌는지 재고, 안 지워졌으면 선다.** 안 서면 채우기가 **옛 글 위에 얹혀**
+           같은 글이 두 번 실린다 — 그 상태로 «발행» 을 누르면 되돌릴 것이 실물 글이다.
+        🔴 실물 글은 «발행» 을 누르기 전까지 한 글자도 안 바뀐다 — 여기서 지우는 것은
+           **에디터 안의 사본**이다.
+        """
+        js = ("const ps=[...d.querySelectorAll('.se-component.se-text .se-text-paragraph')];"
+              "const p=ps[ps.length-1]; if(p){const r=p.getBoundingClientRect();"
+              "for(const ty of ['mousedown','mouseup','click']) p.dispatchEvent(new MouseEvent(ty,"
+              "{bubbles:true,cancelable:true,clientX:r.left+5,clientY:r.top+r.height/2,button:0}));}"
+              "d.defaultView.focus(); root.focus();"
+              "const a=d.execCommand('selectAll'); const b=d.execCommand('delete');"
+              "return JSON.stringify([a,b]);")
+        r = self.in_frame(js)
+        time.sleep(STEP_PAUSE * 2)
+        st = self.state()
+        st = json.loads(st) if isinstance(st, str) else (st or {})
+        if len(st.get("comps", [])) > 2 or (st.get("chars") or 0) > 50:
+            raise Missing("본문이 안 비워졌다 (comps=%d chars=%s · execCommand %s) — 옛 글 위에 얹지 않는다"
+                          % (len(st.get("comps", [])), st.get("chars"), r))
+        self._body_clicked = False
+        return r
+
     def click_named_button(self, name):
         snap = self.run("snapshot")
         refs = (snap.get("result") or {}).get("refs") or {}
@@ -474,6 +499,46 @@ def find_page(blog, fresh=False):
     return d.get("browserPageId") or d.get("tab", {}).get("browserPageId")
 
 
+#: 발행글 수정 화면. 🔴 **껍데기 주소라야 `#mainFrame` 이 생긴다** — `PostUpdateForm.naver`·
+#  `/postwrite?logNo=` 도 에디터를 열긴 하지만 프레임이 없어 이 파일의 JS 가 하나도 안 닿는다(2026-09-12 실측).
+UPDATE_URL = "https://blog.naver.com/{blog}?Redirect=Update&logNo={logno}"
+
+
+def find_update_page(blog, logno):
+    """발행글 수정 탭을 새로 연다 (옛 네이버 탭은 닫는다 — `find_page(fresh=True)` 와 같은 이유)."""
+    for t in sorted([t for t in _tabs() if "naver.com" in t.get("url", "")], key=lambda t: -t["index"]):
+        subprocess.run(["orca", "tab", "close", "--index", str(t["index"]), "--json"],
+                       capture_output=True, text=True, timeout=60)
+    r = subprocess.run(["orca", "tab", "create", "--url", UPDATE_URL.format(blog=blog, logno=logno), "--json"],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+    d = json.loads(re.search(r"\{.*\}", r.stdout, re.S).group(0))["result"]
+    return d.get("browserPageId") or d.get("tab", {}).get("browserPageId")
+
+
+def open_update(o, title, log):
+    """발행글 수정 화면을 열고 본문을 비운다. 제목이 다르면 **아무것도 안 지우고 선다.**
+
+    🔴 **엉뚱한 글을 고치지 않는다** — 이 화면의 제목과 원고 제목이 글자 그대로 같아야
+       열린다. 글 번호를 손으로 넘기는 자리라 오타 하나가 남의 글을 지우는 자리다.
+    """
+    time.sleep(10)
+    if "nid.naver.com" in (o.url() or ""):
+        log("STATUS: FAIL login-required (Orca 탭에서 네이버에 로그인한 뒤 다시)"); return False
+    if not o.editor_ready():
+        log("STATUS: FAIL editor-not-ready (%s)" % o.url()); return False
+    log("restore popup: %s" % o.dismiss_restore())
+    st = o.state()
+    st = json.loads(st) if isinstance(st, str) else (st or {})
+    got = (st.get("title") or "").replace("\xa0", " ").strip()
+    if got != title.strip():
+        log("STATUS: FAIL wrong-post (화면 제목 %r ≠ 원고 제목 %r) — 아무것도 지우지 않았다"
+            % (got[:40], title[:40]))
+        return False
+    log("update target ok: %r (comps=%d chars=%s)" % (got[:40], len(st.get("comps", [])), st.get("chars")))
+    log("cleared: %s" % o.clear_body())
+    return True
+
+
 def open_editor(o, blog, log):
     time.sleep(8)
     if "nid.naver.com" in (o.url() or ""):
@@ -508,79 +573,101 @@ def body_order_problem(text):
     return None
 
 
-def run(stem, blog, log):
-    p, meta, body = read_post(stem)
+def prepare(stem, log):
+    """원고 → 채울 재료. 게이트·그림 실재·GIF 굽기까지 **에디터를 열기 전에** 끝낸다.
+
+    🔴 재료를 다 만든 뒤에 에디터를 연다 (정관 §0 «검사는 쓰기 전에») — 중간에 서면
+       반쯤 채운 글이 남고, 수정 회차에서는 그것이 **실물 글을 덮을 뻔한 상태**가 된다.
+    돌려주는 값은 `dict` 이거나, 못 만들었으면 `None`(사유는 log 에 찍는다).
+    """
+    p_, meta, body = read_post(stem)
     if meta.get("status") != "ready":
-        log("STATUS: FAIL not-ready (status=%s — 한마디를 채우고 status: ready 로)" % meta.get("status")); return 1
+        log("STATUS: FAIL not-ready (status=%s — status: ready 로)" % meta.get("status")); return None
     # 게이트는 **이 파일 옆의** blogcheck.py — 운영 서버 사본을 고정으로 부르면 worktree 에서 고친 규칙이 안 먹는다(2026-09-05 실측)
-    g = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "blogcheck.py"), p, "--publish"],
+    g = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "blogcheck.py"), p_, "--publish"],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     if "STATUS: OK" not in (g.stdout or ""):
-        log((g.stdout or "")[-600:]); log("STATUS: FAIL blogcheck"); return 1
+        log((g.stdout or "")[-600:]); log("STATUS: FAIL blogcheck"); return None
     title, chunks, tags, images = parse_blocks(body)
     files = [resolve_image(i["path"]) for i in images]
     missing = [f for f in files if not os.path.exists(f)]
     if missing:
-        log("STATUS: FAIL image-missing %s" % missing[0]); return 1
-    # 🔴 GIF 는 **에디터를 열기 전에** 다 구워 둔다 — 굽다 실패하면 반쯤 채운 글이 남는다(§0 «검사는 쓰기 전에»).
+        log("STATUS: FAIL image-missing %s" % missing[0]); return None
     videos = parse_videos(body)
     try:
         gifs = [gif_for(v) for v in videos]
     except Missing as e:
-        log("STATUS: FAIL video %s" % e); return 1
+        log("STATUS: FAIL video %s" % e); return None
     for v, gp in zip(videos, gifs):
         log("video: %s -> %s (%.1fMB)" % (os.path.basename(v["path"]), os.path.basename(gp),
                                           os.path.getsize(gp) / 1048576.0))
+    return {"path": p_, "title": title, "chunks": chunks, "tags": tags,
+            "files": files, "videos": videos, "gifs": gifs}
+
+
+def fill(o, prep, log):
+    """열려 있는 에디터에 제목·본문·그림·영상을 채운다. **저장도 발행도 하지 않는다.**
+
+    마지막에 본문 차례를 재고 어긋나면 `Missing` 을 던진다 — 부르는 쪽이 저장 전에 선다.
+    """
+    title, chunks, files = prep["title"], prep["chunks"], prep["files"]
+    videos, gifs = prep["videos"], prep["gifs"]
+    o.set_title(title); log("title ok")
+    o._body_clicked = False
+    # 자리 지정은 **종류마다 따로** 본다 — 영상 자리만 적은 글에서 이미지 자동 배치가 꺼지면 안 된다.
+    explicit = any(isinstance(c, tuple) and c[0] == "img" for c in chunks)
+    vexplicit = any(isinstance(c, tuple) and c[0] == "vid" for c in chunks)
+    placed, vplaced = set(), set()
+    img_i = 0
+
+    def put_video(n_, where):
+        """영상 한 편 = GIF 한 장 + (주소가 있으면) 원본 링크 카드."""
+        o.paste_gif(gifs[n_ - 1]); vplaced.add(n_)
+        log("video %d/%d (%s): %s" % (n_, len(gifs), where, os.path.basename(gifs[n_ - 1])))
+        u = videos[n_ - 1]["url"]
+        if u:
+            log("  원본 링크: %s (%s)" % (u, o.paste_link(u)))
+
+    for k, ch in enumerate(chunks):
+        if isinstance(ch, tuple):                      # [[이미지 N]] · [[영상 N]] 자리
+            kind, n_ = ch
+            if kind == "img":
+                if 1 <= n_ <= len(files) and n_ not in placed:
+                    o.paste_image(files[n_ - 1]); placed.add(n_); log("image %d/%d (자리 지정): %s" % (n_, len(files), os.path.basename(files[n_ - 1])))
+            elif 1 <= n_ <= len(gifs) and n_ not in vplaced:
+                put_video(n_, "자리 지정")
+            continue
+        o.paste_html(ch)
+        if not explicit and (k == 0 or (0 < k < len(chunks) - 3)) and img_i < len(files):
+            o.paste_image(files[img_i]); placed.add(img_i + 1); log("image %d/%d: %s" % (img_i + 1, len(files), os.path.basename(files[img_i]))); img_i += 1
+        if k == 0 and not vexplicit:                   # 자리를 안 적은 영상은 요약 바로 뒤 — 그 편의 주인공이라 위에 둔다
+            for n_ in range(1, len(gifs) + 1):
+                put_video(n_, "요약 뒤")
+        log("chunk %d/%d ok" % (k + 1, len(chunks)))
+    for n_ in range(1, len(files) + 1):               # 자리 지정이 없는 나머지는 끝에
+        if n_ not in placed:
+            o.paste_image(files[n_ - 1]); log("image %d/%d (끝): %s" % (n_, len(files), os.path.basename(files[n_ - 1])))
+    for n_ in range(1, len(gifs) + 1):                # 🔴 자리 번호가 어긋난 영상도 **버리지 않는다** (정관 §0 «조용히 실패하는 코드를 남기지 않는다»)
+        if n_ not in vplaced:
+            put_video(n_, "끝")
+    log("state: %s" % o.state())
+    # 순서 검증 — 조각이 뒤섞였으면 부르는 쪽이 저장하지 않는다
+    text = (o.in_frame("return d.querySelector('.se-components-wrap').innerText;") or "").replace("\xa0", " ")
+    why = body_order_problem(text)
+    if why:
+        raise Missing("본문 순서가 어긋남 — %s" % why)
+
+
+def run(stem, blog, log):
+    prep = prepare(stem, log)
+    if prep is None:
+        return 1
     os.makedirs(SHOT_DIR, exist_ok=True)
     o = Orca(find_page(blog, fresh=True))
     if not open_editor(o, blog, log):
         return 1
     try:
-        o.set_title(title); log("title ok")
-        o._body_clicked = False
-        # 자리 지정은 **종류마다 따로** 본다 — 영상 자리만 적은 글에서 이미지 자동 배치가 꺼지면 안 된다.
-        explicit = any(isinstance(c, tuple) and c[0] == "img" for c in chunks)
-        vexplicit = any(isinstance(c, tuple) and c[0] == "vid" for c in chunks)
-        placed, vplaced = set(), set()
-        img_i = 0
-
-        def put_video(n_, where):
-            """영상 한 편 = GIF 한 장 + (주소가 있으면) 원본 링크 카드."""
-            o.paste_gif(gifs[n_ - 1]); vplaced.add(n_)
-            log("video %d/%d (%s): %s" % (n_, len(gifs), where, os.path.basename(gifs[n_ - 1])))
-            u = videos[n_ - 1]["url"]
-            if u:
-                log("  원본 링크: %s (%s)" % (u, o.paste_link(u)))
-
-        for k, ch in enumerate(chunks):
-            if isinstance(ch, tuple):                      # [[이미지 N]] · [[영상 N]] 자리
-                kind, n_ = ch
-                if kind == "img":
-                    if 1 <= n_ <= len(files) and n_ not in placed:
-                        o.paste_image(files[n_ - 1]); placed.add(n_); log("image %d/%d (자리 지정): %s" % (n_, len(files), os.path.basename(files[n_ - 1])))
-                elif 1 <= n_ <= len(gifs) and n_ not in vplaced:
-                    put_video(n_, "자리 지정")
-                continue
-            o.paste_html(ch)
-            if not explicit and (k == 0 or (0 < k < len(chunks) - 3)) and img_i < len(files):
-                o.paste_image(files[img_i]); placed.add(img_i + 1); log("image %d/%d: %s" % (img_i + 1, len(files), os.path.basename(files[img_i]))); img_i += 1
-            if k == 0 and not vexplicit:                   # 자리를 안 적은 영상은 요약 바로 뒤 — 그 편의 주인공이라 위에 둔다
-                for n_ in range(1, len(gifs) + 1):
-                    put_video(n_, "요약 뒤")
-            log("chunk %d/%d ok" % (k + 1, len(chunks)))
-        for n_ in range(1, len(files) + 1):               # 자리 지정이 없는 나머지는 끝에
-            if n_ not in placed:
-                o.paste_image(files[n_ - 1]); log("image %d/%d (끝): %s" % (n_, len(files), os.path.basename(files[n_ - 1])))
-        for n_ in range(1, len(gifs) + 1):                # 🔴 자리 번호가 어긋난 영상도 **버리지 않는다** (정관 §0 «조용히 실패하는 코드를 남기지 않는다»)
-            if n_ not in vplaced:
-                put_video(n_, "끝")
-        st = o.state()
-        log("state: %s" % st)
-        # 순서 검증 — 조각이 뒤섞였으면 저장하지 않는다
-        text = (o.in_frame("return d.querySelector('.se-components-wrap').innerText;") or "").replace("\xa0", " ")
-        why = body_order_problem(text)
-        if why:
-            raise Missing("본문 순서가 어긋남 — %s" % why)
+        fill(o, prep, log)
         o.click_named_button("저장")
         time.sleep(3)
         toast = o.in_frame("return (d.body.innerText.match(/[^\\n]*저장[^\\n]*/g)||[]).slice(0,3).join(' | ');")
@@ -590,7 +677,7 @@ def run(stem, blog, log):
         log("save clicked. toast=%r drafts=%r shot=%s" % (toast, cnt, shot))
         if "0개" in str(cnt):
             log("STATUS: OK (부분: 임시글 개수가 0 — 에디터에 내용은 남아 있으니 JJ 가 화면에서 «저장» 확인)"); return 0
-        log("태그는 발행 창에서 JJ 가 붙인다: %s" % " ".join("#" + t for t in tags))
+        log("태그는 발행 창에서 JJ 가 붙인다: %s" % " ".join("#" + t for t in prep["tags"]))
         log("STATUS: OK (임시저장 — 발행은 JJ)"); return 0
     except Missing as e:
         o.screenshot(os.path.join(SHOT_DIR, "%s_failed.png" % stem))

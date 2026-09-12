@@ -15,10 +15,13 @@
 # USAGE
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\publish-naver.ps1 -Post 2026-09-07_Fable_Mythos5_1
 #   ... -Post <stem> -Publish        <- actually publishes. Without it the worker is a dry run.
+#   ... -Post <stem> -Update <logNo> <- refills an ALREADY PUBLISHED post from the draft.
+#       The live post is untouched until Publish is clicked, so without -Publish this is a dry run too.
 #   The worker needs the Orca browser tab logged in to Naver (person's job).
 
 param(
     [Parameter(Mandatory = $true)][string]$Post,
+    [string]$Update,
     [switch]$Publish,
     [string]$Hq = 'C:\Users\ojaej\jj-company'
 )
@@ -55,6 +58,7 @@ if (Test-Path -LiteralPath $LockFile) {
 Write-Log ('=== ' + $Task + ' start (pid ' + $PID + ') ===')
 Write-Log ('post: ' + $Post)
 Write-Log ('mode: ' + $(if ($Publish) { 'PUBLISH' } else { 'dry run (no publish)' }))
+if ($Update) { Write-Log ('target: UPDATE existing post logNo ' + $Update) }
 
 $lockTaken = $false
 try {
@@ -98,6 +102,7 @@ try {
         exit 1
     }
     $WorkerArgs = @('--post', $Post)
+    if ($Update) { $WorkerArgs += @('--update', $Update) }
     if ($Publish) { $WorkerArgs += '--publish' }
     Write-Log ('publish_naver.py ' + ($WorkerArgs -join ' '))
     $out  = & py $WorkerPy @WorkerArgs 2>&1
