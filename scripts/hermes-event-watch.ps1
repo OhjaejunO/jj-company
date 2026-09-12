@@ -97,6 +97,12 @@ try {
             exit 1
         }
         . $SyncHelper
+        # 2026-09-13: the dot-source only DEFINES Invoke-GitPullRetry. This
+        # wrapper never called it, so charter section 4 sync had been a no-op
+        # since 2026-08-26 - silently (no log line either way). The other seven
+        # wrappers all call it; see the USAGE block in git-sync.ps1.
+        $r = Invoke-GitPullRetry -Log ${function:Write-Log}
+        if (-not $r.Ok) { Write-Log 'STATUS: FAIL git-sync'; exit 1 }
     }
 
     # --- 2. deterministic watch ------------------------------------------------
