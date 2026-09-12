@@ -752,9 +752,18 @@ def check(posts, rows, facts, kit_url, caption, cardcheck, media=None, ep=None):
         # 본편 인스타 게시물 URL 1건, 값의 정본은 발행로그(load_ep 이 읽어 ep["post_url"] 로
         # 넘긴다). 로그에 없으면 post_url 이 아예 안 만들어져 여기까지 오지도 않는다.
         pu = (ep or {}).get("post_url") or ""
-        r.ok("[4-2b] 킷 없는 편 — 마지막 포스트에 본편 인스타 URL 1건 (정본: 발행로그)",
-             bool(pu) and [u.rstrip("/") for u in last_urls] == [pu.rstrip("/")],
-             "발견 %s / 발행로그 %s" % (last_urls, pu or "(없음)"))
+        if pu:
+            r.ok("[4-2b] 킷 없는 편 — 마지막 포스트에 본편 인스타 URL 1건 (정본: 발행로그)",
+                 [u.rstrip("/") for u in last_urls] == [pu.rstrip("/")],
+                 "발견 %s / 발행로그 %s" % (last_urls, pu))
+        else:
+            # 🔴 **킷도 원류도 없는 편 = 아직 인스타에 안 나간 편** (2026-09-12 JJ 지시 —
+            #    「스레드를 인스타 발행 전에도 할 수 있도록」). 종전에는 `load_ep` 이 먼저 서서
+            #    여기까지 오지도 않았고, 그것이 ep44·ep46·ep53 이 통째로 막혀 있던 자리다.
+            #    닫는 말은 **계정 안내**다 — 가리킬 원류가 없으므로 URL 을 적으면 거짓이 된다.
+            r.ok("[4-2c] 킷도 원류도 없는 편 — 마지막 포스트는 계정 안내 (URL 0건 · «토망치»)",
+                 not last_urls and "토망치" in (posts[-1] if posts else ""),
+                 "URL %s / 마지막 포스트 «%s»" % (last_urls, (posts[-1] if posts else "")[:40]))
 
     # [5] 소스 맵 완결 — 설계 ⓔ. 문장 수 = 행 수 · 키 실재 · 무주장 행에는 수치 0개.
     cnt_s = {i: len(sentences(p)) for i, p in enumerate(posts, 1)}
@@ -941,11 +950,22 @@ def load_cardcheck():
     return cardcheck
 
 
-def load_facts(ep_dir):
+def load_facts(ep_dir, fallback=None):
+    """편의 주장 값 모듈. 편 폴더에 없으면 **본사 보충 선언**(`fallback`)을 읽는다.
+
+    🔴 **왜 보충이 필요한가 (2026-09-12).** ep46 처럼 릴스 단독으로 나간 편은 `_facts.py` 가
+       아예 없는데, 편 폴더가 `01_발행완료` 라 정관 §2 어느 예외로도 못 고친다. 그래서 선언을
+       본사(`departments\\marketing\\redist\\ep<N>.py`)에 두고 여기서 읽는다.
+    🔴 **«없으면 통과» 로는 안 간다** — 둘 다 없으면 종전대로 **선다.** 소스 맵의 근거 키가
+       실재하는지 재는 자리가 이 모듈이고, 비면 `[5-2]` 가 조용히 헛돈다.
+    """
     import importlib.util
     p = os.path.join(ep_dir, "_facts.py")
+    if not os.path.exists(p) and fallback and os.path.exists(fallback):
+        p = fallback
     if not os.path.exists(p):
-        raise RuntimeError("편 FACTS 가 없다: %s — 소스 맵을 만들 수 없다(설계 FAIL CONDITION)" % p)
+        raise RuntimeError("편 FACTS 가 없다: %s — 편 폴더에도 본사 보충 선언에도 없다 "
+                           "(소스 맵을 만들 수 없다 · 설계 FAIL CONDITION)" % p)
     spec = importlib.util.spec_from_file_location("_dist_facts", p)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -1582,13 +1602,23 @@ def _nokit_selftest(cc):
     posts = [p.replace(_BASE_KIT, pu) for p in _BASE_POSTS]
     rows = [(a, b, "POST_URL" if k == "KIT_URL" else k) for a, b, k in _BASE_ROWS]
     wrong = [p.replace(pu, "https://www.instagram.com/p/WRONGPOST/") for p in posts]
+    # 🔴 아직 인스타에 안 나간 편 — 마지막 포스트는 **URL 없이 계정 안내**로 닫는다.
+    #    소스 맵도 그 꼴이어야 한다(문장 2줄 · 근거는 둘 다 `-`) — 안 그러면 [5-1] 이 먼저 걸려
+    #    **[4-2c] 가 재는지 아닌지를 못 본다**(정관 §0 역검증 케이스 분리).
+    guide = posts[:-1] + ["표는 한 장에 묶어 뒀어요.\n토망치랩 인스타그램에서 카드로도 보실 수 있어요."]
+    guide_rows = [r_ for r_ in rows if r_[0] != 3] + [(3, 1, "-"), (3, 2, "-")]
     bad = 0
     for why, ps, ep, want_ok in [
             ("원류 URL 일치는 통과한다", posts, {"post_url": pu, "dir": "."}, True),
             ("마지막 URL 이 다르면 걸린다", wrong, {"post_url": pu, "dir": "."}, False),
-            ("정본(post_url) 부재는 걸린다", posts, {"dir": "."}, False)]:
-        r = check(ps, rows, _Facts(), None, _BASE_CAPTION, cc, ep=ep)
-        got_ok = not any(i[0].startswith(("[4-2b]", "[5-2]")) for i in r.failed)
+            # 🔴 **정본 부재의 뜻이 바뀌었다 (2026-09-12 JJ 지시).** 종전에는 «걸린다» 였다 —
+            #    원류 없이 재유통하지 않는다는 뜻이었다. 이제 그것은 «아직 인스타 전» 이고,
+            #    닫는 말이 **계정 안내면 통과 · URL 이 남아 있으면 걸린다**. 양쪽을 다 본다.
+            ("정본 부재 + 마지막이 URL 이면 걸린다 ([4-2c])", posts, {"dir": "."}, False),
+            ("정본 부재 + 계정 안내로 닫으면 통과한다 ([4-2c])", guide, {"dir": "."}, True)]:
+        r = check(ps, guide_rows if ps is guide else rows,
+                  _Facts(), None, _BASE_CAPTION, cc, ep=ep)
+        got_ok = not any(i[0].startswith(("[4-2b]", "[4-2c]", "[5-2]")) for i in r.failed)
         if got_ok == want_ok:
             print("[  OK  ] [4-2b] 킷 없는 편 — %s" % why)
         else:

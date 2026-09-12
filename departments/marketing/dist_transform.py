@@ -273,7 +273,34 @@ def publog_post_url(ep_no):
         if m:
             return m.group(0)
         raise RuntimeError("발행로그 %s 행에 인스타 게시물 URL 이 없다 — 원류 없이 재유통할 수 없다" % key)
-    raise RuntimeError("발행로그 본문에 %s 행이 없다 — 인스타 발행 전에는 재유통하지 않는다" % key)
+    # 🔴 **행이 없으면 «아직 인스타에 안 나간 편»이고, 그것은 결함이 아니다 (2026-09-12 JJ 지시).**
+    #    종전에는 여기서 섰고 그 선택이 「인스타 발행 전 재유통 금지」를 공짜로 줬다 —
+    #    **그 금지를 JJ 가 걷었다**(「스레드를 인스타 발행 전에도 할 수 있도록」). 이제 원류가
+    #    없는 편은 마지막 포스트를 **계정 안내**로 닫는다(게이트 `[4-2c]`).
+    #    🔴 행은 있는데 URL 이 없는 경우는 **여전히 선다** — 그건 로그 결함이지 «아직 전»이 아니다.
+    return None
+
+
+#: 편 폴더가 선언을 못 지는 편의 **본사 보충 선언** 자리.
+#:
+#: 🔴 **왜 편 폴더가 아니라 여기인가 (2026-09-12).** 선언이 필요한 편은 이미 `01_발행완료`
+#:    에 있고, 그 폴더는 정관 §2 어느 예외로도 못 고친다. ep46 은 `_facts.py` 가 아예 없고
+#:    ep53 은 있는데 `EP` 가 없어 **둘 다 유통이 통째로 막혀 있었다** — 「아무도 안 돌렸다」가
+#:    아니라 **「돌릴 수 없는 편」** 이었다.
+#: 편 폴더 선언이 **언제나 이긴다** — 여기 것은 «없는 칸만» 채운다.
+REDIST_DECL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "redist")
+
+
+def repo_decl_path(ep_dir):
+    """그 편의 본사 보충 선언 파일 경로 — 편 번호를 못 읽으면 None."""
+    m = re.match(r"^ep(\d+)", os.path.basename(ep_dir))
+    return os.path.join(REDIST_DECL, "ep%s.py" % m.group(1)) if m else None
+
+
+def repo_decl(ep_dir):
+    """`redist\\ep<N>.py` 의 보충 선언 — 없으면 빈 dict."""
+    p = repo_decl_path(ep_dir)
+    return _module_literals(p) if p and os.path.exists(p) else {}
 
 
 def load_ep(ep_dir):
@@ -282,6 +309,10 @@ def load_ep(ep_dir):
     # `CARDS` 가 통째로 안 읽힌다(위 `_Subst` 주석).
     _facts_p = os.path.join(ep_dir, "_facts.py")
     _facts_lit = _module_literals(_facts_p) if os.path.exists(_facts_p) else {}
+    _repo = repo_decl(ep_dir)
+    if _repo:
+        # 편 폴더가 이긴다 — 보충은 **비어 있는 칸만** 채운다.
+        _facts_lit = dict(_repo, **{k: v for k, v in _facts_lit.items() if v is not None})
     _tables = {"F": _facts_lit} if _facts_lit else {}
 
     # 🔴 **릴스 단독 편은 빌더가 없다** (2026-09-11 · ep45·ep47 실측 · SKILL §6.6 A).
@@ -303,8 +334,9 @@ def load_ep(ep_dir):
     if reel_only:
         if not _facts_lit:
             raise RuntimeError(
-                "릴스 편에 `_facts.py` 가 없다: %s — 빌더가 없는 편은 선언(EP·KIT·"
-                "ATTACH_OFFICIAL·OFFICIAL_VIDEO)을 그 파일이 진다" % ep_dir)
+                "릴스 편에 선언이 없다: %s — `_facts.py` 또는 본사 보충 선언 "
+                "`departments\\marketing\\redist\\ep<N>.py` 가 EP·KIT·"
+                "ATTACH_OFFICIAL·OFFICIAL_VIDEO 를 져야 한다" % ep_dir)
         decl = _facts_lit
     else:
         decl = _module_literals(os.path.join(ep_dir, sorted(builds)[0]), _tables)
@@ -353,7 +385,7 @@ def load_ep(ep_dir):
         "pinned": _read("pinned_comment.txt"),
         "verify_log": _read("검증로그.md"),      # 서드파티 영상 4조건 ⓒ 대조용
         "pack": _read("발행팩.md"),               # 4조건 ⓓ «## 서드파티 영상 승인» 절 확인용
-        "facts": distcheck.load_facts(ep_dir),
+        "facts": distcheck.load_facts(ep_dir, repo_decl_path(ep_dir)),
     }
 
 
@@ -500,9 +532,12 @@ def brief(ep):
       % distcheck.THREADS_CHAR_MAX)
     if ep["kit_url"]:
         a("- 킷 URL 은 **마지막 포스트에만** 1건: `%s`" % ep["kit_url"])
-    else:
+    elif ep["post_url"]:
         a("- 🔴 **킷 없는 편** — 마지막 포스트는 **원류 안내**로 닫는다: 본편 인스타 게시물 URL"
           " **1건만** `%s` (정본: 발행로그 · 소스 맵 근거 키는 `POST_URL`)" % ep["post_url"])
+    else:
+        a("- 🔴 **킷도 원류도 없는 편** — 아직 인스타에 안 나갔다. 마지막 포스트는 **계정 안내**로"
+          " 닫는다: **URL 0건** · «토망치» 가 든 한 줄 (게이트 `[4-2c]` · 근거 키는 `-`).")
     if ep.get("SPONSOR"):
         _sp = ep["SPONSOR"]
         a("- 🔴 **광고 편이다 — 대가성 표기를 P1 «맨 앞 줄»에 그대로 적는다**: «%s»"
