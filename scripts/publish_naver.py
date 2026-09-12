@@ -242,16 +242,16 @@ def run(a, log):
         if prep is None:
             return 1
         o = Pub(nd.find_update_page(a.blog, a.update))
-        if not nd.open_update(o, title, log):
-            return 1
     else:
         o = Pub(nd.find_page(a.blog, fresh=True))
-        if not nd.open_editor(o, a.blog, log):
-            return 1
     try:
         if a.update:
-            nd.fill(o, prep, log); log("update filled: " + title[:40])
+            if not nd.open_update(o, title, log):
+                return 1
+            nd.insert_videos(o, prep, log)
         else:
+            if not nd.open_editor(o, a.blog, log):
+                return 1
             o.load_draft(title); log("draft loaded: " + title[:40])
         o.open_panel()
         if a.update:
@@ -276,6 +276,13 @@ def run(a, log):
     except nd.Missing as e:
         o.screenshot(os.path.join(SHOT_DIR, a.post + "_fail.png"))
         log("STATUS: FAIL selector %s" % e); return 1
+    except Exception as e:
+        # 🔴 예상 못 한 예외도 **STATUS 줄을 남긴다.** 2026-09-12 첫 수정 회차가 traceback 만
+        #    남기고 죽어 래퍼가 «STATUS: FAIL worker-status-missing» 을 냈다 — 워커가 어디서
+        #    멈췄는지 로그 마지막 줄만 보는 사람에게는 사유가 안 보인다 (정관 §4).
+        import traceback
+        log(traceback.format_exc()[-800:])
+        log("STATUS: FAIL worker-error %s" % type(e).__name__); return 1
 
 
 def self_test():
@@ -313,6 +320,10 @@ def self_test():
         ("수정 모드도 gate() 를 먼저 지난다 (본문을 채우기 전)",
          _src.index("if not gate(") < _src.index("nd.open_update(")),
         ("수정 화면을 여는 자리가 한 곳뿐이다", _src.count("nd.find_update_page(") == 1),
+        ("🔴 수정 회차는 본문을 새로 채우지 않는다 (있는 글에 영상만 끼운다)",
+         "nd.insert_videos(" in _src and "nd.fill(" not in _src),
+        ("🔴 어떤 예외도 STATUS 줄을 남긴다 (래퍼가 worker-status-missing 을 내지 않게)",
+         "STATUS: FAIL worker-error" in _src),
         ("🔴 수정 모드에서 태그를 지우지 않는다 (원 글 설정을 건드리지 않는다)",
          "if a.update else o.clear_tags()" in _src),
         ("🔴 발행 클릭은 여전히 --publish 분기 안에만 있다 (수정 모드가 길을 하나 더 내지 않았다)",
