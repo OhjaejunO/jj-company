@@ -180,6 +180,37 @@ case "$git_dir" in
                 run_check "event_watch selftest" py scripts/event_watch.py --self-test
                 run_check "event_watch_report selftest" py scripts/event_watch_report.py --self-test ;;
         esac
+        # Found by `py scripts/where.py --checks` on 2026-09-13: five self-tests
+        # that only ran when a human typed the flag. That is the shape of the
+        # scenes.self_test incident (ten days dormant, two silent shadows) -
+        # docs/selftest-coverage.md. surface_check.py has the same hole but it
+        # is subsidiary canon (charter 1.5), so it is reported, not touched.
+        case "$staged" in
+            *scripts/graph_runner.py*)
+                run_check "graph_runner selftest" py scripts/graph_runner.py --self-test ;;
+        esac
+        case "$staged" in
+            *scripts/ig_watch.py*)
+                run_check "ig_watch selftest" py scripts/ig_watch.py --self-test ;;
+        esac
+        case "$staged" in
+            *scripts/redist_audit.py*)
+                run_check "redist_audit selftest" py scripts/redist_audit.py --self-test ;;
+        esac
+        case "$staged" in
+            *scripts/threads_insights_probe.py*)
+                run_check "threads_insights_probe selftest" py scripts/threads_insights_probe.py --self-test ;;
+        esac
+        case "$staged" in
+            *.claude/hooks/gate_on_stop.py*)
+                run_check "gate_on_stop selftest" py .claude/hooks/gate_on_stop.py --self-test ;;
+        esac
+        # where.py is the finder itself: one of its cases is "an argv-only call
+        # site is NOT automatic", which is what the first version got wrong.
+        case "$staged" in
+            *scripts/where.py*)
+                run_check "where selftest" py scripts/where.py --self-test ;;
+        esac
         case "$staged" in
             *scripts/class101.py*)
                 run_check "class101 selftest" py scripts/class101.py --self-test ;;
