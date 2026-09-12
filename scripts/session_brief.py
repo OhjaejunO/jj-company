@@ -185,6 +185,22 @@ def self_test():
         v, w = runs_verdict(argv)
         res.append(("실패 회차는 RED + 사유", v == "RED" and any("report-missing" in x for x in w)))
 
+    # ⑧⑨ `--hook` 축 — 양방향이다. 「있으면 찍는다」만 보면 «항상 찍는» 깃발도 정상으로 보인다.
+    real = globals()["brief"]
+    try:
+        for text, want in (("", False), ("🔴 합성", True)):
+            globals()["brief"] = lambda *a, _t=text, **k: _t
+            buf, old = io.StringIO(), sys.stdout
+            sys.stdout = buf
+            try:
+                main(["--hook"])
+            finally:
+                sys.stdout = old
+            res.append(("--hook: " + ("읽을 것이 있으면 찍는다" if want else "깨끗하면 한 글자도 안 찍는다"),
+                        bool(buf.getvalue().strip()) == want))
+    finally:
+        globals()["brief"] = real
+
     fails = 0
     for name, ok in res:
         fails += not ok
@@ -196,10 +212,17 @@ def self_test():
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--self-test", action="store_true")
+    ap.add_argument("--hook", action="store_true",
+                    help="훅용 — 읽을 것이 있을 때만 찍는다(깨끗하면 아무것도 안 찍는다). "
+                         "훅은 «조용하다» 한 줄도 맥락에 밀어 넣으므로, 사람이 부를 때와 가른다.")
     a = ap.parse_args(argv)
     if a.self_test:
         return self_test()
     text = brief()
+    if a.hook:
+        if text:
+            print(text)
+        return 0
     print(text if text else "조용하다 — 미처리 intent 없음, 오늘·어제 회차 정상.")
     return 0
 
