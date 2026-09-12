@@ -148,7 +148,13 @@ try {
         exit 1
     }
     Write-Log ('alerts: ' + $Alerts)
-    Write-Log 'STATUS: OK'
+    # The Python side decides the verdict string: a run whose provider died still
+    # ships alerts from the deterministic candidates, and says so as
+    # "STATUS: OK (partial: ...)". Re-deriving it here would give two verdicts
+    # that can disagree (charter s0). Python prints ASCII on purpose - PS 5.1
+    # decodes native output with the console codepage.
+    $statusLine = ($rp | ForEach-Object { [string]$_ } | Where-Object { $_ -like 'STATUS:*' } | Select-Object -Last 1)
+    if ($statusLine) { Write-Log $statusLine } else { Write-Log 'STATUS: OK' }
     exit 0
 }
 finally {

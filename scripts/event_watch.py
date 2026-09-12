@@ -27,6 +27,54 @@ LINE_MIN = 12          # 이보다 짧은 줄은 메뉴·잡음으로 본다
 MAX_LINES = 400        # 페이지당 비교 줄 상한(앞쪽)
 
 
+def base_key(row):
+    """베이스라인 열쇠 — **행 id 를 앞에 둔다.**
+
+    🔴 **URL 만으로 잠갔더니 같은 페이지를 보는 두 행이 서로를 덮었다 (2026-09-12 실측).**
+    E1(조건 문자열 · higgsfield changelog)과 E5(신규 항목 · 같은 URL)가 한 칸을 나눠 썼고,
+    나중에 쓰이는 E5 의 항목에는 `cond_hits` 가 없다 — 그래서 다음 날 E1 은 «적중 이력이
+    없다» 로 읽혀 **«기 발생» 을 매일 새로 냈다.** 8회차 중 7회차가 같은 알림이었다.
+    «기 알림» (이미 알린 것은 다시 안 알린다) 설계가 그 행에서만 죽어 있었다.
+    """
+    return "%s|%s" % (row["id"], row["url"])
+
+
+def read_base(baseline, row):
+    """그 행의 베이스라인 — 새 열쇠가 없으면 **옛 URL 열쇠로 이월**한다.
+
+    이월이 없으면 개정 다음 회차에 전 감시처가 «신규» 로 터진다(거짓 경보 8건).
+    """
+    return baseline.get(base_key(row)) or baseline.get(row["url"]) or {}
+
+
+def candidate(rec):
+    """이 감시처가 «알릴 후보»인가 — `"기 발생"` · `"신규"` · `""`(없음).
+
+    🔴 **두 유형을 한 함수가 가른다 (2026-09-12 신설).** 종전에는 «조건 문자열» 유형만
+    `cond_verdict` 를 받았고 «신규 항목» 유형에는 아무 판정도 안 붙었다. 그래서
+    `event_watch_report` 의 **침묵 편입 검사가 감시처 8곳 중 6곳을 한 번도 안 봤다** —
+    장치는 있는데 재는 대상이 반쪽이었다(정관 §0). 베이스라인 첫 회차는 `new_lines` 가
+    비어 있으므로 여기서 따로 막지 않아도 후보가 되지 않는다.
+    """
+    if rec.get("status") != "fetched":
+        return ""
+    v = rec.get("cond_verdict")
+    if v in ("기 발생", "신규"):
+        return v
+    if rec.get("kind") == "new" and rec.get("new_lines"):
+        return "신규"
+    return ""
+
+
+def evidence(rec):
+    """알림 한 줄에 붙일 근거 — 적중 줄 또는 새로 생긴 줄의 첫 줄."""
+    for key in ("cond_new_hits", "cond_hits", "new_lines"):
+        v = rec.get(key)
+        if v:
+            return v[0][:160]
+    return ""
+
+
 def parse_list(path):
     rows = []
     for ln in io.open(path, encoding="utf-8"):
@@ -65,7 +113,41 @@ def fetch(url):
     return lines[:MAX_LINES], "html"
 
 
+def self_test():
+    """`[(이름, 통과)]` — 열쇠 충돌과 후보 판정. 망 없이 돈다."""
+    e1 = {"id": "E1", "url": "http://same", "kind": "cond"}
+    e5 = {"id": "E5", "url": "http://same", "kind": "new"}
+    res = []
+    # ① 같은 URL 두 행은 다른 칸을 쓴다 — 이 충돌이 «기 발생» 을 매일 냈다
+    res.append(("같은 URL 두 행이 다른 칸", base_key(e1) != base_key(e5)))
+    # ② 새 칸에 쓴 것을 그 행이 도로 읽는다
+    base = {base_key(e1): {"cond_hits": ["hit"]}, base_key(e5): {"lines": ["a"]}}
+    res.append(("자기 칸을 읽는다", read_base(base, e1).get("cond_hits") == ["hit"]
+                and read_base(base, e5).get("lines") == ["a"]))
+    # ③ 옆 행의 칸을 읽지 않는다 (헛돎 점검 — 한 칸을 같이 쓰면 ②도 참이 된다)
+    res.append(("옆 행 칸을 안 읽는다", read_base(base, e1).get("lines") is None))
+    # ④ 옛 URL 열쇠는 이월된다 — 없으면 개정 다음 날 전 감시처가 «신규» 로 터진다
+    res.append(("옛 URL 열쇠 이월", read_base({"http://same": {"lines": ["old"]}}, e1)
+                .get("lines") == ["old"]))
+    # ⑤⑥ 후보 판정 — 두 유형 다 보고, 조용한 곳·못 연 곳은 후보가 아니다
+    res.append(("두 유형 다 후보가 된다",
+                candidate({"status": "fetched", "kind": "cond", "cond_verdict": "기 발생"}) == "기 발생"
+                and candidate({"status": "fetched", "kind": "new", "new_lines": ["x"]}) == "신규"))
+    res.append(("조용한 곳·못 연 곳은 후보 아님",
+                candidate({"status": "fetched", "kind": "new", "new_lines": []}) == ""
+                and candidate({"status": "blocked", "kind": "new", "new_lines": ["x"]}) == ""
+                and candidate({"status": "fetched", "kind": "cond", "cond_verdict": "기 알림"}) == ""))
+    fails = 0
+    for name, ok in res:
+        fails += not ok
+        print(("ok   " if ok else "FAIL ") + name)
+    print("STATUS: %s" % ("OK" if not fails else "FAIL %d" % fails))
+    return 1 if fails else 0
+
+
 def main():
+    if "--self-test" in sys.argv:
+        return self_test()
     ap = argparse.ArgumentParser()
     ap.add_argument("--list", default=os.path.join("departments", "marketing", "event-watchlist.md"))
     ap.add_argument("--state", default=os.path.join("logs", "event-watch"))
@@ -98,7 +180,7 @@ def main():
                 #   신규   = 적중 줄이 베이스라인의 적중 목록에 없다 (베이스라인이 있는 경우)
                 #   기 발생 = 이 URL 의 적중 목록이 베이스라인에 아직 없다(등재 시점) 인데 적중이 있다
                 #   기 알림 = 적중이 전부 베이스라인의 적중 목록 안 (이미 알린 것 — 재알림 안 함)
-                prev_hits = baseline.get(r["url"], {}).get("cond_hits")
+                prev_hits = read_base(baseline, r).get("cond_hits")
                 if hits and prev_hits is None:
                     rec["cond_verdict"] = "기 발생"
                 elif hits and any(h not in prev_hits for h in hits):
@@ -108,7 +190,7 @@ def main():
                     rec["cond_verdict"] = "기 알림"
                 else:
                     rec["cond_verdict"] = "없음"
-            prev = baseline.get(r["url"], {}).get("lines")
+            prev = read_base(baseline, r).get("lines")
             if prev is None:
                 rec["new_lines"] = []
                 rec["new_lines_note"] = "베이스라인 생성 (비교 대상 없음)"
@@ -117,13 +199,14 @@ def main():
                 rec["new_lines"] = [ln for ln in lines if ln not in prevset][:15]
             entry = {"lines": lines, "hash": digest, "date": a.date}
             if r["kind"] == "cond":
-                entry["cond_hits"] = sorted(set((baseline.get(r["url"], {}).get("cond_hits") or []) + [ln for ln in lines if any(c.lower() in ln.lower() for c in r["conds"])]))
-            new_base[r["url"]] = entry
+                entry["cond_hits"] = sorted(set((read_base(baseline, r).get("cond_hits") or []) + [ln for ln in lines if any(c.lower() in ln.lower() for c in r["conds"])]))
+            new_base[base_key(r)] = entry
         except Exception as e:  # noqa: BLE001
             rec["status"] = "blocked"
             rec["error"] = str(e)[:200]
-            if r["url"] in baseline:
-                new_base[r["url"]] = baseline[r["url"]]      # 못 열었으면 옛 베이스라인을 유지 — 지우면 내일 «전부 신규» 가 된다
+            prev_entry = read_base(baseline, r)
+            if prev_entry:
+                new_base[base_key(r)] = prev_entry          # 못 열었으면 옛 베이스라인을 유지 — 지우면 내일 «전부 신규» 가 된다
         out["items"].append(rec)
 
     jp = os.path.join(a.state, a.date + ".json")
