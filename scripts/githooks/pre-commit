@@ -154,7 +154,7 @@ case "$git_dir" in
         # naver_draft shares blogcheck's resolve_image(), so a blogcheck change
         # runs its self-test too: one resolver, two callers, no second copy.
         case "$staged" in
-            *scripts/publish_naver.py*)
+            *scripts/publish_naver.py*|*scripts/naver_blog.py*|*scripts/blog_audit.py*)
                 run_check "publish_naver selftest" py scripts/publish_naver.py --self-test ;;
         esac
         case "$staged" in

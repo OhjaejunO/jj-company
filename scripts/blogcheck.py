@@ -116,12 +116,16 @@ def video_line_re():
     return naver_draft.VIDEO_LINE
 
 
-def episode_has_video(source):
-    """그 편이 «공식 영상»을 선언했는가. `True`·`False`·`None`(못 쟀다).
+def episode_dir(source):
+    r"""초안 `source:` 가 가리키는 **편 폴더 경로**. 못 찾으면 `None`.
 
     블로그 초안의 `source:` 는 «ep55 검증로그 …» 또는 «ep51_메타뮤즈 검증로그(…)» 꼴이라
     편 번호를 뽑아 워크숍 폴더를 찾는다. 편 선언(`build_epNN.py`·`_facts.py`)이 정본이고
     이 함수는 조회 결과다 (정관 §0 «실물이 정본이고 문서는 조회 결과다»).
+
+    🔴 **조회를 함수로 갈라 둔 이유** (2026-09-12): 종전에는 이 로직이 `episode_has_video()`
+       안에만 있어서, 같은 편 폴더를 봐야 하는 다음 축(`[IMG-3]`)이 **같은 코드를 다시 써야**
+       했다. 두 벌이 되면 한쪽만 고쳐지고 그때부터 둘이 다른 편을 본다.
     """
     # 🔴 뒤 경계를 걸지 않는다 — 초안 `source:` 는 «ep51_메타뮤즈 …» 꼴도 쓰는데
     #    밑줄이 낱말 문자라 \b 가 안 붙어 **편을 통째로 못 찾았다**(2026-09-12 실측).
@@ -134,20 +138,48 @@ def episode_has_video(source):
         if not os.path.isdir(d):
             continue
         for name in sorted(os.listdir(d)):
-            if not (name == pre or name.startswith(pre + "_")):
-                continue
-            folder = os.path.join(d, name)
-            for f in sorted(os.listdir(folder)):
-                if not f.endswith(".py"):
-                    continue
-                try:
-                    txt = io.open(os.path.join(folder, f), encoding="utf-8", errors="replace").read()
-                except OSError:
-                    continue
-                if OFFICIAL_VIDEO_DECL.search(txt):
-                    return True
-            return False
+            if name == pre or name.startswith(pre + "_"):
+                return os.path.join(d, name)
     return None
+
+
+def episode_has_video(source):
+    """그 편이 «공식 영상»을 선언했는가. `True`·`False`·`None`(못 쟀다)."""
+    folder = episode_dir(source)
+    if not folder:
+        return None
+    for f in sorted(os.listdir(folder)):
+        if not f.endswith(".py"):
+            continue
+        try:
+            txt = io.open(os.path.join(folder, f), encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        if OFFICIAL_VIDEO_DECL.search(txt):
+            return True
+    return False
+
+
+def image_owner(path, folder):
+    r"""그 그림이 **어디 소속인가** — `"편"`·`"블로그"`·`"남의 편"`·`"바깥"`.
+
+    🔴 `[IMG-2]` 는 «있는가» 만 본다. 그런데 **엉뚱한 편의 그림도 «있다»** — 워크숍에는 60편이
+       넘는 폴더가 나란히 있고 파일 이름은 편마다 똑같다(`01_cover.png`·`figure_0.png` …).
+       2026-09-09 코덱스이사 초안이 이름만 적어 놨을 때 그 이름은 **여러 편에 다 있었다.**
+       이번에는 맞는 편을 골랐지만 그것을 고른 것은 사람이지 검사가 아니었다.
+    """
+    q = os.path.normcase(os.path.abspath(resolve_image(path)))
+
+    def under(root):
+        return q.startswith(os.path.normcase(os.path.abspath(root)) + os.sep)
+
+    if folder and under(folder):
+        return "편"
+    if under(os.path.join(HQ_ROOT, "reports", "blog")):   # 블로그가 직접 뽑은 프레임 자리
+        return "블로그"
+    if under(WORKSHOP):                                    # 워크숍 안인데 이 편이 아니다
+        return "남의 편"
+    return "바깥"
 
 
 def _section(md, name):
@@ -277,6 +309,28 @@ def check(md, publish=False, caption=None, kind=None):
         if gone:
             fails.append("[IMG-2] 그림 파일이 없다 — 발행 때 선다: %s%s"
                          % (gone[0], (" 외 %d건" % (len(gone) - 1)) if len(gone) > 1 else ""))
+
+        # ── [IMG-3] 그 그림이 «이 편의 것인가» (2026-09-12 신설) ─────────────
+        # 🔴 `[IMG-2]` 의 못잡음을 한 겹 좁힌다. 워크숍에는 편 폴더가 60개 넘게 나란히 있고
+        #    파일 이름은 편마다 같다 — `01_cover.png` 는 거의 모든 편에 있다. 그래서
+        #    **다른 편의 그림을 붙여도 `[IMG-2]` 는 통과한다.** 이 축은 그림이 `source:` 가
+        #    가리킨 편 폴더(또는 블로그가 직접 뽑은 `reports\blog\` 아래)에 있는지 본다.
+        # 🔴 **못 쟀으면 세우지 않는다** — `source:` 에 편이 없는 초안(스캔로그 기반)은 대조
+        #    대상이 없다. 「못 쟀다」를 「통과」로 적지 않고 노트로 남긴다(정관 §0).
+        # 🔴 여전히 못 잡는 것: **맞는 편 안에서 엉뚱한 그림**을 고른 것. 그건 사람 자리다.
+        _folder = episode_dir(meta.get("source"))
+        if _folder:
+            alien = [(m.group(1), image_owner(m.group(1), _folder))
+                     for m in (IMG_LINE.match(l.strip()) for l in imgs.splitlines()) if m]
+            alien = [(pth, who) for pth, who in alien if who in ("남의 편", "바깥")]
+            if alien:
+                fails.append("[IMG-3] %s 그림이다 — `source:` 는 %s: %s"
+                             % (alien[0][1], os.path.basename(_folder), alien[0][0]))
+        elif not (meta.get("source") or ""):
+            notes.append("🔴 [IMG-3] 못 쟀다 — `source:` 가 비어 편 폴더를 모른다")
+        else:
+            notes.append("🔴 [IMG-3] 못 쟀다 — `source:` 에서 편 폴더를 못 찾았다: %r"
+                         % ((meta.get("source") or "")[:40]))
 
     # ── [VID] 영상 축 (2026-09-12 신설) ──────────────────────────────────────
     # 🔴 **블로그에만 영상 자리가 없었다** — 조문·게이트·채우기 셋 다 0건이라
@@ -582,6 +636,39 @@ def self_test():
                       episode_has_video("ep99_영상편 검증로그(2026-09-10)") is True, []))
         cases.append(("🔴 «OFFICIAL_VIDEO = None» 은 선언이 아니다 (영상 없는 편이 다 걸리던 자리)",
                       episode_has_video("ep97 검증로그") is False, []))
+
+        # ── [IMG-3] 그림 소속 — 네 면 (2026-09-12) ──────────────────────────
+        # 🔴 **«제 편»과 «남의 편»을 따로** 본다. 한쪽만 보면 전부 통과시키는 검사도,
+        #    전부 막는 검사도 정상으로 보인다(정관 §0 역검증).
+        _mine = os.path.join(_pub, "ep99_영상편", "01_cover.png")
+        _alien = os.path.join(_pub, "ep98_무영상편", "01_cover.png")
+        io.open(_mine, "w").write("x")
+        io.open(_alien, "w").write("x")
+        _imgs = lambda a, b, c: (
+            "## 이미지\n\n1. `%s` \u2014 하나 (출처: x.com)\n"
+            "2. `%s` \u2014 둘 (출처: x.com)\n3. `%s` \u2014 셋 (출처: x.com)\n\n" % (a, b, c))
+        _base = good.replace("kind: daily", vfm("ep99"))
+        _ok = re.sub(r"(?sm)^## 이미지\s*$.*?(?=^## )", lambda _m: _imgs(_mine, _mine, _mine), _base)
+        _bad = re.sub(r"(?sm)^## 이미지\s*$.*?(?=^## )", lambda _m: _imgs(_mine, _alien, _mine), _base)
+        f, _ = check(_bad)
+        cases.append(("🔴 [IMG-3] 남의 편 그림이면 FAIL (이름이 같아서 [IMG-2] 는 통과한다)",
+                      any(x.startswith("[IMG-3]") for x in f)
+                      and not any(x.startswith("[IMG-2]") for x in f), f))
+        f, _ = check(_ok)
+        cases.append(("[IMG-3] 제 편 그림은 통과 — 전부 막는 검사가 아니다",
+                      not any(x.startswith("[IMG-3]") for x in f), f))
+        f, n_ = check(_ok.replace("source: ep99 검증로그", "source: 스캔로그"))
+        cases.append(("[IMG-3] 편을 못 찾으면 «못 쟀다» 를 적고 세우지는 않는다",
+                      not any(x.startswith("[IMG-3]") for x in f)
+                      and any("[IMG-3] 못 쟀다" in x for x in n_), f))
+        cases.append(("소속을 넷으로 가른다 (편·남의 편·블로그·바깥)",
+                      (image_owner(_mine, os.path.dirname(_mine)),
+                       image_owner(_alien, os.path.dirname(_mine)),
+                       image_owner(os.path.join(HQ_ROOT, "reports", "blog", "img", "a.png"),
+                                   os.path.dirname(_mine)),
+                       image_owner(os.path.join(HQ_ROOT, "logs", "a.png"),
+                                   os.path.dirname(_mine)))
+                      == ("편", "남의 편", "블로그", "바깥"), []))
     finally:
         WORKSHOP = _old_w or r"C:\Users\ojaej\orca\tomangchi-lab.github.io\workshop"
         shutil.rmtree(_w, ignore_errors=True)
