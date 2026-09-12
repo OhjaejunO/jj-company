@@ -18,6 +18,12 @@ WHAT IT DOES
   py context_watch.py start    (SessionStart)
       newest unconsumed reports\handoff\*.md (<= 48h old) -> print it as the
       session's first context, mark it consumed (rename to *.consumed.md).
+      ALSO scripts\session_brief.py: unread RED (open intents, failed runs of
+      the last two days). 2026-09-12: run_audit shipped RUNS_VERDICT=RED three
+      days running and four intent drafts piled up unread - the reports existed,
+      the reading seat did not. This hook is the seat every session passes.
+      It rides on THIS hook because SessionStart is already registered: a new
+      entry would need settings.json, which is a human seat (see below).
   py context_watch.py --self-test   7 cases      py context_watch.py --check
 
 WHAT IT CANNOT DO (charter section 0, layer 4)
@@ -116,14 +122,41 @@ def newest_handoff(now=None):
     return max(cands, key=os.path.getmtime) if cands else None
 
 
-def start(payload):
+def _load_brief():
+    d = os.path.join(HQ, "scripts")
+    if d not in sys.path:
+        sys.path.insert(0, d)
+    import session_brief
+    return session_brief
+
+
+def ops_brief(load=None):
+    r"""scripts\session_brief.py 의 🔴 브리핑. 깨끗하면 빈 문자열.
+
+    실패를 삼키지 않는다 — 조회가 죽으면 그 사실을 한 줄로 띄운다. 조용히 빈 문자열을
+    돌려주면 «읽을 것이 없다»와 «읽지 못했다»가 같아 보인다(정관 §0). `load` 는
+    역검증이 «죽는 조회»를 넣는 자리다 — 예외 처리를 두 벌 두지 않으려고 뚫었다.
+    """
+    try:
+        return (load or _load_brief)().brief()
+    except Exception as e:                      # noqa: BLE001
+        return ("[session-brief] 🔴 조회 실패: %s: %s — `py %s` 를 손으로 돌려 본다"
+                % (type(e).__name__, e, os.path.join(HQ, "scripts", "session_brief.py")))
+
+
+def start(payload, brief_fn=None):
+    parts = []
     f = newest_handoff()
-    if not f:
+    if f:
+        body = io.open(f, encoding="utf-8").read().strip()
+        dst = f[:-3] + ".consumed.md"
+        os.replace(f, dst)
+        parts.append("[context-watch] 이전 세션 인계 메모 (%s · 읽은 뒤 %s 로 이름을 바꿨다):\n\n%s"
+                     % (os.path.basename(f), os.path.basename(dst), body))
+    parts.append((brief_fn or ops_brief)())
+    ctx = "\n\n".join(p for p in parts if p)
+    if not ctx:
         return None
-    body = io.open(f, encoding="utf-8").read().strip()
-    dst = f[:-3] + ".consumed.md"
-    os.replace(f, dst)
-    ctx = "[context-watch] 이전 세션 인계 메모 (%s · 읽은 뒤 %s 로 이름을 바꿨다):\n\n%s" % (os.path.basename(f), os.path.basename(dst), body)
     return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": ctx}}
 
 
@@ -159,16 +192,31 @@ def self_test():
     t0 = _fake_transcript(root, None)
     res.append(("usage 없는 첫 프롬프트는 조용", prompt({"transcript_path": t0, "session_id": "s3"}) is None))
     # 5 start with no memo -> None
-    res.append(("인계 메모 없으면 시작 훅 조용", start({}) is None))
+    #
+    # 브리핑은 `brief_fn` 으로 꺼 둔다 — 이 케이스가 재는 것은 «인계 메모» 축이고,
+    # 실기계의 🔴 가 섞이면 무엇이 띄웠는지 증명되지 않는다(§0 «케이스는 분리한다»).
+    def _quiet():
+        return ""
+    res.append(("인계 메모 없으면 시작 훅 조용", start({}, _quiet) is None))
     # 6 start with memo -> injected + consumed
     m = os.path.join(HANDOFF_DIR, "2026-09-06_0100_abc.md")
     io.open(m, "w", encoding="utf-8").write("# 인계\n- 목표: X\n")
-    r = start({})
+    r = start({}, _quiet)
     res.append(("인계 메모 주입 + consumed 개명", bool(r) and "- 목표: X" in r["hookSpecificOutput"]["additionalContext"] and not os.path.exists(m) and os.path.exists(m[:-3] + ".consumed.md")))
     # 7 stale memo (> 48h) ignored
     m2 = os.path.join(HANDOFF_DIR, "old.md"); io.open(m2, "w", encoding="utf-8").write("old")
     os.utime(m2, (time.time() - 3 * 86400, time.time() - 3 * 86400))
-    res.append(("48시간 지난 메모는 무시", start({}) is None))
+    res.append(("48시간 지난 메모는 무시", start({}, _quiet) is None))
+    # 8 브리핑만 있어도 시작 훅이 뜬다 (인계 메모 0건 · 🔴 만)
+    r = start({}, lambda: "[session-brief] 🔴 미처리 intent 1건")
+    res.append(("브리핑만 있어도 띄운다",
+                bool(r) and "미처리 intent" in r["hookSpecificOutput"]["additionalContext"]))
+    # 9 브리핑 조회가 죽어도 훅은 살고, **죽었다는 사실이 보인다** (조용한 실패 금지)
+    def _boom():
+        raise RuntimeError("boom")
+    r = start({}, lambda: ops_brief(load=_boom))
+    res.append(("브리핑 조회 실패를 숨기지 않는다",
+                bool(r) and "조회 실패" in r["hookSpecificOutput"]["additionalContext"]))
     fails = 0
     for name, ok in res:
         fails += not ok

@@ -4,14 +4,32 @@
 
 토망치랩 브랜드 스크립트는 **두 곳에 있다.**
 
-    실행 정본  tomangchi-lab.github.io/workshop/00_브랜드에셋   (gitignore, 제작이 여기를 import)
-    버전관리 사본  tomangchi-skill  `origin/main:skills/tomangchi`  (스킬이 배포하는 것)
+    스킬 레포   tomangchi-skill `origin/main:skills/tomangchi` → 라이브 스킬로 배포된다
+    워크숍 폴더  tomangchi-lab.github.io/workshop/00_브랜드에셋  (gitignore)
 
-제작은 전부 실행 정본으로 돌아가므로 **사본이 낡거나 깨져도 아무도 죽지 않는다.**
-그래서 드리프트가 조용히 쌓인다 — 정관 §0 «조용히 실패하는 코드»와 같은 계열이다.
-실제로 `brand.py` 가 사본에 통째로 없었는데 몇 주간 아무 신호가 없었다(2026-08-15).
+드리프트는 조용히 쌓인다 — 정관 §0 «조용히 실패하는 코드»와 같은 계열이다.
+실제로 `brand.py` 가 한쪽에 통째로 없었는데 몇 주간 아무 신호가 없었다(2026-08-15).
 
 막을 수 없다면 **소리를 내게** 한다. 이 감사가 그 소리다.
+
+## 🔴 방향이 뒤집혔다 — 이 파일의 이름은 옛 사실이다 (2026-09-12)
+
+이 감사는 2026-08-15 에 «워크숍 폴더가 실행 정본이고 스킬 레포가 그 사본» 이라는
+전제로 쓰였다. **그 전제는 그 뒤 뒤집혔고, 이름만 안 따라갔다.** 실물 근거 둘:
+
+  1. `build_ep57.py` 의 `sys.path` 마지막 순서가 «편 폴더 → **라이브 스킬** →
+     `02_제작중` → `00_브랜드에셋`» 이다. 주석도 「🔴 라이브 스킬이 먼저다 —
+     워크숍 `00_브랜드에셋` 사본이 낡았다(ep56 실측)」 이라고 적혀 있다.
+  2. 자회사 PR #119(v3.85) 제목이 「fix(gate): 워크숍 사본이 라이브 스킬을
+     가리지 않게」 다. **자회사는 뒤집힘을 인정하고 고쳤는데 본사 감사만 안 따라갔다.**
+
+그래서 «워크숍이 뒤처짐» 은 **정상**이고(제작은 라이브 스킬을 먼저 읽는다),
+«워크숍이 앞섬» 이 **결함**이다(스킬 레포로 승계되지 않은 수정이 거기 갇혀 있다).
+등급을 그 방향으로 가른다 — 종전에는 둘 다 🔴 라서, **정상 상태가 나흘 연속 🔴 4건**
+으로 떠 있었고 그 빨간 줄이 진짜 🔴 를 묻었다(2026-09-12 실측).
+
+🔴 **코드 안의 `LIVE`·`COPY` 는 옛 이름 그대로 남겨 뒀다** — 560줄을 개명하는 것이
+이 회차의 위험을 늘린다. `LIVE` = 워크숍 폴더, `COPY` = 스킬 레포(`origin/main`)다.
 
 ## 비교 대상은 «클론의 워킹 트리»가 아니라 `origin/main` 이다 (2026-08-15 개정)
 
@@ -39,6 +57,19 @@ gitignore 라 git 이 손댈 수 없으므로** 개행 정규화는 그대로 �
   3. 양쪽에 다 있는데 다른 파일 — 내용 비교(개행만 다르면 ⚪ 로 내린다)
   4. 사본이 실제로 도는가     — 사본의 `_selftest.py` 를 돌린다
   5. 클론 상태               — main 인가, origin/main 을 따라잡았는가, 깨끗한가
+  6. **배포가 실물인가**      — 라이브 스킬이 **자기 `.deployed` 스탬프가 가리키는
+     리비전**과 바이트가 같은가 (2026-09-12 신설)
+
+6번을 새로 넣은 이유: 제작이 **라이브 스킬을 먼저 읽는데** 그 폴더의 실물을 재는 자가
+어디에도 없었다. `skill-version.ps1` 은 `.deployed` 스탬프를 읽는데 그것은 **배포기가
+스스로 적은 주장**이지 대조가 아니다 — 배포가 반쯤 되거나 레포에서 지운 옛 모듈이
+라이브에 남으면 스탬프는 그대로 «최신»이라고 말하고, 제작은 그 남은 파일을 import
+한다(정관 §0 «감지 장치가 값을 담는지 검증한다»).
+
+🔴 **대조 상대는 `origin/main` 이 아니라 «스탬프가 가리키는 리비전»이다.** 배포는
+스케줄 회차 시작 때 일어나므로 **머지 직후 라이브가 뒤처져 있는 것은 정상**이고, 거기에
+🔴 를 달면 지금 이 파일이 고치고 있는 결함(거짓 경보가 진짜 경보를 묻는다)을 새로
+만드는 꼴이다. 스탬프와 `origin/main` 의 차이는 ⚪ 참고로만 적는다.
 
 **두 정본 폴더 어디에도 쓰지 않는다.** 쓰는 곳은 임시 폴더와 운영 서버 reports/ 뿐이다.
 
@@ -91,6 +122,12 @@ COPY_SUB = os.environ.get("TOMANGCHI_COPY_SUB", "skills/tomangchi")
 COPY_REV = os.environ.get("TOMANGCHI_COPY_REV", "origin/main")
 #: 주면 export 대신 **이 폴더**를 사본으로 본다. 역검증·디버깅용 탈출구다.
 COPY_DIR = os.environ.get("TOMANGCHI_COPY")
+#: 배포본. **제작이 실제로 import 하는 것**이라 `origin/main` 과 같아야 한다 (§4).
+LIVE_SKILL = os.environ.get(
+    "TOMANGCHI_LIVE_SKILL",
+    os.path.expanduser(os.path.join("~", ".claude", "skills", "tomangchi")))
+#: 배포기가 적는 스탬프. 레포에 없는 것이 정상이라 대조에서 뺀다.
+DEPLOY_IGNORE = {".deployed"}
 REPORTS = os.environ.get("JJ_REPORTS", r"C:\Users\ojaej\jj-company\reports")
 
 #: 사본에 **일부러 넣지 않은** 것. 런타임에 열리지 않는 원본·참고 자산이라 약 9MB 를
@@ -106,16 +143,26 @@ EXCLUDED = {
 #: 템플릿). 둘은 `00_브랜드에셋` 에 있을 이유가 없다 — 편은 스킬 경로에서 부른다.
 #: 목록에 없으면 **매일 🟡 2건이 상주**하고, 늘 노란 줄이 있는 리포트는 사람이 안 보게 된다
 #: (§0 — 거짓 경보가 감시를 무디게 한다). 근거: 브랜드 동기화(PR #51) 뒤 남은 유일한 🟡.
-COPY_ONLY = {"SKILL.md", "_selftest.py", "epcheck.py", "verify.template.py"}
+#: 2026-09-12 추가: `surface_check.py`(지면 금지 목록 공용 정본). `epcheck` 가 import
+#: 하는 검사기라 `epcheck.py` 와 같은 자리이고, 없으면 **매일 🟡 1건이 상주**한다.
+COPY_ONLY = {"SKILL.md", "_selftest.py", "epcheck.py", "verify.template.py",
+             "surface_check.py"}
 
 #: 개행 정규화를 적용할 확장자. **바이너리에는 쓰지 않는다** — PNG 안의 `\r\n`
 #: 바이트를 지우면 진짜 차이를 가려 버린다.
 TEXT_EXT = (".py", ".md", ".txt", ".json", ".ps1", ".yml", ".yaml")
 
 #: 사유 코드 → 심각도. 리포트 색은 여기 한 곳에서만 정한다.
+#:
+#: «내용이 다르다» 는 **방향에 따라 등급이 갈린다** (2026-09-12) — 헤더 «방향이
+#: 뒤집혔다» 절 그대로다. 워크숍이 앞선 것만 결함이고, 스킬 레포가 앞선 것은 정상이다.
 SEVERITY = {
     "missing-code": "red",
-    "content": "red",
+    "content": "red",               # 방향 불명 — 모르는 채로 덮는 것이 사고라 🔴 로 둔다
+    "content-unmerged": "red",      # 워크숍이 앞섬 — 스킬 레포로 승계되지 않은 수정
+    "content-stale": "yellow",      # 스킬 레포가 앞섬 — 워크숍 사본이 뒤처진 것뿐(정상)
+    "deploy": "red",                # 라이브 실물이 자기 스탬프와 어긋난다
+    "deploy-behind": "white",       # 머지 뒤 아직 배포 전 — 다음 회차가 따라잡는다
     "selftest": "red",
     "missing-asset": "yellow",
     "copy-only": "yellow",
@@ -214,8 +261,10 @@ def _newer(live_path, name, copy_age):
     if abs(lm - cm) < NEWER_MARGIN_S:
         return None, f"정본 mtime {ls} · 사본 커밋 {cs} — 차이 5분 미만이라 **방향 불명**"
     if lm > cm:
-        return "live", f"정본 mtime {ls} · 사본 커밋 {cs} — **정본이 최근**"
-    return "copy", f"정본 mtime {ls} · 사본 커밋 {cs} — **사본이 최근** (정본으로 덮으면 사본 수정이 사라진다)"
+        return "live", (f"워크숍 mtime {ls} · 스킬 레포 커밋 {cs} — "
+                        "🔴 **워크숍이 앞선다** (스킬 레포로 승계되지 않은 수정이다)")
+    return "copy", (f"워크숍 mtime {ls} · 스킬 레포 커밋 {cs} — "
+                    "**스킬 레포가 최근** (정상 — 제작은 라이브 스킬을 먼저 읽는다)")
 
 
 def classify(live_dir, copy_dir, copy_age=None, newer_out=None):
@@ -271,7 +320,81 @@ def classify(live_dir, copy_dir, copy_age=None, newer_out=None):
         _who, _why = _newer(live[f], f, copy_age)
         if newer_out is not None:
             newer_out.append((f, _who))
-        out.append(("content", f"내용이 다르다: {f} (정본 {a:,}B / 사본 {b:,}B) — {_why}"))
+        # 사유 코드가 방향을 진다 — 등급이 여기서 갈린다(SEVERITY).
+        _code = {"live": "content-unmerged", "copy": "content-stale"}.get(_who, "content")
+        out.append((_code, f"내용이 다르다: {f} (워크숍 {a:,}B / 스킬 레포 {b:,}B) — {_why}"))
+    return out
+
+
+def same_content(a, b, name):
+    """바이트가 같은가 — 텍스트면 **개행 차이는 같은 것으로 본다.**
+
+    🔴 라이브 스킬은 **CRLF 로 깔린다**(2026-09-12 실측: `brand.py` 라이브 3,301B /
+    블롭 3,241B). git 블롭은 LF 라 정규화 없이 대조하면 **텍스트 파일 전부가 «다르다»**
+    로 떠서, 이 축이 첫날부터 24건짜리 거짓 경보가 된다 — `classify` 가 같은 함정을
+    이미 한 번 밟고 ⚪ 로 내려 둔 자리다.
+    """
+    if sha(a) == sha(b):
+        return True
+    if name.endswith(TEXT_EXT):
+        try:
+            return (open(a, "rb").read().replace(b"\r\n", b"\n")
+                    == open(b, "rb").read().replace(b"\r\n", b"\n"))
+        except OSError:
+            return False
+    return False
+
+
+def read_stamp(path):
+    """`.deployed` 의 `revision:` 값 — `(리비전, 사유)`. 못 읽으면 `(None, 사유)`."""
+    try:
+        for ln in io.open(path, encoding="utf-8", errors="replace"):
+            k, _, v = ln.partition(":")
+            if k.strip() == "revision" and v.strip():
+                return v.strip(), ""
+        return None, "revision 줄이 없다"
+    except OSError as e:
+        return None, f"{type(e).__name__}"
+
+
+def deploy_gap(live_skill, rev_now, export_fn):
+    """배포본이 **자기 스탬프가 가리키는 리비전**과 같은가. `[(사유코드, 설명), ...]`.
+
+    양쪽을 다 본다: 라이브에 **없거나 다른** 파일(배포가 덜 됐다)과 라이브에만 **남은**
+    파일(레포에서 지웠는데 안 지워졌다). 뒤엣것도 결함이다 — 제작이 라이브를 `sys.path`
+    앞에 두므로 **남은 옛 모듈이 조용히 먹힌다.**
+    """
+    if not os.path.isdir(live_skill):
+        return [("deploy", f"라이브 스킬 폴더가 없다: {live_skill}")]
+    rev, err = read_stamp(os.path.join(live_skill, ".deployed"))
+    if not rev:
+        return [("deploy", f"배포 스탬프를 못 읽는다 ({err}) — "
+                           "라이브가 무엇인지 증명할 수 없다")]
+    out = []
+    if rev_now and rev != rev_now:
+        out.append(("deploy-behind",
+                    f"라이브는 {rev[:7]} · {COPY_REV} 는 {rev_now[:7]} — "
+                    "머지 뒤 아직 배포 전이다(다음 스케줄 회차가 따라잡는다)"))
+    want = export_fn(rev)
+    if want is None:
+        out.append(("deploy", f"스탬프가 가리키는 {rev[:7]} 을 꺼낼 수 없다 — "
+                              "배포본을 대조할 수 없다"))
+        return out
+    got = listing(live_skill)
+    bad = []
+    for f in sorted(listing(want)):
+        if f in DEPLOY_IGNORE:
+            continue
+        if f not in got:
+            bad.append(f"배포 안 됨: {f}")
+        elif not same_content(os.path.join(want, f), got[f], f):
+            bad.append(f"내용 다름: {f}")
+    for f in sorted(set(got) - set(listing(want)) - DEPLOY_IGNORE):
+        bad.append(f"레포에 없는데 라이브에 남음: {f}")
+    if bad:
+        out.append(("deploy", f"라이브 실물이 자기 스탬프 {rev[:7]} 과 다르다 "
+                              f"({len(bad)}건) — " + " · ".join(bad[:8])
+                              + (" …" if len(bad) > 8 else "")))
     return out
 
 
@@ -385,6 +508,78 @@ def _copyonly_self_test():
     return out
 
 
+#: 등급 방향 역검증. **한 입력에서 mtime 차이 하나만 바꾼다** — 다른 조건이 같이
+#: 걸리면 «방향이 등급을 갈랐는지» 가 증명되지 않는다(§0).
+_GRADE_CASES = (
+    ("grade_workshop_ahead", -86400, "content-unmerged"),  # 워크숍이 앞섬 → 🔴
+    ("grade_repo_ahead",     +86400, "content-stale"),     # 스킬 레포가 앞섬 → 🟡
+    ("grade_unknown",           -60, "content"),           # 여유 안 → 방향 불명 → 🔴
+)
+
+
+def _grade_self_test():
+    """방향이 사유 코드를, 사유 코드가 등급을 실제로 가르는가."""
+    out = []
+    want = {"content-unmerged": "red", "content-stale": "yellow", "content": "red"}
+    for name, delta, code in _GRADE_CASES:
+        with tempfile.TemporaryDirectory(prefix="drift_grade_") as td:
+            live, copy = _synth("one_char", td)
+            lm = os.path.getmtime(os.path.join(live, "brand.py"))
+            got = frozenset(c for c, _ in classify(
+                live, copy, copy_age=lambda _n, _c=lm + delta: (_c, "합성")))
+            ok = got == frozenset({code}) and SEVERITY.get(code) == want[code]
+            out.append((name, frozenset({code + "/" + want[code]}),
+                        frozenset(sorted(c + "/" + str(SEVERITY.get(c)) for c in got)), ok))
+    return out
+
+
+#: 배포 역검증. **양쪽을 본다** — 잡는 쪽만 보면 «전부 잡는» 판정기도 정상으로 보이고,
+#: 통과 쪽만 보면 «전부 눈감는» 판정기도 정상으로 보인다. 그리고 **«뒤처짐»과 «어긋남»을
+#: 가르는 케이스를 따로 둔다** — 이 둘이 같은 등급이면 이번 개정이 아무것도 안 한 것이다.
+_DEPLOY_CASES = (
+    ("deploy_same",     "same",     frozenset()),
+    ("deploy_stamp",    "stamp",    frozenset()),          # `.deployed` 는 대조에서 빠진다
+    ("deploy_behind",   "behind",   frozenset({"white"})),  # 뒤처짐만 — 🔴 이면 안 된다
+    ("deploy_crlf",     "crlf",     frozenset()),           # 라이브는 CRLF 로 깔린다
+    ("deploy_changed",  "changed",  frozenset({"red"})),
+    ("deploy_missing",  "missing",  frozenset({"red"})),
+    ("deploy_leftover", "extra",    frozenset({"red"})),    # 지운 옛 모듈이 라이브에 남았다
+    ("deploy_nostamp",  "nostamp",  frozenset({"red"})),
+)
+
+
+def _deploy_self_test():
+    out = []
+    for name, kind, expect in _DEPLOY_CASES:
+        with tempfile.TemporaryDirectory(prefix="drift_dep_") as td:
+            repo, live = os.path.join(td, "repo"), os.path.join(td, "live")
+            os.makedirs(repo), os.makedirs(live)
+
+            def put(d, fn, data):
+                with open(os.path.join(d, fn), "wb") as f:
+                    f.write(data)
+
+            put(repo, "brand.py", _BODY)
+            if kind != "missing":
+                _body = _BODY
+                if kind == "changed":
+                    _body = _BODY.replace(b"X = 1", b"X = 2")
+                elif kind == "crlf":
+                    _body = _BODY.replace(b"\n", b"\r\n")
+                put(live, "brand.py", _body)
+            if kind != "nostamp":
+                put(live, ".deployed", b"revision: aaaa111\nshort: aaaa111\n")
+            if kind == "extra":
+                put(live, "old_module.py", _BODY)
+            # 「뒤처짐」은 스탬프와 origin/main 이 다른 경우다 — 실물은 스탬프와 같다.
+            rev_now = "bbbb222" if kind == "behind" else "aaaa111"
+            got = frozenset(SEVERITY.get(c) for c, _ in
+                            deploy_gap(live, rev_now, lambda _r: repo))
+            out.append((name, expect or frozenset(["통과"]),
+                        got or frozenset(["통과"]), got == expect))
+    return out
+
+
 def self_test():
     """`[(이름, 기대, 실제, 통과)]`."""
     out = []
@@ -395,6 +590,8 @@ def self_test():
             out.append((name, expected, got, got == expected))
     out += _dir_self_test()
     out += _copyonly_self_test()
+    out += _grade_self_test()
+    out += _deploy_self_test()
     return out
 
 
@@ -464,6 +661,25 @@ def main():
         _copy_age_fn = _copy_age if COPY_REPO and not COPY_DIR else None
         reasons += classify(LIVE, copy_dir, copy_age=_copy_age_fn, newer_out=newer)
 
+        # 배포 축은 레포가 있을 때만 돈다. `TOMANGCHI_COPY` 로 폴더를 직접 지정한
+        # 회차(역검증·디버깅)는 스탬프 리비전을 꺼낼 레포가 없다.
+        if not COPY_DIR:
+            _stamp_tmps = []
+
+            def _export_stamp(rev):
+                try:
+                    d = tempfile.mkdtemp(prefix="drift_deployed_")
+                    _stamp_tmps.append(d)
+                    return export_rev(COPY_REPO, rev, COPY_SUB, d)
+                except Exception:              # noqa: BLE001
+                    return None
+
+            try:
+                reasons += deploy_gap(LIVE_SKILL, sha_full, _export_stamp)
+            finally:
+                for _d in _stamp_tmps:
+                    shutil.rmtree(_d, ignore_errors=True)
+
         ok, detail = run_selftest(copy_dir)
         if ok is None:
             reasons.append(("selftest", f"자립 검증 불가 — {detail}"))
@@ -491,11 +707,11 @@ def main():
         "",
     ]
     if red:
-        lines += [f"**🔴 {len(red)}건 — 사본이 정본과 갈라졌거나 돌지 않는다.**", ""]
+        lines += [f"**🔴 {len(red)}건 — 승계되지 않은 수정·배포 누락이 있거나 스킬이 돌지 않는다.**", ""]
     elif yellow:
-        lines += [f"**🟡 {len(yellow)}건 — 코드는 일치하나 자산·클론 상태에 차이가 있다.**", ""]
+        lines += [f"**🟡 {len(yellow)}건 — 스킬 레포는 배포됐고 돈다. 워크숍 사본·자산·클론 쪽 차이다.**", ""]
     else:
-        lines += ["**⚪ 드리프트 없음. 사본이 정본과 일치하고 단독으로 돈다.**", ""]
+        lines += ["**⚪ 드리프트 없음. 두 폴더가 일치하고 배포본도 `origin/main` 그대로다.**", ""]
     for label, items in (("🔴 즉시", red), ("🟡 이번 주", yellow), ("⚪ 참고", white)):
         if items:
             lines += [f"## {label}", ""] + [f"- {t}" for t in items] + [""]
@@ -508,18 +724,23 @@ def main():
     _unknown = [f for f, w in newer if w is None]
     lines += ["## 조치", "",
               "`py scripts\\skill_drift_audit.py` 가 낸 결과다. 비교 대상은 클론의 워킹",
-              f"트리가 아니라 **{COPY_REV}** — 배포되는 것이 그것이기 때문이다(§4).", ""]
+              f"트리가 아니라 **{COPY_REV}** — 배포되는 것이 그것이기 때문이다(§4).",
+              "",
+              "🔴 **정본은 스킬 레포다** — 제작은 `sys.path` 앞자리의 라이브 스킬을 먼저 읽는다"
+              "(`build_ep57.py`). 워크숍 `00_브랜드에셋` 이 뒤처진 것은 결함이 아니다.", ""]
     if newer:
         lines += ["**방향 판정** — 근거는 정본 `mtime` 과 사본 마지막 커밋 시각이다. "
                   "성질이 다른 두 값이라 **단정하지 않는다**; 차이가 5분 미만이면 «불명»으로 둔다.", ""]
         if _live_new:
-            lines += [f"- **정본이 최근 ({len(_live_new)}건)**: {', '.join('`' + x + '`' for x in _live_new)}",
-                      "  → 실행 정본에서 사본으로 복사해 **커밋·머지**한 뒤 "
-                      "`py skills\\tomangchi\\_selftest.py` 로 자립을 다시 확인한다.", ""]
+            lines += [f"- 🔴 **워크숍이 앞선다 ({len(_live_new)}건)**: {', '.join('`' + x + '`' for x in _live_new)}",
+                      "  → **스킬 레포로 승계되지 않은 수정이다.** 워크숍 파일을 스킬 레포로 옮겨 "
+                      "PR·머지한 뒤 `py skills\\tomangchi\\_selftest.py` 로 자립을 확인한다. "
+                      "그대로 두면 다음 편이 라이브 스킬을 읽으면서 그 수정을 잃는다.", ""]
         if _copy_new:
-            lines += [f"- 🔴 **사본이 최근 ({len(_copy_new)}건)**: {', '.join('`' + x + '`' for x in _copy_new)}",
-                      "  → **반대 방향이다.** 사본에서 실행 정본으로 가져온다. "
-                      "정본으로 덮으면 사본에 들어간 수정이 사라진다.", ""]
+            lines += [f"- 🟡 **스킬 레포가 최근 ({len(_copy_new)}건)**: {', '.join('`' + x + '`' for x in _copy_new)}",
+                      "  → **정상이다. 조치하지 않는다.** 제작은 라이브 스킬을 먼저 읽으므로 "
+                      "워크숍 사본이 뒤처져도 아무것도 안 깨진다. 🔴 워크숍은 출장지라 "
+                      "에이전트가 덮어쓰지 않는다(§2) — 근본 해결은 정본 단일화로 그 폴더를 없애는 것이다.", ""]
         if _unknown:
             lines += [f"- ⚪ **방향 불명 ({len(_unknown)}건)**: {', '.join('`' + x + '`' for x in _unknown)}",
                       "  → **복사 지시를 내지 않는다.** 어느 쪽이 새것인지 사람이 두 파일을 보고 정한다. "
