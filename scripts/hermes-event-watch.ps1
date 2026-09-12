@@ -6,21 +6,26 @@
 #
 # ASCII-only on purpose (see tomangchi-scout.ps1 header).
 #
-# WHY THIS WRAPPER AND NOT HERMES CRON (decision 2026-08-26)
-#   Hermes has its own scheduler (`hermes cron`), but it only fires while the
-#   Hermes gateway service runs, and it knows nothing about our .started stamp,
-#   lock file, git-sync or STATUS line. scripts\run_audit.py detects "started
-#   but never finished" runs from exactly those artifacts. A job that lives
-#   outside this wrapper is invisible to that detector - the charter section 0
-#   silent-failure shape. So the job is registered as \JJ\hermes-event-watch
-#   and this wrapper calls `hermes -p sagun -z` as a subprocess, the same way
-#   the other wrappers call `claude -p`.
+# TRIAL ENDED 2026-09-13 (JJ call) - NO MODEL IS CALLED ANY MORE
+#   The Hermes judgement layer ran 14 times over two weeks and its own success
+#   metric was never measured once (every report left "JJ fills in ___" empty).
+#   What did produce value is the deterministic watcher: 120/120 polls, no model,
+#   no cost. So the model call is gone and event_watch_report.py runs with
+#   --no-judge. Evidence: reports\2026-09-13_hermes-trial.md.
+#   The task name still says "hermes" because renaming a scheduled task is a
+#   human seat (docs\schedule-task-registration.md) - the name is historical.
+#   To reopen a trial, restore the `hermes -p sagun -z` call and drop --no-judge;
+#   event_watch.py still writes the prompt file (EVENT_PROMPT=) for that.
+#
+# WHY A WRAPPER AT ALL (decision 2026-08-26, still true)
+#   A job outside this wrapper has no .started stamp, lock file, git-sync or
+#   STATUS line, and scripts\run_audit.py detects "started but never finished"
+#   runs from exactly those artifacts - charter section 0 silent-failure shape.
 #
 # PIPELINE
-#   1. git-sync (charter 4)            4. hermes -p sagun -z <prompt> --usage-file
-#   2. py scripts\event_watch.py       5. pin check: usage.model must start with $Pin
-#      (deterministic fetch/diff)          -> otherwise "not performed", STATUS: FAIL provider
-#   3. build prompt (public info only) 6. write alerts + report, STATUS line
+#   1. git-sync (charter 4)            3. py scripts\event_watch_report.py --no-judge
+#   2. py scripts\event_watch.py          -> alerts + report + STATUS line
+#      (deterministic fetch/diff)
 
 param(
     # Operations server by default. Override only for a trial from a worktree
@@ -33,9 +38,6 @@ param(
 $ErrorActionPreference = 'Continue'
 
 $Task     = 'hermes-event-watch'
-$Hermes   = Join-Path $env:LOCALAPPDATA 'hermes\bin\hermes.exe'
-$Profile  = 'sagun'
-$Pin      = 'nemotron-3.5-lightning-free'
 $Py       = 'py'
 $StartDelayMinutes = 0      # 07:40 slot - no other JJ task starts in that minute
 
@@ -47,7 +49,6 @@ $LockFile = Join-Path $Hq ('logs\' + $Task + '.lock')
 $StateDir = Join-Path $Hq 'logs\event-watch'
 $Report   = Join-Path $Hq ('reports\' + $IsoDate + '_event-watch.md')
 $Alerts   = Join-Path $StateDir ('alerts_' + $IsoDate + '.md')
-$Usage    = Join-Path $StateDir ('usage_' + $IsoDate + '.json')
 
 New-Item -ItemType Directory -Force -Path $LogDir, $StateDir | Out-Null
 
@@ -79,10 +80,6 @@ if (Test-Path -LiteralPath $LockFile) {
     exit 2
 }
 
-function Write-Utf8NoBom([string]$Path, [string]$Text) {
-    [IO.File]::WriteAllText($Path, $Text, (New-Object System.Text.UTF8Encoding $false))
-}
-
 $lockTaken = $false
 try {
     New-Item -ItemType File -Path $LockFile -Force | Out-Null
@@ -102,12 +99,6 @@ try {
         . $SyncHelper
     }
 
-    if (-not (Test-Path -LiteralPath $Hermes)) {
-        Write-Log ('hermes missing: ' + $Hermes)
-        Write-Log 'STATUS: FAIL hermes-missing'
-        exit 1
-    }
-
     # --- 2. deterministic watch ------------------------------------------------
     $env:PYTHONIOENCODING = 'utf-8'
     $ew = & $Py (Join-Path $Hq 'scripts\event_watch.py') --state $StateDir --date $IsoDate 2>&1
@@ -117,42 +108,20 @@ try {
         Write-Log ('STATUS: FAIL event-watch-exit-' + $ewCode)
         exit 1
     }
-    $promptLine = ($ew | Where-Object { $_ -like 'EVENT_PROMPT=*' } | Select-Object -Last 1)
-    if (-not $promptLine) {
-        Write-Log 'STATUS: FAIL event-watch-no-prompt'
-        exit 1
-    }
-    $PromptFile = $promptLine.Substring(13)
-    $prompt = [IO.File]::ReadAllText($PromptFile, [System.Text.Encoding]::UTF8)
-
-    # --- 4. hermes (subprocess, one-shot) ----------------------------------------
-    $ArgHelper = Join-Path $Hq 'scripts\native-arg.ps1'
-    if (Test-Path -LiteralPath $ArgHelper) { . $ArgHelper } else { function ConvertTo-NativeArg([string]$s) { return $s } }
-    if (Test-Path -LiteralPath $Usage) { Remove-Item -LiteralPath $Usage -Force }
-    Write-Log ('hermes -p ' + $Profile + ' -z start (prompt ' + $prompt.Length + ' chars)')
-    $out = & $Hermes -p $Profile -z (ConvertTo-NativeArg $prompt) --usage-file $Usage 2>&1
-    $hCode = $LASTEXITCODE
-    foreach ($l in $out) { Write-Log ('  hm| ' + $l) }
-    Write-Log ('hermes exit code ' + $hCode)
-
-    # --- 5/6. pin check + report + alerts: done in Python (Korean text must not
-    #      live in this ASCII-only .ps1 - PS 5.1 reads BOM-less UTF-8 as ANSI).
-    $OutTxt = Join-Path $StateDir ($IsoDate + '.out.txt')
-    Write-Utf8NoBom $OutTxt ((($out | ForEach-Object { [string]$_ }) -join "`n"))
-    $rp = & $Py (Join-Path $Hq 'scripts\event_watch_report.py') --date $IsoDate --state $StateDir --out $OutTxt --usage $Usage --report $Report --alerts $Alerts --pin $Pin --profile $Profile --hermes-exit $hCode 2>&1
+    # --- 3. report + alerts: done in Python (Korean text must not live in this
+    #      ASCII-only .ps1 - PS 5.1 reads BOM-less UTF-8 as ANSI).
+    $rp = & $Py (Join-Path $Hq 'scripts\event_watch_report.py') --date $IsoDate --state $StateDir --report $Report --alerts $Alerts --no-judge 2>&1
     $rpCode = $LASTEXITCODE
     foreach ($l in $rp) { Write-Log ('  rp| ' + $l) }
     Write-Log ('report: ' + $Report)
     if ($rpCode -ne 0) {
-        Write-Log 'STATUS: FAIL provider (judgement not performed - see report)'
+        Write-Log 'STATUS: FAIL report (see report file)'
         exit 1
     }
     Write-Log ('alerts: ' + $Alerts)
-    # The Python side decides the verdict string: a run whose provider died still
-    # ships alerts from the deterministic candidates, and says so as
-    # "STATUS: OK (partial: ...)". Re-deriving it here would give two verdicts
-    # that can disagree (charter s0). Python prints ASCII on purpose - PS 5.1
-    # decodes native output with the console codepage.
+    # The Python side decides the verdict string. Re-deriving it here would give
+    # two verdicts that can disagree (charter s0). Python prints ASCII on purpose
+    # - PS 5.1 decodes native output with the console codepage.
     $statusLine = ($rp | ForEach-Object { [string]$_ } | Where-Object { $_ -like 'STATUS:*' } | Select-Object -Last 1)
     if ($statusLine) { Write-Log $statusLine } else { Write-Log 'STATUS: OK' }
     exit 0

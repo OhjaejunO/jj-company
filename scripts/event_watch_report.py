@@ -21,6 +21,14 @@ PS 5.1 은 네이티브 출력을 콘솔 코드페이지로 디코드해서 한�
 🔴 **조용한 전환이 아니다**: 리포트 제목과 STATUS 에 «판정 미수행»이 그대로 남고 프로바이더 오류
 원문도 그대로 싣는다.
 
+## 🔴 헤르메스 판정 층은 종결됐다 (2026-09-13 JJ 판정 · `--no-judge`)
+
+시범 2주를 넘기도록 **본 성공지표가 한 번도 측정되지 않았다**(14회차 전부 「JJ 기입 ___」 공란).
+판정 자료는 `reports\2026-09-13_hermes-trial.md` 이고, 남긴 것은 **결정적 감지기**다 — 폴링
+120/120 · 모델 호출 0 · 비용 0. `--no-judge` 면 모델을 아예 부르지 않고 결정적 후보로 알림을 쓰며
+**STATUS 는 «부분» 이 아니라 `OK`** 다: 판정 층이 «실패한» 것이 아니라 «없어진» 것이라, 매 회차
+부분 완주로 적으면 그 표시가 진짜 부분 완주를 가린다(정관 §0 «거짓 경보가 감시를 무디게 한다»).
+
 종료 코드: 0 = 리포트·알림을 다 썼다(판정 수행 여부는 STATUS 문자열이 말한다) · 1 = 감지 데이터가
 없어 알림을 낼 수 없다(그때는 정말 실패다).
 """
@@ -69,7 +77,7 @@ _ITEMS = [
 ]
 
 
-def _run(td, out_text, usage, items=None):
+def _run(td, out_text, usage, items=None, extra=()):
     """합성 입력으로 `main()` 을 한 번 돌리고 `(코드, 리포트, 알림)` 을 돌려준다."""
     import subprocess
     date = "2026-09-12"
@@ -84,7 +92,7 @@ def _run(td, out_text, usage, items=None):
     rp, al = os.path.join(td, "r.md"), os.path.join(td, "a.md")
     p = subprocess.run([sys.executable, os.path.abspath(__file__), "--date", date,
                         "--state", td, "--out", outp, "--usage", up,
-                        "--report", rp, "--alerts", al],
+                        "--report", rp, "--alerts", al] + list(extra),
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     rd = io.open(rp, encoding="utf-8").read() if os.path.exists(rp) else ""
     ad = io.open(al, encoding="utf-8").read() if os.path.exists(al) else ""
@@ -126,7 +134,17 @@ def self_test():
         code, so, rd, ad = _run(td, _SILENT, _OK_USAGE)
         res.append(("신규형 침묵 편입을 잡는다", "알림 누락 E3" in rd))
     with tempfile.TemporaryDirectory(prefix="ewr_") as td:
-        # ⑦ 감지 데이터가 없으면 그때는 진짜 실패다
+        # ⑦ 종결 모드 — 모델 없이도 알림이 나가고, 그것을 «부분 완주» 로 적지 않는다.
+        #    (out·usage 를 정상값으로 줘도 «판정» 절이 생기면 안 된다 — 끄는 것이 실제로 끄는가)
+        code, so, rd, ad = _run(td, _JUDGED, _OK_USAGE, extra=["--no-judge"])
+        res.append(("종결 모드에서도 알림은 나간다",
+                    code == 0 and "no-judge, alerts=2" in so and "E1" in ad and "E3" in ad))
+        res.append(("종결은 «부분 완주» 가 아니다",
+                    rd.rstrip().endswith("STATUS: OK") and "부분" not in rd and "헤르메스 출력" not in rd))
+        # ⑧ 헛돎 점검 — 종결 모드라고 «전부 알리는» 것은 아니다
+        res.append(("종결 모드도 조용한 곳·못 연 곳은 안 알린다", "E6" not in ad and "E8" not in ad))
+    with tempfile.TemporaryDirectory(prefix="ewr_") as td:
+        # ⑨ 감지 데이터가 없으면 그때는 진짜 실패다
         io.open(os.path.join(td, "out.txt"), "w", encoding="utf-8").write("")
         import subprocess
         p = subprocess.run([sys.executable, os.path.abspath(__file__), "--date", "2026-09-12",
@@ -151,18 +169,22 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", required=True)
     ap.add_argument("--state", required=True)
-    ap.add_argument("--out", required=True, help="hermes stdout 을 담은 UTF-8 파일")
-    ap.add_argument("--usage", required=True)
+    ap.add_argument("--out", default="", help="hermes stdout 을 담은 UTF-8 파일 (종결 모드에서는 없다)")
+    ap.add_argument("--usage", default="")
     ap.add_argument("--report", required=True)
     ap.add_argument("--alerts", required=True)
     ap.add_argument("--pin", default="nemotron-3.5-lightning-free")
     ap.add_argument("--profile", default="sagun")
     ap.add_argument("--hermes-exit", type=int, default=0)
+    ap.add_argument("--no-judge", action="store_true",
+                    help="헤르메스 판정 층 종결 — 모델을 부르지 않는다 (2026-09-13)")
     a = ap.parse_args()
 
-    out = io.open(a.out, encoding="utf-8", errors="replace").read().strip() if os.path.exists(a.out) else ""
+    ended = a.no_judge
+    out = io.open(a.out, encoding="utf-8", errors="replace").read().strip() if (
+        not ended and a.out and os.path.exists(a.out)) else ""
     usage = {}
-    if os.path.exists(a.usage):
+    if not ended and a.usage and os.path.exists(a.usage):
         try:
             usage = json.load(io.open(a.usage, encoding="utf-8"))
         except Exception as e:  # noqa: BLE001
@@ -171,7 +193,7 @@ def main():
     provider = usage.get("provider") or ""
     failed = bool(usage.get("failed")) or not usage.get("completed")
     pin_ok = bool(model) and model.startswith(a.pin)
-    performed = a.hermes_exit == 0 and not failed and pin_ok
+    performed = (not ended) and a.hermes_exit == 0 and not failed and pin_ok
 
     js = os.path.join(a.state, a.date + ".json")
     if not os.path.exists(js):
@@ -185,9 +207,15 @@ def main():
     blocked = [i["id"] for i in data.get("items", []) if i.get("status") == "blocked"]
     cond_hits = [(i["id"], len(i.get("cond_hits", []))) for i in data.get("items", []) if i.get("cond_hits")]
 
+    first = ("- **헤르메스 판정 층 종결 (2026-09-13 JJ 판정)** — 모델 호출 0 · 비용 0"
+             if ended else
+             "- **모델 pin: %s** (provider %s · in %s · out %s)" % (
+                 model or "(없음 — FAIL)", provider or "?", usage.get("input_tokens"), usage.get("output_tokens")))
+    second = ("- 감지·알림은 `scripts/event_watch.py`(결정적) 하나가 낸다 · 입력 = 감시 목록의 공개 정보만"
+              if ended else
+              "- 프로필 `%s` · 메모리 on(베이스라인) · 입력 = 감시 목록의 공개 정보만 · 감지는 `scripts/event_watch.py`(결정적)" % a.profile)
     head = ["# 사건형 트리거 감시 — %s" % a.date, "",
-            "- **모델 pin: %s** (provider %s · in %s · out %s)" % (model or "(없음 — FAIL)", provider or "?", usage.get("input_tokens"), usage.get("output_tokens")),
-            "- 프로필 `%s` · 메모리 on(베이스라인) · 입력 = 감시 목록의 공개 정보만 · 감지는 `scripts/event_watch.py`(결정적)" % a.profile,
+            first, second,
             "- 감시 데이터: `%s` · 감시처 %d건 (열기 실패 %d: %s) · 조건 문자열 적중: %s" % (
                 js, len(data.get("items", [])), len(blocked), ", ".join(blocked) or "없음",
                 ", ".join("%s×%d" % (i, n) for i, n in cond_hits) or "없음"),
@@ -195,6 +223,22 @@ def main():
     if data.get("baseline_first_run"):
         head.append("- ⚠️ 첫 실행 — «신규 항목» 유형은 베이스라인 생성. 조건 문자열 적중이 있으면 **이미 발생한 사건일 수 있다**(미탐 후보 — JJ 확인).")
         head.append("")
+
+    if ended:
+        det = det_alerts(data, a.date)
+        write_alerts(a.alerts, a.date, det)
+        body = head + ["## 판정 층 없음 — 시범 종결 (2026-09-13)", "",
+                       "헤르메스 판정 층은 시범 2주를 넘기도록 **본 성공지표가 측정되지 않아** JJ 판정으로 "
+                       "종결했다(자료 `reports\\2026-09-13_hermes-trial.md`). 감지·알림은 결정적 코드가 그대로 낸다 "
+                       "— 폴링 성공률은 시범 내내 120/120 이었다.",
+                       "",
+                       "- 알림 **%d건** → `%s`" % (len(det), a.alerts),
+                       ""] + ["  - " + x for x in det] + [
+                       "", "STATUS: OK"]
+        io.open(a.report, "w", encoding="utf-8").write("\n".join(body) + "\n")
+        # ASCII only - 래퍼가 이 줄을 로그에 옮긴다 (PS 5.1 코드페이지)
+        print("STATUS: OK (no-judge, alerts=%d)" % len(det))
+        return 0
 
     if not performed:
         why = ("hermes exit %d" % a.hermes_exit) if a.hermes_exit != 0 else (
