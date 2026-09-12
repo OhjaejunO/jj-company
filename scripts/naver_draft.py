@@ -157,7 +157,8 @@ def parse_blocks(body):
     return title, chunks, tags, images
 
 
-#: `## 영상` 절 한 줄. 경로만 있으면 통째로, `· 12~20` 이면 그 구간, `· <주소>` 면 원본 링크 카드도 붙인다.
+#: `## 영상` 절 한 줄. 경로만 있으면 통째로, `· 12~20` 이면 그 구간.
+#: `· <주소>` 는 **출처 기록**이다 — 지면에는 안 싣는다(JJ 판정 2026-09-12 · `gif_for` 주석).
 VIDEO_LINE = re.compile(r"^\d+\.\s+`([^`]+)`\s*"
                         r"(?:·\s*([\d.]+)~([\d.]+)\s*)?"
                         r"(?:·\s*(https?://\S+)\s*)?"
@@ -220,8 +221,11 @@ def gif_for(v):
        ⓑ **동영상 단추는 OS 파일 대화상자**를 여는데, 이 워커에는 키 입력 경로가 **없고**
          자체 검사가 그것을 못 만들게 막고 있다(«OS 키 입력 경로 없음»).
        ⓒ **GIF 붙여넣기는 된다** — `blogfiles.pstatic.net` 주소를 받는다(실측).
-       그래서 **이미 도는 이미지 경로를 그대로 쓴다.** 움직임이 보이는 것이 요점이고,
-       원본 전체는 같은 줄의 주소가 **링크 카드**로 받는다(그쪽도 실측 — `se-oglink` 1건).
+       그래서 **이미 도는 이미지 경로를 그대로 쓴다.** 움직임이 보이는 것이 요점이다.
+    🔴 **줄의 주소는 «싣지» 않는다 (JJ 판정 2026-09-12).** 붙여넣으면 바깥 글 카드가 생기기는 하는데
+       (실측 1건) **에디터가 맨 URL 한 줄을 같이 남겨** 카드와 내용이 겹친다. 주소는
+       `## 영상` 줄의 **출처 기록**으로만 남는다.
+    🔴 이 주석에 그 컴포넌트 이름을 그대로 적지 않는다 — 자체 검사 축이 원문에서 그것을 찾는다.
 
     🔴 **구간을 안 적으면 앞에서부터 %.0f초**다 — 통째로 굽지 않는다. GIF 는 코덱이 없어
        길이가 곧 크기이고, 붙여넣기로 보낼 수 있는 한도를 넘으면 아무것도 못 싣는다.
@@ -402,21 +406,6 @@ class Orca(object):
             if last == "ok":
                 return
         raise Missing("GIF 업로드가 90초 안에 안 끝남: %s (에디터 상태 %s)" % (name, last))
-
-    def paste_link(self, url):
-        """주소를 붙여 **링크 카드**(`se-oglink`)를 만든다. 안 생기면 글자 링크로 남는다 — 그건 실패가 아니다."""
-        before = self.in_frame("return d.querySelectorAll('.se-oglink').length;") or 0
-        js = (self._cursor_to_end() +
-              "const dt=new DataTransfer(); dt.setData('text/plain', %s);"
-              "const ev=new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true});"
-              "root.dispatchEvent(ev); return ev.defaultPrevented?'ok':'not-handled';" % json.dumps(url))
-        if self.in_frame(js) != "ok":
-            raise Missing("주소 붙여넣기 실패: %s" % url)
-        for _ in range(10):
-            time.sleep(1.5)
-            if (self.in_frame("return d.querySelectorAll('.se-oglink').length;") or 0) > before:
-                return "카드"
-        return "글자"
 
     def cursor_after(self, anchor):
         """`anchor` 로 시작하는 문단을 찾아 그 **끝**에 커서를 둔다 (발행글에 끼워 넣기).
@@ -646,10 +635,8 @@ def insert_videos(o, prep, log):
             log("video %d/%d: 이미 들어 있다 — 건너뛴다 (%s)" % (n_, len(gifs), name)); continue
         o.cursor_after(anchors[n_][:ANCHOR_LEN])
         o.paste_gif(gifs[n_ - 1])
-        log("video %d/%d 끼움: %s (닻 %r)" % (n_, len(gifs), name, anchors[n_][:ANCHOR_LEN]))
-        u = videos[n_ - 1]["url"]
-        if u:
-            log("  원본 링크: %s (%s)" % (u, o.paste_link(u)))
+        log("video %d/%d 끼움: %s (닻 %r · 출처 %s)"
+            % (n_, len(gifs), name, anchors[n_][:ANCHOR_LEN], videos[n_ - 1]["url"] or "—"))
         # 🔴 **끼운 자리를 되잰다.** 커서가 문단 가운데 앉으면 «S | GIF | ketch는…» 으로 쪼개지는데
         #    그 순간 닻 문구가 한 문단에 온전히 남지 않는다 — 그것으로 판별한다(2026-09-12 실측).
         if not o.paragraph_intact(anchors[n_]):
@@ -707,12 +694,10 @@ def fill(o, prep, log):
     img_i = 0
 
     def put_video(n_, where):
-        """영상 한 편 = GIF 한 장 + (주소가 있으면) 원본 링크 카드."""
+        """영상 한 편 = **GIF 한 장**. 주소는 싣지 않는다 — `## 영상` 줄의 기록으로만 남는다."""
         o.paste_gif(gifs[n_ - 1]); vplaced.add(n_)
-        log("video %d/%d (%s): %s" % (n_, len(gifs), where, os.path.basename(gifs[n_ - 1])))
-        u = videos[n_ - 1]["url"]
-        if u:
-            log("  원본 링크: %s (%s)" % (u, o.paste_link(u)))
+        log("video %d/%d (%s): %s (출처 %s)"
+            % (n_, len(gifs), where, os.path.basename(gifs[n_ - 1]), videos[n_ - 1]["url"] or "—"))
 
     for k, ch in enumerate(chunks):
         if isinstance(ch, tuple):                      # [[이미지 N]] · [[영상 N]] 자리
@@ -878,6 +863,8 @@ def self_test():
             "clientX:r.right-2" in src and "rg0.getClientRects()" in src
             and ("p.getClient" + "Rects()") not in src),
         ("끼운 뒤 문단이 쪼개졌는지 되잰다", "paragraph_intact(" in src and "문단이 쪼개졌다" in src),
+        ("🔴 영상 줄의 주소는 지면에 싣지 않는다 (링크 카드·맨 URL 줄 0건)",
+            ("paste_" + "link") not in src and ("se-og" + "link") not in src),
         ("닻이 여럿이면 세운다 (어느 자리인지 모르는 채로 끼우지 않는다)",
             ("ps.length!==" + "1") in src and "닻 문단을 못 찾았다" in src),
         # 검사 문자열은 이어 붙여 만든다 — 이 줄 자체가 검사에 걸리지 않게
