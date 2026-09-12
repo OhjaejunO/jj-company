@@ -319,6 +319,24 @@ def _hangul(t):
     return re.sub(r"\s+", " ", re.sub(r"[^가-힣\s]+", " ", t or "")).strip()
 
 
+def quote_pairs(facts):
+    """편 규약 **(인용문, 출처) 2-튜플** 선언만 골라 `[(이름, 인용문), ...]`.
+
+    🔴 **꼴이 곧 대상 선정이다.** `KIT`·`OFFICIAL_VIDEO`(dict)·`ATTACH_OFFICIAL`(1-튜플)은
+       인용이 아니라 **지목**이라 여기 걸리지 않는다 — 그것들의 값은 파일 이름·주소라
+       검증로그 문장에 그대로 있을 이유가 없다.
+    """
+    out = []
+    for n in dir(facts):
+        if n.startswith("_"):
+            continue
+        v = getattr(facts, n, None)
+        if (isinstance(v, tuple) and len(v) == 2
+                and isinstance(v[0], str) and isinstance(v[1], str)):
+            out.append((n, v[0]))
+    return out
+
+
 def declared_text(facts):
     """편이 `_facts.py` 에 **선언한 문자열 값**을 전부 이어 붙인다. [1] 의 보조 어휘용."""
     out = []
@@ -641,6 +659,29 @@ def check(posts, rows, facts, kit_url, caption, cardcheck, media=None, ep=None):
     found = cardcheck.kit_numerals(_strip_urls(body))
     bad = sorted(found - vocab, key=lambda x: (len(x), x))
     r.ok("[1] FACTS 대조 — 초안 수치가 전부 numeral_vocab() 안", not bad, "어휘 밖 %s" % bad)
+
+    # [1-1] 🔴 **본사 보충 선언의 인용문은 편 검증로그에 그대로 있어야 한다** (2026-09-12 신설).
+    #
+    #   자기 서명을 막는 자리다. 편 폴더에 `_facts.py` 가 없는 편(ep46)은 인용 정본을 본사
+    #   `redist\ep<N>.py` 에 두는데, 그러면 **우리가 베껴 적고 우리가 그것과 대조하는** 꼴이 된다 —
+    #   `[1]` 의 허용 어휘도 `[5-2]` 의 근거 키도 전부 우리 서명이라 **재는 시늉만 하게 된다**
+    #   (정관 §0 «감지 장치가 실제로 값을 담는지 검증한다»). 그래서 그 선언에만 한 겹 더 건다.
+    #
+    #   근거의 무게는 **편 검증로그가 편 폴더 안에 있다는 것**에서 나온다 — `01_발행완료` 라
+    #   우리가 못 고치므로(정관 §2) **자기 서명으로 만들 수 없는 근거**다. `[10-3]` 의
+    #   `VERIFY_LOG` 특례와 같은 뿌리이고, 거기서 «파일 이름이 로그에 있는가» 를 보던 것을
+    #   여기서는 «인용문이 로그에 있는가» 로 본다.
+    #
+    #   🔴 **편 폴더 `_facts.py` 는 대상이 아니다.** 그쪽은 편이 제작 회차에 스스로 세운 정본이라
+    #   문안이 검증로그와 글자까지 같아야 할 이유가 없다 — 넓히면 기발행 편이 통째로 걸린다.
+    #   🔴 **못 잡는 것 (§0 4층 ④)**: 로그에 있는 문장을 **엉뚱한 자리에 인용**하는 것은 못 본다.
+    #   재는 것은 «그 문자열이 로그에 실재하는가» 하나다.
+    if getattr(facts, "_FROM_REPO_DECL", False):
+        vlog = (ep or {}).get("verify_log") or ""
+        off = ["%s «%s…»" % (n, t[:24]) for n, t in quote_pairs(facts) if t not in vlog]
+        r.ok("[1-1] 보충 선언의 인용문이 편 검증로그에 실재", not off, " / ".join(off[:3]))
+    else:
+        r.na("[1-1] 보충 선언 인용문 대조", "편 폴더 _facts.py 로 돌았다 — 보충 선언 아님")
 
     # [2] 어미 해요체 — 설계 ⓑ. 판정은 라이브 epcheck 정규식 그대로.
     off = []
@@ -969,6 +1010,10 @@ def load_facts(ep_dir, fallback=None):
     spec = importlib.util.spec_from_file_location("_dist_facts", p)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
+    # 🔴 **어느 자리에서 왔는지를 남긴다.** `[1-1]` 이 보충 선언에만 걸리기 때문이고,
+    #    조용히 넘어가면 그 축이 «편 폴더 편» 에서도 도는지 아닌지를 아무도 모른다.
+    #    이름이 `_` 로 시작하므로 `declared_text()` 의 어휘 수집에는 안 섞인다.
+    mod._FROM_REPO_DECL = (fallback is not None and p == fallback)
     return mod
 
 
@@ -1627,6 +1672,49 @@ def _nokit_selftest(cc):
     return bad
 
 
+def _repodecl_selftest(cc):
+    """`[1-1]` 보충 선언 인용문 대조의 역검증 — 네 면 (2026-09-12 신설).
+
+    ⓐ 로그에 그대로 있으면 통과 (전부 막는 검사가 아니다)
+    ⓑ **한 글자만 다듬으면 걸린다** — 이 축의 값어치가 정확히 여기다
+    ⓒ 검증로그가 비면 걸린다 — «못 읽었으면 통과» 가 아니다
+    ⓓ 편 폴더 `_facts.py` 로 돈 편은 **안 걸린다**(NA) — 넓히지 않았다는 쪽
+    """
+    log = "로그 원문: Astra takes full control of a Wacom Cintiq 22, end-to-end. 그리고 더."
+
+    class _Decl(object):
+        _FROM_REPO_DECL = True
+        SRC = "x.com/test/1"
+        DRAW = ("takes full control of a Wacom Cintiq 22", SRC)
+        #: 🔴 인용이 아니라 **지목** — 대상이 아니어야 한다(로그에 없어도 통과).
+        KIT = {"url": "https://example.test/kit.html"}
+        ATTACH_OFFICIAL = ("_official/nowhere_in_the_log.mp4",)
+
+    class _Tampered(_Decl):
+        DRAW = ("takes full control of a Wacom Cintiq 23", _Decl.SRC)
+
+    class _Own(_Tampered):
+        #: 문안은 틀린 그대로 두고 **자리만** 편 폴더로 바꾼다 — 축이 넓어지지 않았음을 잰다.
+        _FROM_REPO_DECL = False
+
+    bad = 0
+    for why, fx, vlog, want_ok in [
+            ("로그에 그대로면 통과한다", _Decl(), log, True),
+            ("한 글자만 달라도 걸린다", _Tampered(), log, False),
+            ("검증로그가 비면 걸린다", _Decl(), "", False),
+            ("편 폴더 _facts.py 로 돈 편은 대상이 아니다", _Own(), "", True)]:
+        r = check(_BASE_POSTS, _BASE_ROWS, fx, _BASE_KIT, _BASE_CAPTION, cc,
+                  ep={"dir": ".", "verify_log": vlog})
+        got_ok = not any(i[0].startswith("[1-1]") for i in r.failed)
+        if got_ok == want_ok:
+            print("[  OK  ] [1-1] 보충 선언 인용문 — %s" % why)
+        else:
+            bad += 1
+            print("[ FAIL ] [1-1] 보충 선언 인용문 — %s (실제 %s)"
+                  % (why, "통과" if got_ok else "걸림"))
+    return bad
+
+
 def _postsmin_selftest(cc):
     """`[3-1]` 하한 개정의 역검증 — 세 면을 따로 본다 (2026-09-10 신설).
 
@@ -1967,6 +2055,7 @@ def selftest():
     bad += _media_selftest(cc)
     bad += _nokit_selftest(cc)
     bad += _postsmin_selftest(cc)
+    bad += _repodecl_selftest(cc)
     bad += _reference_selftest(cc)
     bad += _ad_selftest(cc)
     bad += _reportmark_selftest()
