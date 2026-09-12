@@ -152,6 +152,25 @@ case "$git_dir" in
                 run_check "ledger_check selftest" py scripts/ledger_check.py --self-test
                 run_check "ledger_check ledger" py scripts/ledger_check.py ;;
         esac
+        # The session brief is what makes a RED get read: run_audit shipped
+        # RUNS_VERDICT=RED three days running and nobody saw it. Two of its
+        # seven cases are the "must stay quiet" side - a brief that always
+        # fires is a brief nobody reads, which is the defect it fixes.
+        # context_watch carries it into the SessionStart hook, so a change to
+        # either runs both self-tests.
+        case "$staged" in
+            *scripts/session_brief.py*|*.claude/hooks/context_watch.py*)
+                run_check "session_brief selftest" py scripts/session_brief.py --self-test
+                run_check "context_watch selftest" py .claude/hooks/context_watch.py --self-test ;;
+        esac
+        # The drift audit grades by DIRECTION since 2026-09-12 (workshop ahead =
+        # red, skill repo ahead = yellow) and checks the deployed skill against
+        # the revision its own stamp claims. Both halves are in --self-test,
+        # each with its must-not-fire twin.
+        case "$staged" in
+            *scripts/skill_drift_audit.py*)
+                run_check "skill_drift selftest" py scripts/skill_drift_audit.py --self-test ;;
+        esac
         case "$staged" in
             *scripts/class101.py*)
                 run_check "class101 selftest" py scripts/class101.py --self-test ;;
