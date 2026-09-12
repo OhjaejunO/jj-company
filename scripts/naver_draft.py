@@ -45,6 +45,33 @@ CHUNK = 24000
 IMG_MAX_W = 1080
 JPEG_Q = 88
 
+#: 붙여넣은 **그 장**이 실제 주소를 얻었는가. 에디터는 우리가 준 파일 이름을 `alt` 에 넣는다(실측).
+#:
+#: 🔴 **종전에는 «pstatic 인 img 개수가 늘었는가» 를 봤고 그것이 틀린 자다 (2026-09-12 실측).**
+#:    그 개수는 **줄어들 수 있는 값**이다 — 세 회차 전부에서 **네 번째 자리**의 img 가
+#:    자리표(`data:image/svg+xml`)로 되돌아갔고(파일은 매번 달랐다: fig4·fig4·fig3 — 파일 탓이 아니다),
+#:    그러면 새로 올라온 장이 그 자리를 메워 **셈이 안 는다.** 그래서 이미 올라가 있는 장을 두고
+#:    90초(대기를 270초로 늘려도 마찬가지)를 기다리다 **엉뚱한 파일 이름으로** 실패를 적었다.
+#:    실측: `alt` 로 보니 «실패했다»던 `fig7_bench.jpg` 는 `blogfiles.pstatic.net` 주소를 갖고 있었다.
+#:    정관 §0 «장치가 재는 대상이 틀렸다».
+#: 같은 이름을 두 번 붙이는 편이 있을 수 있어 **마지막 것**을 본다.
+UPLOADED_JS = ("const m=[...d.querySelectorAll('.se-component.se-image img')]"
+               ".filter(i=>i.getAttribute('alt')===%s); if(!m.length) return 'none';"
+               "return /pstatic|blogfiles/.test(m[m.length-1].src) ? 'ok' : 'placeholder';")
+
+#: 본문 차례 검증이 찾는 표시.
+#:
+#: 🔴 **«토망치랩 한마디» 를 뺐다 (2026-09-12).** 그 절은 `docs\blog-format.md` 5번이
+#:    **2026-09-10 에 폐기**했는데 이 검사만 계속 요구하고 있었다 — 폐기 뒤에 쓴 초안 셋
+#:    (`클로드비용절감`·`코덱스이사`·`메타뮤즈`)은 **어느 것도 통과할 수 없었다.**
+#:    정관 §0 «검사가 틀린 것을 요구하고 있으면 산출물보다 검사부터 고친다»(ep28 선례).
+#:    한마디가 남아 있는 옛 초안은 그대로 통과한다 — 있는지 없는지를 안 보기 때문이다.
+BODY_MARKS = ["FAQ", "관련글"]
+MIN_SOURCE_LINES = 3
+
+#: 역검증용 기준 본문 — 한마디 절이 **없는** 새 규격 글이다.
+_ORDER_OK = "요약\n(출처: a)\n(출처: b)\n(출처: c)\n## FAQ\n답이에요.\n## 관련글\n☞ 카드"
+
 F = "const d=document.querySelector('#mainFrame').contentDocument; const root=d.querySelector('[contenteditable]');"
 
 
@@ -248,22 +275,24 @@ class Orca(object):
         got = self.eval("window.__jj.length")
         if got != len(b):
             raise Missing("이미지 전송 길이 불일치 %s≠%d" % (got, len(b)))
-        before = self.in_frame("return [...d.querySelectorAll('.se-component.se-image img')].filter(i=>/pstatic|blogfiles/.test(i.src)).length;") or 0
+        want = json.dumps(os.path.basename(path).rsplit(".", 1)[0] + ".jpg")   # 에디터가 alt 로 쓸 이름
         js = (self._cursor_to_end() +
               "const bin=atob(window.__jj); const arr=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);"
               "const file=new File([arr], %s, {type:'image/jpeg'}); const dt=new DataTransfer(); dt.items.add(file);"
               "const ev=new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true}); root.dispatchEvent(ev); window.__jj=''; return ev.defaultPrevented?'ok':'not-handled';"
-              ) % json.dumps(os.path.basename(path).rsplit(".", 1)[0] + ".jpg")
+              ) % want
         r = self.in_frame(js)
         if r != "ok":
             raise Missing("이미지 붙여넣기 실패: %s" % r)
         self.bold_off()
+        last = "none"
         for _ in range(60):   # 업로드 완료 대기 (최대 90초 — 표지 PNG 는 30초를 넘겼다, 실측)
             time.sleep(1.5)
-            n = self.in_frame("return [...d.querySelectorAll('.se-component.se-image img')].filter(i=>/pstatic|blogfiles/.test(i.src)).length;") or 0
-            if n > before:
+            last = self.in_frame(UPLOADED_JS % want) or "none"
+            if last == "ok":
                 return
-        raise Missing("이미지 업로드가 90초 안에 안 끝남: %s" % os.path.basename(path))
+        raise Missing("이미지 업로드가 90초 안에 안 끝남: %s (에디터 상태 %s)"
+                      % (os.path.basename(path), last))
 
     def click_named_button(self, name):
         snap = self.run("snapshot")
@@ -337,6 +366,24 @@ def open_editor(o, blog, log):
 
 
 # ---------------------------------------------------------------- 실행
+def body_order_problem(text):
+    """본문 조각이 뒤섞였는가. 사유(문자열) 또는 None. 저장 전에 서는 자리라 **순수 함수**로 둔다.
+
+    재는 것 셋 — ⓐ 표시가 다 있는가 ⓑ 차례대로인가 ⓒ 출처 줄이 충분한가(조각이 잘리면 준다).
+    🔴 **없는 절을 요구하지 않는다** — `BODY_MARKS` 주석 참고.
+    """
+    pos = [text.find(m) for m in BODY_MARKS]
+    missing = [m for m, p in zip(BODY_MARKS, pos) if p < 0]
+    if missing:
+        return "차례 표시를 못 찾았다: %s (위치 %s)" % ("·".join(missing), pos)
+    if pos != sorted(pos):
+        return "차례가 뒤섞였다: %s (위치 %s)" % ("→".join(BODY_MARKS), pos)
+    n_src = text.count("(출처:")
+    if n_src < MIN_SOURCE_LINES:
+        return "출처 줄이 %d개뿐이다 (%d개 이상이어야 한다 — 조각이 잘렸다는 뜻)" % (n_src, MIN_SOURCE_LINES)
+    return None
+
+
 def run(stem, blog, log):
     p, meta, body = read_post(stem)
     if meta.get("status") != "ready":
@@ -378,10 +425,9 @@ def run(stem, blog, log):
         log("state: %s" % st)
         # 순서 검증 — 조각이 뒤섞였으면 저장하지 않는다
         text = (o.in_frame("return d.querySelector('.se-components-wrap').innerText;") or "").replace("\xa0", " ")
-        marks = ["FAQ", "토망치랩 한마디", "관련글"]
-        pos = [text.find(m) for m in marks]
-        if any(p_ < 0 for p_ in pos) or pos != sorted(pos) or text.count("(출처:") < 3:
-            raise Missing("본문 순서가 어긋남 (FAQ/한마디/관련글 위치 %s)" % pos)
+        why = body_order_problem(text)
+        if why:
+            raise Missing("본문 순서가 어긋남 — %s" % why)
         o.click_named_button("저장")
         time.sleep(3)
         toast = o.in_frame("return (d.body.innerText.match(/[^\\n]*저장[^\\n]*/g)||[]).slice(0,3).join(' | ');")
@@ -438,6 +484,25 @@ def self_test():
             resolve_image(os.path.join("scripts", "naver_draft.py")) == os.path.join(HQ, "scripts", "naver_draft.py")
             and resolve_image(r"reports\blog\img\없는파일.png") == os.path.join(WORKSHOP_ROOT, r"reports\blog\img\없는파일.png")
             and resolve_image(os.path.join(HQ, "scripts", "naver_draft.py")) == os.path.join(HQ, "scripts", "naver_draft.py")),
+        # ── 본문 차례 검증 (2026-09-12) — 폐기된 «한마디» 를 요구하던 자리 ──────────
+        ("차례: 한마디 **없는** 새 초안이 통과한다 (폐기된 절을 요구하지 않는다)",
+            body_order_problem(_ORDER_OK) is None),
+        ("차례: 한마디 **있는** 옛 초안도 그대로 통과한다 (기발행분이 안 깨진다)",
+            body_order_problem(_ORDER_OK.replace("## FAQ", "## FAQ\n\n## 토망치랩 한마디")) is None),
+        # 🔴 반대쪽 — 셋 다 «걸려야 하는» 입력이다. 없으면 «전부 통과시키는 검사» 도 위를 통과한다.
+        ("차례: 관련글이 없으면 걸린다",
+            (body_order_problem(_ORDER_OK.replace("관련글", "딴말")) or "").startswith("차례 표시를 못 찾았다")),
+        ("차례: FAQ 와 관련글 순서가 뒤집히면 걸린다",
+            (body_order_problem("관련글\n(출처: a)\n(출처: b)\n(출처: c)\nFAQ") or "").startswith("차례가 뒤섞였다")),
+        ("차례: 출처 줄이 모자라면 걸린다 (조각이 잘렸다는 뜻)",
+            (body_order_problem(_ORDER_OK.replace("(출처: c)", "")) or "").startswith("출처 줄이")),
+        # ── 이미지 업로드 판정 (2026-09-12) — «개수» 가 아니라 «그 장» ─────────────
+        # 🔴 찾을 문자열을 이어 붙여 만든다 — 안 그러면 **이 줄 자체가** src 에 있어 늘 걸린다(위와 같은 함정).
+        ("업로드 판정이 개수 세기가 아니다 (alt 로 그 장을 본다)",
+            "getAttribute('alt')" in UPLOADED_JS
+            and ("filter(i=>/pstatic|blogfiles/" + ".test(i.src)).length") not in src),
+        ("업로드 판정은 자리표를 «올라갔다» 로 읽지 않는다 (세 값이 갈린다)",
+            all(v in UPLOADED_JS for v in ("'none'", "'ok'", "'placeholder'"))),
         # 검사 문자열은 이어 붙여 만든다 — 이 줄 자체가 검사에 걸리지 않게
         ("OS 키 입력 경로 없음 (run 에 type·keypress 호출 0건)", ("run(\"" + "type\"") not in src and ("run(\"" + "keypress\"") not in src),
         ("발행 버튼을 누르는 코드 없음", ("click_named_button(\"" + "발행\")") not in src),
