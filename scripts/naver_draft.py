@@ -62,11 +62,11 @@ UPLOADED_JS = ("const m=[...d.querySelectorAll('.se-component.se-image img')]"
 
 #: 본문 차례 검증이 찾는 표시.
 #:
-#: 🔴 **«토망치랩 한마디» 를 뺐다 (2026-09-12).** 그 절은 `docs\blog-format.md` 5번이
-#:    **2026-09-10 에 폐기**했는데 이 검사만 계속 요구하고 있었다 — 폐기 뒤에 쓴 초안 셋
-#:    (`클로드비용절감`·`코덱스이사`·`메타뮤즈`)은 **어느 것도 통과할 수 없었다.**
-#:    정관 §0 «검사가 틀린 것을 요구하고 있으면 산출물보다 검사부터 고친다»(ep28 선례).
-#:    한마디가 남아 있는 옛 초안은 그대로 통과한다 — 있는지 없는지를 안 보기 때문이다.
+#: 🔴 **여기서는 «토망치랩 한마디» 를 안 본다 (2026-09-12).** 그 절은 같은 날 **되살아났지만**
+#:    (JJ 「한마디 안써있는데?」) 존재를 요구하는 자리는 게이트 `blogcheck [CMT-1]` **하나뿐**이다 —
+#:    한 축을 두 곳에서 재면 갈린다(그 갈림이 이 주석의 옛 판본이었다). 이 함수가 재는 것은
+#:    «붙여넣은 조각이 잘리지 않고 차례대로 앉았는가» 이고, 그 일에는 두 표시로 충분하다.
+#:    되살린 날 이전 초안 셋(`클로드비용절감`·`코덱스이사`·`메타뮤즈`)도 여기서는 안 걸린다.
 BODY_MARKS = ["FAQ", "관련글"]
 MIN_SOURCE_LINES = 3
 
@@ -436,6 +436,35 @@ class Orca(object):
         self._body_clicked = True      # 우리가 자리를 잡았으니 붙여넣기는 커서를 옮기지 않는다
         return r
 
+    def replace_paragraph(self, anchor, text):
+        """자리표 문단 하나를 문장으로 **바꾼다** — 나간 글의 «[[JJ 한마디]]» 자리.
+
+        🔴 **딱 하나여야 연다.** `cursor_after` 와 같은 규율이다 — 여럿이면 어느 자리인지 모른다.
+        🔴 **에디터는 DOM 선택이 아니라 자기 커서를 본다**(제목 넣기에서 실측한 그것). 그래서
+           먼저 합성 마우스 이벤트로 그 문단 안에 커서를 앉힌 뒤, 문단 내용 전체를 선택하고
+           붙여넣는다. 선택만 바꾸면 엉뚱한 자리에 들어간다.
+        되고 안 되고는 **부르는 쪽이 되재야 한다** — 이 메서드는 붙여넣기가 먹혔는지까지만 본다.
+        """
+        js = ("const ps=[...d.querySelectorAll('.se-component.se-text .se-text-paragraph')]"
+              ".filter(p=>((p.innerText||'').replace(/\\s+/g,' ')).includes(%s));"
+              "if(ps.length!==1) return 'n=' + ps.length;"
+              "const p=ps[0]; const rg0=d.createRange(); rg0.selectNodeContents(p);"
+              "const rs=[...rg0.getClientRects()].filter(x=>x.width>0&&x.height>0);"
+              "const r=rs[rs.length-1] || p.getBoundingClientRect();"
+              "for(const ty of ['mousedown','mouseup','click']) p.dispatchEvent(new MouseEvent(ty,"
+              "{bubbles:true,cancelable:true,clientX:r.right-2,clientY:r.top+r.height/2,button:0}));"
+              "const sel=d.getSelection(); const rg=d.createRange(); rg.selectNodeContents(p);"
+              "sel.removeAllRanges(); sel.addRange(rg);"
+              "const dt=new DataTransfer(); dt.setData('text/plain', %s);"
+              "const ev=new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true});"
+              "p.dispatchEvent(ev); return ev.defaultPrevented?'ok':'not-handled';"
+              ) % (json.dumps(anchor), json.dumps(text))
+        r = self.in_frame(js)
+        time.sleep(STEP_PAUSE)
+        if r != "ok":
+            raise Missing("자리표 문단을 못 바꿨다 (%s): %s" % (r, anchor[:30]))
+        return r
+
     def paragraph_intact(self, anchor):
         """닻 문구가 **한 문단 안에** 그대로 남아 있는가 (끼운 뒤 되재기)."""
         return bool(self.in_frame(
@@ -646,6 +675,33 @@ def insert_videos(o, prep, log):
     return done
 
 
+#: 나간 글에 남아 있을 수 있는 «채우다 만» 자리표. 채우기가 먹는 «[[이미지 N]]»·«[[영상 N]]» 은 여기 없다.
+LEFTOVER_MARK = "[[JJ 한마디]]"
+
+
+def fill_comment(o, prep, log):
+    """이미 나간 글의 «[[JJ 한마디]]» 자리표를 원고의 한마디로 **바꾼다**.
+
+    🔴 **이 길이 없어서 결함이 지면에 남았다** (2026-09-11 글 · JJ 「한마디 안써있는데?」).
+       `insert_videos` 는 본문을 한 글자도 안 건드리므로 영상만 끼워서는 이 자리가 안 고쳐진다.
+    자리표가 없으면 **아무것도 안 한다** — 두 번 돌려도 본문이 두 번 바뀌지 않는다.
+    """
+    if not o.paragraph_intact(LEFTOVER_MARK):
+        log("comment: 자리표 없음 — 건드리지 않는다"); return 0
+    text = prep.get("comment") or ""
+    if not text or LEFTOVER_MARK in text:
+        raise Missing("원고의 «## 토망치랩 한마디» 가 비었거나 아직 자리표다 — 지면을 고칠 재료가 없다")
+    o.replace_paragraph(LEFTOVER_MARK, text)
+    # 🔴 **되잰다** — 자리표가 사라졌고 쓴 문장이 한 문단에 앉았는가. 둘 다 봐야 한다:
+    #    «자리표만 사라짐» 은 지워 버린 것이고, «문장만 있음» 은 두 벌이 된 것이다.
+    if o.paragraph_intact(LEFTOVER_MARK):
+        raise Missing("자리표가 그대로 남았다 — 에디터가 붙여넣기를 자기 커서로 받지 않았다")
+    if not o.paragraph_intact(text[:ANCHOR_LEN]):
+        raise Missing("한마디 문장이 한 문단에 안 앉았다")
+    log("comment 채움: %r" % text[:40])
+    return 1
+
+
 def prepare(stem, log):
     """원고 → 채울 재료. 게이트·그림 실재·GIF 굽기까지 **에디터를 열기 전에** 끝낸다.
 
@@ -675,7 +731,8 @@ def prepare(stem, log):
         log("video: %s -> %s (%.1fMB)" % (os.path.basename(v["path"]), os.path.basename(gp),
                                           os.path.getsize(gp) / 1048576.0))
     return {"path": p_, "title": title, "chunks": chunks, "tags": tags,
-            "files": files, "videos": videos, "gifs": gifs}
+            "files": files, "videos": videos, "gifs": gifs,
+            "comment": (_section(body, "토망치랩 한마디") or "").strip()}
 
 
 def fill(o, prep, log):
@@ -863,6 +920,12 @@ def self_test():
             "clientX:r.right-2" in src and "rg0.getClientRects()" in src
             and ("p.getClient" + "Rects()") not in src),
         ("끼운 뒤 문단이 쪼개졌는지 되잰다", "paragraph_intact(" in src and "문단이 쪼개졌다" in src),
+        # 🔴 찾을 문자열을 이어 붙여 만든다 — 안 그러면 이 줄 자체가 src 에 있어 늘 통과한다.
+        ("자리표 채우기는 **되잰다** (자리표가 남았는지·문장이 앉았는지 양쪽)",
+            src.count("def fill_" + "comment") == 1
+            and "자리표가 그대로 남았다" in src and "한마디 문장이 한 문단에 안 앉았다" in src),
+        ("자리표 문단이 여럿이면 세운다 (어느 자리인지 모르는 채로 안 바꾼다)",
+            "if(ps.length!==1) return 'n=' + ps.length;" in src.split("def replace_" + "paragraph")[1]),
         ("🔴 영상 줄의 주소는 지면에 싣지 않는다 (링크 카드·맨 URL 줄 0건)",
             ("paste_" + "link") not in src and ("se-og" + "link") not in src),
         ("닻이 여럿이면 세운다 (어느 자리인지 모르는 채로 끼우지 않는다)",

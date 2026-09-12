@@ -64,6 +64,12 @@ SRC = re.compile(r"\(출처: (?:[a-z0-9.-]+\.[a-z]{2,}|X / @[A-Za-z0-9_]+)(?: [^
 #  영상 절 자체가 규격에 없던 때에 쓰였고, 고칠 수 없는 것을 막는 검사는
 #  통과 조합이 없는 검사다(C-26 계열 · ep28 선례).
 VIDEO_AXIS_SINCE = "2026-09-12"
+#: «토망치랩 한마디» 절을 되살린 날 (JJ 지시 2026-09-12). 그 전 초안은 절이 없어도 통과한다.
+COMMENT_AXIS_SINCE = "2026-09-12"
+
+#: 채우기가 **먹어 치우는** 자리 표시 둘 — 이건 원고에 남아도 지면에 안 나간다.
+CONSUMED_MARK = re.compile(r"^\[\[(이미지|영상)\s+\d+\]\]$")
+ANY_MARK = re.compile(r"\[\[[^\[\]]+\]\]")
 WORKSHOP = os.environ.get("TOMANGCHI_WORKSHOP") or \
     r"C:\Users\ojaej\orca\tomangchi-lab.github.io\workshop"
 #: 선언인 줄만 본다 — `OFFICIAL_VIDEO["file"]` 처럼 **쓰는** 줄은 선언이 아니고,
@@ -201,6 +207,23 @@ def check(md, publish=False, caption=None, kind=None):
             fails.append("주간판에 «다음 주 지켜볼 것» 없음")
         if kind == "topic" and "지켜볼 것" not in rel:
             fails.append("«다음에 지켜볼 것» 없음 (후속 예고 한 단락)")
+
+    # ── [CMT] 토망치랩 한마디 (2026-09-12 되살림 · JJ 「한마디 안써있는데?」) ─────────
+    # 🔴 2026-09-10 에 **폐기했던 절을 되살린 것**이다. 폐기 사유는 «사람이 채워야 통과» 였고
+    #    승인 파일을 없앤 뒤 남은 유일한 사람 자리라는 것이었다. 되살리며 **쓰는 사람을 바꿨다**
+    #    — 에이전트가 쓴다. 그래서 사람 자리가 다시 생기지 않는다.
+    if (meta.get("date") or "") >= COMMENT_AXIS_SINCE:
+        if not (_section(md, "토망치랩 한마디") or "").strip():
+            fails.append("[CMT-1] «## 토망치랩 한마디» 절이 없거나 비었다 — 판단 두 문장을 쓴다")
+
+    # ── [PH] 채우다 만 자리표 (2026-09-12 신설) ─────────────────────────────────
+    # 🔴 **이 축이 없어서 «[[JJ 한마디]]» 가 그대로 발행됐다** (2026-09-11 글 · JJ 지적).
+    #    «[[이미지 N]]»·«[[영상 N]]» 은 채우기가 먹지만 그 밖의 자리표는 **아무도 안 먹어서**
+    #    날것으로 지면에 나간다 — 정관 §0 «조용히 실패하는 코드를 남기지 않는다».
+    #    날짜로 가르지 않는다: 나가면 언제 쓴 글이든 결함이다.
+    left = [m for m in ANY_MARK.findall(md) if not CONSUMED_MARK.match(m)]
+    if left:
+        fails.append("[PH] 채우다 만 자리표가 남았다 — 그대로 지면에 나간다: %s" % left[0])
 
     imgs = _section(md, "이미지") or ""
     n_img = len(re.findall(r"^\d+\. ", imgs, re.M))
@@ -374,12 +397,25 @@ def self_test():
     cases = []
     f, _ = check(good)
     cases.append(("통과본 통과", not f, f))
-    # 🔴 한마디 축이 폐기됐으니 **양쪽을 다 본다** (정관 §0 — 한쪽만 보면 «전부 통과시키는
-    #    검사» 도 정상으로 보인다). ⓐ 절이 없어도 통과한다(축이 실제로 사라졌다)
-    #    ⓑ --publish 를 줘도 판정이 같다(모드가 이 축 때문에 갈리던 것이 끝났다)
+    # 🔴 한마디 축이 **되살아났다 (2026-09-12)** — 양쪽을 다 본다 (정관 §0 — 한쪽만 보면
+    #    «전부 통과시키는 검사» 도, «전부 거부하는 검사» 도 정상으로 보인다).
+    dated = good.replace("kind: daily", "kind: daily\ndate: " + COMMENT_AXIS_SINCE)
+    cases.append(("한마디 축: 되살린 날 **이전** 초안은 절이 없어도 통과 (옛 초안을 안 막는다)",
+                  not any(x.startswith("[CMT") for x in check(good)[0]), check(good)[0]))
+    cases.append(("🔴 한마디 축: 되살린 날 **이후** 초안에 절이 없으면 FAIL",
+                  any(x.startswith("[CMT-1]") for x in check(dated)[0]), check(dated)[0]))
+    cmt_ok = dated.replace("## 관련글", "## 토망치랩 한마디\n\n한 문장이에요. 두 문장이에요.\n\n## 관련글")
+    cases.append(("한마디를 쓰면 통과",
+                  not any(x.startswith("[CMT") for x in check(cmt_ok)[0]), check(cmt_ok)[0]))
+    # ── [PH] 자리표 — 양방향. 채우기가 먹는 둘은 통과, 그 밖은 FAIL.
+    ph_bad = cmt_ok.replace("한 문장이에요. 두 문장이에요.", "[[JJ 한마디]]")
+    cases.append(("🔴 채우다 만 «[[JJ 한마디]]» → FAIL (나간 글에서 실제로 난 결함)",
+                  any(x.startswith("[PH]") for x in check(ph_bad)[0]), check(ph_bad)[0]))
+    ph_ok = cmt_ok.replace("## 관련글", "[[이미지 2]]\n[[영상 1]]\n\n## 관련글")
+    cases.append(("자리표 축이 헛돌지 않는다 — 채우기가 먹는 둘은 통과",
+                  not any(x.startswith("[PH]") for x in check(ph_ok)[0]), check(ph_ok)[0]))
     f, _ = check(good, publish=True)
-    cases.append(("한마디 절 없이 --publish 통과", not f, f))
-    assert "토망치랩 한마디" not in good, "픽스처에 한마디 절이 남아 있다 — 축 폐기가 안 잰다"
+    cases.append(("옛 초안은 --publish 로도 판정이 같다", not f, f))
     f, _ = check(good.replace("(출처: blog.google · 2026-09-07)", ""))
     cases.append(("출처 없는 소식 → FAIL", any("출처" in x for x in f), f))
     f, _ = check(good.replace("#AI뉴스 #AI소식 #Astra #제미나이 #토망치랩", "#AI뉴스 #AI소식"))
