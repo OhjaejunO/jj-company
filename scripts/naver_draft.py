@@ -427,11 +427,15 @@ class Orca(object):
         # 🔴 **마지막 줄의 오른쪽 끝**을 누른다. 문단 상자의 왼쪽(`left+5`)을 누르면 에디터 커서가
         #    **첫 글자 뒤**에 앉아 «S | GIF | ketch는…» 처럼 문단이 쪼개진다(2026-09-12 실측).
         #    에디터는 DOM 선택이 아니라 **자기 커서**에 붙여넣으므로 누르는 자리가 곧 자리다.
+        # 🔴 그리고 그 자리는 문단 요소에 대고 부르는 줄상자 조회로는 못 찾는다 — 블록 요소는 **줄 상자가 아니라
+        #    블록 상자 하나**를 돌려줘서 «오른쪽 끝 · 세로 가운데» 가 **가운데 줄의 끝**이 됐다
+        #    (2회차 실측: «…템플 | GIF | 릿까지 한 영상에서…»). 줄 상자는 **Range** 가 돌려준다.
         js = ("const ps=[...d.querySelectorAll('.se-component.se-text .se-text-paragraph')]"
               ".filter(p=>((p.innerText||'').replace(/\\s+/g,' ')).includes(%s));"
               "if(ps.length!==1) return 'n=' + ps.length;"
-              "const p=ps[0]; const rects=[...p.getClientRects()]; const r=rects[rects.length-1]"
-              " || p.getBoundingClientRect();"
+              "const p=ps[0]; const rg0=d.createRange(); rg0.selectNodeContents(p);"
+              "const rs=[...rg0.getClientRects()].filter(x=>x.width>0&&x.height>0);"
+              "const r=rs[rs.length-1] || p.getBoundingClientRect();"
               "for(const ty of ['mousedown','mouseup','click']) p.dispatchEvent(new MouseEvent(ty,"
               "{bubbles:true,cancelable:true,clientX:r.right-2,clientY:r.top+r.height/2,button:0}));"
               "const sel=d.getSelection(); const rg=d.createRange(); rg.selectNodeContents(p);"
@@ -601,7 +605,11 @@ def _last_para(html_text):
 
 
 def video_anchors(chunks, n_videos):
-    """`[[영상 N]]` **앞 문단**의 앞머리 → `{N: 닻}`. 이미 나간 글에 끼울 자리를 이것으로 찾는다.
+    """`[[영상 N]]` **앞 문단** 전체 글 → `{N: 문단}`. 찾을 때는 앞 25자만 쓰고(`[:ANCHOR_LEN]`),
+    끼운 뒤 **쪼개지지 않았는지 되잴 때는 문단 전체**를 쓴다.
+
+    🔴 앞머리만으로 되재면 **쪼개짐을 놓친다** — 2026-09-12 2회차에서 닻 뒤쪽이 갈렸는데
+       앞머리는 앞 조각에 그대로 남아 있어 «온전하다» 로 읽혔다.
 
     🔴 자리 표시가 없는 영상은 닻이 없다 — 새 글이면 «요약 뒤» 로 놓지만, **이미 나간 글에는
        놓을 자리를 모른다.** 부르는 쪽이 그 경우 선다.
@@ -610,7 +618,7 @@ def video_anchors(chunks, n_videos):
     for ch in chunks:
         if isinstance(ch, tuple):
             if ch[0] == "vid" and prev and 1 <= ch[1] <= n_videos:
-                out[ch[1]] = prev[:ANCHOR_LEN]
+                out[ch[1]] = prev
             continue
         t = _last_para(ch)
         if t:
@@ -636,9 +644,9 @@ def insert_videos(o, prep, log):
         name = os.path.basename(gifs[n_ - 1])
         if o.has_image_named(name):
             log("video %d/%d: 이미 들어 있다 — 건너뛴다 (%s)" % (n_, len(gifs), name)); continue
-        o.cursor_after(anchors[n_])
+        o.cursor_after(anchors[n_][:ANCHOR_LEN])
         o.paste_gif(gifs[n_ - 1])
-        log("video %d/%d 끼움: %s (닻 %r)" % (n_, len(gifs), name, anchors[n_][:20]))
+        log("video %d/%d 끼움: %s (닻 %r)" % (n_, len(gifs), name, anchors[n_][:ANCHOR_LEN]))
         u = videos[n_ - 1]["url"]
         if u:
             log("  원본 링크: %s (%s)" % (u, o.paste_link(u)))
@@ -862,13 +870,13 @@ def self_test():
                 parse_blocks(body.replace("### Q. 둘?", "[[영상 1]]\n\n### Q. 둘?"))[1])),
         ("자리 표시가 없으면 닻도 없다 (나간 글에는 놓을 자리를 모른다)",
             video_anchors(parse_blocks(body)[1], 1) == {}),
-        ("닻 길이 상한이 있다 (길면 줄바꿈·공백에 어긋난다)",
-            all(len(v) <= ANCHOR_LEN for v in video_anchors(
-                parse_blocks(body.replace("### Q. 둘?", "[[영상 1]]\n\n### Q. 둘?"))[1], 1).values())),
+        ("찾을 때는 앞머리만 쓰고, 되잴 때는 문단 전체를 쓴다",
+            "cursor_after(anchors[n_][:ANCHOR_LEN])" in src
+            and "paragraph_intact(anchors[n_])" in src),
         # 🔴 반대쪽 — 닻을 «딱 하나일 때만» 쓰는 축은 페이지 안 JS 라 여기서는 그 문안만 본다.
-        ("닻 커서는 문단 **오른쪽 끝**을 누른다 (왼쪽을 누르면 첫 글자 뒤에 끼워진다)",
-            "clientX:r.right-2" in src and "clientX:r.left+5,clientY:r.top+r.height/2,button:0}));"
-            "const sel" not in src),
+        ("닻 커서는 **마지막 줄**의 오른쪽 끝을 누른다 (블록 상자가 아니라 Range 줄 상자)",
+            "clientX:r.right-2" in src and "rg0.getClientRects()" in src
+            and ("p.getClient" + "Rects()") not in src),
         ("끼운 뒤 문단이 쪼개졌는지 되잰다", "paragraph_intact(" in src and "문단이 쪼개졌다" in src),
         ("닻이 여럿이면 세운다 (어느 자리인지 모르는 채로 끼우지 않는다)",
             ("ps.length!==" + "1") in src and "닻 문단을 못 찾았다" in src),
