@@ -186,16 +186,10 @@ def parse_videos(body):
     return out
 
 
-def resolve_image(path):
-    r"""상대 경로는 «있는 쪽»으로 푼다 — `workshop\…` 은 워크숍 루트, `reports\…` 는 운영 서버(HQ).
-    2026-09-06 실측: 영상 프레임을 `reports\blog\img\` 에 뽑아 두고 워크숍 루트로만 풀어 image-missing 이 났다."""
-    if os.path.isabs(path):
-        return path
-    for root in (WORKSHOP_ROOT, HQ):
-        p = os.path.join(root, path)
-        if os.path.exists(p):
-            return p
-    return os.path.join(WORKSHOP_ROOT, path)      # 없으면 종전 경로 그대로 돌려줘 image-missing 메시지가 그 경로를 가리킨다
+#: 🔴 **경로 해석은 게이트가 정본이다 (2026-09-12).** 종전에는 이 파일에만 있어서
+#:    `blogcheck` 가 «그 경로가 풀리는지» 를 **잴 수 없었다** — 그래서 코덱스이사 초안이
+#:    게이트를 통과하고 발행 직전에 `image-missing` 으로 섰다. 한 벌로 두고 양쪽이 같이 쓴다.
+from blogcheck import resolve_image  # noqa: E402  (경로 해석 한 벌 · blogcheck 축 [IMG-2] 와 같은 함수)
 
 
 def jpeg_b64(path):

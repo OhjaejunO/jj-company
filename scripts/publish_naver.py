@@ -265,15 +265,24 @@ def run(a, log):
                 o.add_tag(t)
             log("tags: %d" % len(tags))
             o.set_time(when); log("time: " + when)
+        # 🔴 **캡처가 없으면 STATUS 줄이 그렇게 말한다** (2026-09-12 신설).
+        #    그날 메타뮤즈 두 회차에서 Orca 런타임이 죽어(`runtime_unavailable`) 캡처가 못 찍혔는데
+        #    `shot=None` 은 본문 줄에만 남고 **STATUS 는 그냥 `OK`** 였다 — 로그 꼬리만 읽는 사람에게는
+        #    다른 회차와 구별되지 않는다. 정관 §4 는 이 자리에 «부분» 을 쓰라고 정해 뒀다:
+        #    발행은 끝났으므로 `FAIL` 이 아니고, **증적이 없다는 사실은 남는다.**
+        #    🔴 못 잡는 것: 캡처가 찍혔어도 «맞는 화면인가» 는 사람 자리다.
+        def _part(shot):
+            return "" if shot else " (부분: 화면 증적 없음 — Orca 캡처 실패)"
+
         if a.publish:
             url = o.confirm()
             shot = o.screenshot(os.path.join(SHOT_DIR, a.post + "_published.png"))
             log("published url=%s shot=%s" % (url, shot))
-            log("STATUS: OK published %s" % url); return 0
+            log("STATUS: OK published %s%s" % (url, _part(shot))); return 0
         shot = o.screenshot(os.path.join(SHOT_DIR, a.post + "_dry.png"))
         left = "(수정 회차 — 원 글 태그는 건드리지 않는다)" if a.update else o.clear_tags()
         log("dry: panel filled, «발행» not clicked, tags cleared (left: %s) shot=%s" % (left, shot))
-        log("STATUS: OK (dry run — 발행 안 함)"); return 0
+        log("STATUS: OK (dry run — 발행 안 함)%s" % _part(shot)); return 0
     except nd.Missing as e:
         o.screenshot(os.path.join(SHOT_DIR, a.post + "_fail.png"))
         log("STATUS: FAIL selector %s" % e); return 1
@@ -284,6 +293,15 @@ def run(a, log):
         import traceback
         log(traceback.format_exc()[-800:])
         log("STATUS: FAIL worker-error %s" % type(e).__name__); return 1
+
+
+def _part_probe(shot):
+    """`main()` 안 `_part` 와 **같은 식**. 지역 함수는 밖에서 못 불러서 이 자리를 둔다.
+
+    🔴 두 벌이 되는 것이 마음에 걸려 위 축이 «STATUS 줄이 `_part(shot)` 을 두 번 쓴다» 를
+       같이 본다 — 식이 갈리면 그 축이 먼저 걸린다.
+    """
+    return "" if shot else " (부분: 화면 증적 없음 — Orca 캡처 실패)"
 
 
 def self_test():
@@ -329,6 +347,16 @@ def self_test():
          "if a.update else o.clear_tags()" in _src),
         ("🔴 발행 클릭은 여전히 --publish 분기 안에만 있다 (수정 모드가 길을 하나 더 내지 않았다)",
          _src.count("o.confirm(") == 1),
+        # ── 캡처 증적 (2026-09-12) — 🔴 **양쪽을 본다.** «붙는다» 만 보면 늘 붙이는 코드도
+        #    통과하고, 그러면 증적이 있는 회차까지 «부분» 으로 읽힌다(정관 §0 역검증).
+        ("🔴 캡처가 없으면 STATUS 에 «부분» 이 붙는다", _part_probe(None) != ""),
+        ("캡처가 있으면 «부분» 이 안 붙는다 — 늘 붙이는 코드가 아니다", _part_probe("x.png") == ""),
+        # 🔴 찾는 문자열을 **이어 붙여 만든다** — 그대로 적으면 이 줄 자신이 세어져
+        #    숫자가 늘 어긋난다(이 레포에서 네 번째 자기참조다).
+        ("«부분» 표기를 STATUS: OK 줄들이 **전부** 쓴다 (본문 줄에만 적지 않는다)",
+         (lambda n, ls: len(ls) >= 2 and all(n in l for l in ls))(
+             "_part" + "(shot)",
+             [l for l in _src.splitlines() if l.strip().startswith('log("STATUS: OK')])),
     ]
     for name, res in extra:
         fails += not res

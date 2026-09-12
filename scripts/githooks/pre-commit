@@ -147,6 +147,27 @@ case "$git_dir" in
             *scripts/class101.py*)
                 run_check "class101 selftest" py scripts/class101.py --self-test ;;
         esac
+        # The Naver worker is the other code here that sends something outward
+        # (charter s6 exception). Its self-test covers the publish-click guard,
+        # the gate-before-fill order, and the "no capture -> STATUS says so"
+        # split - both sides, so an always-partial string cannot pass either.
+        # naver_draft shares blogcheck's resolve_image(), so a blogcheck change
+        # runs its self-test too: one resolver, two callers, no second copy.
+        case "$staged" in
+            *scripts/publish_naver.py*)
+                run_check "publish_naver selftest" py scripts/publish_naver.py --self-test ;;
+        esac
+        case "$staged" in
+            *scripts/naver_draft.py*|*scripts/blogcheck.py*)
+                run_check "naver_draft selftest" py scripts/naver_draft.py --self-test ;;
+        esac
+        # blog_audit counts "written but never published" against the blog's own
+        # RSS. Its self-test is hermetic (feed text injected) and four of the
+        # eight cases are the "must NOT report published" side.
+        case "$staged" in
+            *scripts/blog_audit.py*)
+                run_check "blog_audit selftest" py scripts/blog_audit.py --self-test ;;
+        esac
         case "$staged" in
             *scripts/cross-verify.ps1*|*scripts/prompts/cross-verify*)
                 run_check "cross-verify selftest" powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/cross-verify.ps1 -SelfTest ;;
