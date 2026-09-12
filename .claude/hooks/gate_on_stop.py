@@ -14,7 +14,10 @@ WHAT IT DOES
      under logs\gate_on_stop\<session_id>.json) for tool_use blocks that
      mention  workshop\02_제작중\<ep...>  (Edit/Write/Bash alike - the path
      string is what is matched, not the tool)
-  2. for each such folder that has a verify.py: run `py verify.py` there,
+  2. keep only folders with a file newer than the previous Stop checkpoint,
+     or the first transcript timestamp on the first Stop (newest_mtime is
+     shared with --codex). A path in a report/script is only a candidate.
+     For each changed folder that has a verify.py: run `py verify.py` there,
      read the last ^STATUS: line
   3. all OK        -> exit 0, systemMessage "게이트 OK ..."
      any FAIL      -> decision:block with the tail of the gate output, so the
@@ -31,12 +34,21 @@ WHAT IT CANNOT CATCH (charter section 0, layer 4 - written down on purpose)
   - a folder without verify.py (reel folders): reported as "게이트 없음",
     never blocked - there is nothing to run
   - a verify.py that itself lies. The gate is trusted as-is.
+  - mtime is not a content diff or writer identity: preserved/restored mtimes,
+    deletion-only changes, and writes at/before the timestamp resolution
+    boundary can be missed. A concurrent writer can make a mentioned folder
+    look changed by this session. Writes during verification can be consumed
+    by the post-gate checkpoint. Cache files are deliberately excluded.
+  - missing/invalid transcript timestamps cannot establish the first baseline:
+    report "cannot measure" without blocking. A truncated/resumed transcript
+    or legacy line-only state cannot reconstruct a lost Stop checkpoint.
   - 🔴 registration: the model may not edit .claude\settings.json (auto-mode
     classifier, 2026-09-05). JJ applies docs\hooks\gate-on-stop-settings.patch;
     `--check` says whether it happened.
 
 SELF-TEST (charter section 0: a detector must be proven to hold a value)
-  py gate_on_stop.py --self-test   -> 5 cases, exit 1 on any miss
+  py gate_on_stop.py --self-test   -> original 13 axes + Claude mtime cases,
+                                    exit 1 on any miss
   py gate_on_stop.py --check       -> hook registered in .claude\settings.json
                                       and this file exists
 """
@@ -48,6 +60,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
+from datetime import datetime
 
 PAT = re.compile(r"02_제작중[\\/]+(ep[0-9]+[^\\/\"'\s,]*)")  # 02_제작중\epNN...
 TAIL_LINES = 14
@@ -124,6 +138,39 @@ def run_gate(folder):
             break
     tail = "\n".join(text.strip().splitlines()[-TAIL_LINES:])
     return status, tail
+
+
+def transcript_started_at(transcript_path):
+    """First timestamp-bearing JSONL record, in epoch seconds (not file mtime).
+
+    Claude records use a top-level ISO timestamp, also read by context_watch.
+    Metadata without one is skipped; a conversation record with a missing or
+    malformed timestamp is not replaced with a later one, which could hide
+    an earlier real write.
+    """
+    with io.open(transcript_path, encoding="utf-8") as fh:
+        for line in fh:
+            try:
+                obj = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(obj, dict):
+                continue
+            if "timestamp" not in obj:
+                if obj.get("type") in ("user", "assistant"):
+                    raise ValueError("transcript timestamp missing")
+                continue
+            try:
+                stamp = datetime.fromisoformat(obj["timestamp"].replace("Z", "+00:00"))
+                if stamp.tzinfo is None:
+                    raise ValueError("timezone missing")
+                since = stamp.timestamp()
+                if not 0 < since <= time.time():
+                    raise ValueError("timestamp outside elapsed session")
+                return since
+            except (AttributeError, TypeError, ValueError, OverflowError) as exc:
+                raise ValueError("invalid transcript timestamp: %s" % exc) from exc
+    raise ValueError("transcript timestamp missing")
 
 
 def newest_mtime(folder):
@@ -204,17 +251,37 @@ def main(payload):
     sid = payload.get("session_id", "")
     sp = _state_path(sid)
     start = 0
+    state = {}
     if os.path.exists(sp):
         try:
-            start = int(json.load(io.open(sp, encoding="utf-8")).get("line", 0))
+            with io.open(sp, encoding="utf-8") as fh:
+                state = json.load(fh)
+            start = int(state.get("line", 0))
         except Exception:
+            state = {}
             start = 0
     eps, last = touched_eps(transcript, start)
+    if eps:
+        try:
+            # Old state files contain only `line`; use the session baseline
+            # once, rather than treating a missing checkpoint as epoch zero.
+            since = state.get("checked_at")
+            if since is None:
+                since = transcript_started_at(transcript)
+            if isinstance(since, bool) or not isinstance(since, (int, float)) or not 0 < since <= time.time():
+                raise ValueError("invalid Stop checkpoint")
+        except (OSError, UnicodeError, ValueError) as exc:
+            _out({"systemMessage": "gate-on-stop: 변경 시각 기준을 확인할 수 없어 못 쟀다: %s" % exc})
+            return 0
+        eps = {folder: name for folder, name in eps.items() if newest_mtime(folder) > since}
+    results = {name: run_gate(folder) for folder, name in eps.items()}
     if last:
-        json.dump({"line": last}, io.open(sp, "w", encoding="utf-8"))
+        # After gates: their own output must not turn a later report-only turn
+        # into a fresh edit. This cannot attribute concurrent writes (see above).
+        with io.open(sp, "w", encoding="utf-8") as fh:
+            json.dump({"line": last, "checked_at": time.time()}, fh)
     if not eps:
         return 0
-    results = {name: run_gate(folder) for folder, name in eps.items()}
     fails = {k: v for k, v in results.items() if v[0] == "FAIL"}
     oks = sorted(k for k, v in results.items() if v[0] == "OK")
     nogate = sorted(k for k, v in results.items() if v[0] == "NOVERIFY")
@@ -253,7 +320,8 @@ def _mk_ep(root, name, ok):
 def _mk_transcript(root, paths):
     tp = os.path.join(root, "t.jsonl")
     with io.open(tp, "w", encoding="utf-8") as fh:
-        fh.write(json.dumps({"type": "user", "message": {"content": "hi"}}) + "\n")
+        fh.write(json.dumps({"type": "user", "timestamp": "2000-01-01T00:00:00Z",
+                             "message": {"content": "hi"}}) + "\n")
         for p in paths:
             blk = {"type": "tool_use", "name": "Edit", "input": {"file_path": os.path.join(p, "build_ep99.py")}}
             fh.write(json.dumps({"type": "assistant", "message": {"content": [blk]}}, ensure_ascii=False) + "\n")
@@ -289,6 +357,8 @@ def self_test():
     cases.append(("nothing touched -> silent", r == {}))
     nog = os.path.join(root, "workshop", "02_제작중", "ep97_reel")
     os.makedirs(nog, exist_ok=True)
+    with io.open(os.path.join(nog, "note.txt"), "w") as fh:
+        fh.write("changed reel without a gate")
     r = _run_case(root, [nog], False, "s6")
     cases.append(("no verify.py -> report, never block", "decision" not in r and "ep97_reel" in r.get("systemMessage", "")))
     r = _run_case(root, [nog, bad], False, "s7")
@@ -303,6 +373,7 @@ def self_test():
         sys.stdout = old
     cases.append(("no new transcript lines -> silent (state file)", buf.getvalue().strip() == ""))
     cases += _codex_cases()
+    cases += _claude_mtime_cases()
     ok = all(v for _, v in cases)
     for name, v in cases:
         print(("PASS " if v else "FAIL ") + name)
@@ -389,6 +460,116 @@ def _codex_cases():
     c, s = _codex_run(stamp)
     out.append(("codex: verify.py 없음 -> 보고만", c == 0 and "ep95_reel" in s))
     shutil.rmtree(base)
+    return out
+
+
+def _claude_mtime_cases():
+    """Each case gets its own FAIL folder; only the named axis varies.
+
+    Quiet cases still have NEW tool_use lines and a working FAIL verifier.
+    Thus the existing cursor/OK/loop guards cannot hide a broken mtime filter.
+    """
+    out = []
+    t0 = 1000000000.0
+
+    def fixture(name, mtime=t0 - 60, kind="report", timestamp="2001-09-09T01:46:40Z"):
+        root = tempfile.mkdtemp(prefix="gate_claude_" + name + "_")
+        os.environ["CLAUDE_PROJECT_DIR"] = root
+        ep = _mk_ep(root, "ep96_" + name, False)
+        _touch(os.path.join(ep, "verify.py"), mtime)
+        tp = os.path.join(root, "t.jsonl")
+        record = {"type": "user", "message": {"content": "start"}}
+        if timestamp is not None:
+            record["timestamp"] = timestamp
+        with io.open(tp, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(record) + "\n")
+        append(tp, ep, kind)
+        return root, ep, tp
+
+    def append(tp, ep, kind="report"):
+        path = os.path.join(ep, "build_ep96.py")
+        if kind == "script":
+            inp = {"command": "python -c \"path = " + repr(path) + "\""}
+            tool = "Bash"
+        elif kind == "edit":
+            inp = {"file_path": path, "old_string": "before", "new_string": "after"}
+            tool = "Edit"
+        else:
+            inp = {"file_path": "reports/result.md", "content": "Mentioned episode: " + path}
+            tool = "Write"
+        # Later than t0+10: comparing file mtime to this tool timestamp would
+        # miss the earlier-in-session edit (the session timestamp must win).
+        record = {"type": "assistant", "timestamp": "2001-09-09T01:47:10Z",
+                  "message": {"content": [{"type": "tool_use", "name": tool, "input": inp}]}}
+        with io.open(tp, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    def run(tp):
+        buf = io.StringIO()
+        old = sys.stdout
+        sys.stdout = buf
+        try:
+            main({"transcript_path": tp, "session_id": "mtime", "stop_hook_active": False})
+        finally:
+            sys.stdout = old
+        return json.loads(buf.getvalue()) if buf.getvalue() else {}
+
+    for kind in ("report", "script"):
+        _, ep, tp = fixture(kind + "_old", kind=kind)
+        out.append(("claude: %s path only + old FAIL -> silent" % kind, run(tp) == {}))
+        _, ep, tp = fixture(kind + "_changed", mtime=t0 + 10, kind=kind)
+        out.append(("claude: %s path + earlier session edit FAIL -> block" % kind,
+                    run(tp).get("decision") == "block"))
+
+    _, ep, tp = fixture("equal_boundary", mtime=t0, kind="edit")
+    out.append(("claude: file mtime equals baseline -> silent", run(tp) == {}))
+
+    _, ep, tp = fixture("nested_change", kind="edit")
+    nested = os.path.join(ep, "assets")
+    os.makedirs(nested)
+    source = os.path.join(nested, "source.txt")
+    with io.open(source, "w") as fh:
+        fh.write("changed nested source")
+    _touch(source, t0 + 10)
+    out.append(("claude: nested source changed, verifier old -> block", run(tp).get("decision") == "block"))
+
+    # Independent cache exclusions: each contains only one otherwise-new file.
+    for label, relative in (("cache directory", ("__pycache__", "note.txt")),
+                            ("git directory", (".git", "index")),
+                            ("pyc extension", ("loose.pyc",))):
+        _, ep, tp = fixture(label.replace(" ", "_"), kind="edit")
+        source = os.path.join(ep, *relative)
+        os.makedirs(os.path.dirname(source), exist_ok=True)
+        with io.open(source, "w") as fh:
+            fh.write("ignored artifact")
+        _touch(source, t0 + 10)
+        out.append(("claude: only %s changed -> silent" % label, run(tp) == {}))
+
+    for changed in (False, True):
+        root, ep, tp = fixture("checkpoint_" + str(changed), mtime=t0 + 10, kind="edit")
+        # The gate itself writes an artifact. The post-gate checkpoint must
+        # cover it, yet a genuine later source write must still be measured.
+        with io.open(os.path.join(ep, "verify.py"), "a", encoding="utf-8") as fh:
+            fh.write("from pathlib import Path\nPath('gate-result.txt').write_text('checked')\n")
+        first = run(tp)
+        append(tp, ep)
+        if changed:
+            with io.open(_state_path("mtime"), encoding="utf-8") as fh:
+                checkpoint = json.load(fh)["checked_at"]
+            _touch(os.path.join(ep, "verify.py"), checkpoint + 1)
+        second = run(tp)
+        expected = second.get("decision") == "block" if changed else second == {}
+        out.append(("claude: new mention + %s -> %s" %
+                    ("post-checkpoint edit" if changed else "only gate output", "block" if changed else "silent"),
+                    first.get("decision") == "block" and expected))
+
+    for label, stamp in (("missing", None), ("invalid", "not-a-timestamp"),
+                         ("no timezone", "2001-09-09T01:46:40")):
+        _, ep, tp = fixture("timestamp_" + label.replace(" ", "_"), mtime=t0 + 10, timestamp=stamp)
+        r = run(tp)
+        out.append(("claude: %s timestamp -> diagnostic, cursor not consumed" % label,
+                    "decision" not in r and "못 쟀다" in r.get("systemMessage", "")
+                    and not os.path.exists(_state_path("mtime"))))
     return out
 
 
