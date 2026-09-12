@@ -60,6 +60,62 @@ def skill_epcheck():
 SRC = re.compile(r"\(출처: (?:[a-z0-9.-]+\.[a-z]{2,}|X / @[A-Za-z0-9_]+)(?: [^)]*)? · 20\d\d-\d\d-\d\d\)")   # 도메인 또는 X 계정
 
 
+#: 영상 축이 도는 하한. 🔴 **소급하지 않는다** — 이미 올라간 일곱 편과 그 전 초안은
+#  영상 절 자체가 규격에 없던 때에 쓰였고, 고칠 수 없는 것을 막는 검사는
+#  통과 조합이 없는 검사다(C-26 계열 · ep28 선례).
+VIDEO_AXIS_SINCE = "2026-09-12"
+WORKSHOP = os.environ.get("TOMANGCHI_WORKSHOP") or \
+    r"C:\Users\ojaej\orca\tomangchi-lab.github.io\workshop"
+#: 선언인 줄만 본다 — `OFFICIAL_VIDEO["file"]` 처럼 **쓰는** 줄은 선언이 아니고,
+#  🔴 **`= None` 도 선언이 아니다**. 편 규격은 «공식 영상이 없으면 None 을 적는다»
+#  이므로 값을 안 보면 영상 없는 편이 전부 걸린다 (2026-09-12 실측 — ep54 가 그랬다).
+OFFICIAL_VIDEO_DECL = re.compile(r"^OFFICIAL_VIDEO\s*=\s*(?!None\b)\S", re.M)
+
+
+def video_line_re():
+    """영상 줄 꼴의 정본은 `naver_draft.VIDEO_LINE` 하나다 — 여기에 사본을 두지 않는다.
+    (같은 결함이 채널마다 갈리던 자리 · 백로그 C-48)"""
+    d = os.path.dirname(os.path.abspath(__file__))
+    if d not in sys.path:
+        sys.path.insert(0, d)
+    import naver_draft
+    return naver_draft.VIDEO_LINE
+
+
+def episode_has_video(source):
+    """그 편이 «공식 영상»을 선언했는가. `True`·`False`·`None`(못 쟀다).
+
+    블로그 초안의 `source:` 는 «ep55 검증로그 …» 또는 «ep51_메타뮤즈 검증로그(…)» 꼴이라
+    편 번호를 뽑아 워크숍 폴더를 찾는다. 편 선언(`build_epNN.py`·`_facts.py`)이 정본이고
+    이 함수는 조회 결과다 (정관 §0 «실물이 정본이고 문서는 조회 결과다»).
+    """
+    # 🔴 뒤 경계를 걸지 않는다 — 초안 `source:` 는 «ep51_메타뮤즈 …» 꼴도 쓰는데
+    #    밑줄이 낱말 문자라 \b 가 안 붙어 **편을 통째로 못 찾았다**(2026-09-12 실측).
+    m = re.search(r"\bep(\d{1,3})", source or "")
+    if not m:
+        return None
+    pre = "ep" + m.group(1)
+    for stage in ("01_발행완료", "02_제작중", "90_자료함"):
+        d = os.path.join(WORKSHOP, stage)
+        if not os.path.isdir(d):
+            continue
+        for name in sorted(os.listdir(d)):
+            if not (name == pre or name.startswith(pre + "_")):
+                continue
+            folder = os.path.join(d, name)
+            for f in sorted(os.listdir(folder)):
+                if not f.endswith(".py"):
+                    continue
+                try:
+                    txt = io.open(os.path.join(folder, f), encoding="utf-8", errors="replace").read()
+                except OSError:
+                    continue
+                if OFFICIAL_VIDEO_DECL.search(txt):
+                    return True
+            return False
+    return None
+
+
 def _section(md, name):
     m = re.search(r"^## %s\s*$(.*?)(?=^## |\Z)" % re.escape(name), md, re.S | re.M)
     return m.group(1) if m else None
@@ -152,6 +208,26 @@ def check(md, publish=False, caption=None, kind=None):
         fails.append("이미지 %d장 (3~6)" % n_img)
     elif len(re.findall(r"\(출처: ", imgs)) < n_img:
         fails.append("이미지 캡션에 (출처: …) 누락")
+
+    # ── [VID] 영상 축 (2026-09-12 신설) ──────────────────────────────────────
+    # 🔴 **블로그에만 영상 자리가 없었다** — 조문·게이트·채우기 셋 다 0건이라
+    #    `2026-09-11_챗지피티이미지2_5` 글이 「한 영상에서 차례로 볼 수 있어요」라고
+    #    적어 놓고 **정지 캡처 한 장**만 실었다(JJ 지적). 인스타·릴스에는 «영상 소스는
+    #    영상으로»(SKILL v3.24·v3.83)가 v3.24 부터 서 있다.
+    if (meta.get("date") or "") >= VIDEO_AXIS_SINCE:
+        vlines = [l.strip() for l in (_section(md, "영상") or "").splitlines()
+                  if re.match(r"^\d+\.\s", l.strip())]
+        bad = [l for l in vlines if not video_line_re().match(l)]
+        if bad:
+            # 꼴이 어긋난 줄은 채우기가 **조용히 버린다** — 여기서 잡는다 (정관 §0).
+            fails.append("[VID-2] 영상 줄 꼴이 아니다 — «N. `경로.mp4` · 시작~끝 · 주소 — 설명»: %s" % bad[0][:50])
+        has = episode_has_video(meta.get("source"))
+        if has is None:
+            notes.append("🔴 [VID] 못 쟀다 — source 에서 편 폴더를 못 찾았다: %r"
+                         % ((meta.get("source") or "")[:40]))
+        elif has and not vlines:
+            fails.append("[VID-1] 이 편은 공식 영상을 인용했는데 «## 영상» 절이 비었다 "
+                         "— 영상 소스는 영상으로 (정지 캡처만 실으면 독자는 못 본다)")
 
     tags = _section(md, "태그") or ""
     tl = re.findall(r"#\S+", tags)
@@ -369,6 +445,52 @@ def self_test():
         else:
             os.environ["TOMANGCHI_SKILL"] = _old_sk
         shutil.rmtree(_tmp, ignore_errors=True)
+
+    # ── [VID] 영상 축 (2026-09-12) — 양방향 ─────────────────────────────────
+    # 편 선언은 워크숍 실물이 정본이라, 자체 검사는 **가짜 워크숍**을 세워 잰다.
+    global WORKSHOP
+    _old_w, _w = WORKSHOP, tempfile.mkdtemp(prefix="blogvid_")
+    try:
+        _pub = os.path.join(_w, "01_발행완료")
+        for ep, decl in (("ep99_영상편", 'OFFICIAL_VIDEO = {"url": "https://x.com/a/1"}\n'),
+                         ("ep98_무영상편", 'src = OFFICIAL_VIDEO["file"]\n'),
+                         ("ep97_None편", 'OFFICIAL_VIDEO = None\n')):
+            os.makedirs(os.path.join(_pub, ep))
+            io.open(os.path.join(_pub, ep, "build_%s.py" % ep.split("_")[0]), "w",
+                    encoding="utf-8").write(decl)
+        WORKSHOP = _w
+        vfm = lambda ep, date="2026-09-12": "kind: daily\ndate: %s\nsource: %s 검증로그" % (date, ep)
+        vsec = ("## 영상\n\n1. `workshop\\v.mp4` · 3~9.5 · https://x.com/a/1 — 스케치가 변하는 구간\n\n")
+        base = good.replace("kind: daily", vfm("ep99"))
+        f, _ = check(base)
+        cases.append(("🔴 공식 영상을 선언한 편인데 «## 영상» 절이 비면 [VID-1] FAIL",
+                      any(x.startswith("[VID-1]") for x in f), f))
+        f, _ = check(base.replace("## 태그", vsec + "## 태그"))
+        cases.append(("영상 절을 채우면 통과한다", not any(x.startswith("[VID") for x in f), f))
+        f, _ = check(good.replace("kind: daily", vfm("ep98")))
+        cases.append(("공식 영상을 선언하지 않은 편은 영상 절이 없어도 통과 (쓰는 줄은 선언이 아니다)",
+                      not any(x.startswith("[VID") for x in f), f))
+        f, _ = check(good.replace("kind: daily", vfm("ep99", "2026-09-11")))
+        cases.append(("🔴 하한 날짜 전 초안은 축이 돌지 않는다 (기발행분 소급 없음)",
+                      not any(x.startswith("[VID") for x in f), f))
+        f, _ = check(base.replace("## 태그",
+                                  "## 영상\n\n1. workshop/v.mp4 그냥 이 영상\n\n## 태그"))
+        cases.append(("🔴 영상 줄 꼴이 어긋나면 [VID-2] FAIL (조용히 버려지지 않는다)",
+                      any(x.startswith("[VID-2]") for x in f), f))
+        f, n_ = check(good.replace("kind: daily", "kind: daily\ndate: 2026-09-12\nsource: 스캔로그"))
+        cases.append(("source 에 편이 없으면 «못 쟀다» 를 적고 세우지는 않는다",
+                      not any(x.startswith("[VID") for x in f)
+                      and any("[VID] 못 쟀다" in x for x in n_), f))
+        cases.append(("편 폴더 조회가 셋을 갈라 돌려준다 (True·False·None)",
+                      (episode_has_video("ep99 검증로그"), episode_has_video("ep98 검증로그"),
+                       episode_has_video("스캔로그")) == (True, False, None), []))
+        cases.append(("🔴 «ep99_영상편 검증로그» 밑줄 꼴도 찾는다 (실물 source 가 그 꼴이다)",
+                      episode_has_video("ep99_영상편 검증로그(2026-09-10)") is True, []))
+        cases.append(("🔴 «OFFICIAL_VIDEO = None» 은 선언이 아니다 (영상 없는 편이 다 걸리던 자리)",
+                      episode_has_video("ep97 검증로그") is False, []))
+    finally:
+        WORKSHOP = _old_w or r"C:\Users\ojaej\orca\tomangchi-lab.github.io\workshop"
+        shutil.rmtree(_w, ignore_errors=True)
 
     ok = all(c[1] for c in cases)
     for name, v, f in cases:
