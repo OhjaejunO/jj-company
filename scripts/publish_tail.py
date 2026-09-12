@@ -145,11 +145,36 @@ def detect(s):
             "kit": "없음" if kit in (None, "None") else kit.strip('"\'')}
 
 
+def row_key(ep):
+    """본 표의 ep 칸 값. 같은 번호의 **다른 게시물**은 접미를 단다 — 재유통 «epNN-Threads» 와 같은 꼴.
+
+    🔴 **한 번호에 캐러셀과 릴스가 같이 있는 편이 ep56 이 처음이었다** (2026-09-12 실측).
+       ep45~47 릴스는 릴스 단독 편이라 번호가 겹치지 않았고, 그래서 이 결함이 안 보였다.
+    """
+    return ep.split("_")[0] + ("-릴스" if ep.endswith("_릴스") else "")
+
+
+def logged(text, ep):
+    """이 **편 폴더**를 가리키는 «발행» 행이 이미 있는가.
+
+    🔴 **번호가 아니라 폴더로 잰다 (2026-09-12).** 종전에는 `ep56` 번호만 봤고, 캐러셀 행이
+       이미 있으면 릴스가 «already» 로 **조용히 건너뛰어졌다** — 그러고도 `move` 는 같은
+       번호를 보고 통과시켜 **행 없이 폴더만 `01_발행완료` 로 옮겨졌다**(§2 예외 6 은 행
+       선재가 조건인데 그 조건이 엉뚱한 행으로 충족됐다). 실측: ep56 릴스(9/12 14:05 ·
+       `DdLMRj0o-hS`)가 로그에 0건인 채 폴더만 이동해 있었다. 정관 §0 «조용히 실패하는
+       코드를 남기지 않는다» · «장치가 재는 대상이 틀렸다».
+       폴더 칸은 백틱으로 감싸 **정확히** 본다 — 감싸지 않으면 캐러셀 폴더 이름이 릴스
+       폴더 이름의 앞토막이라 서로를 삼킨다.
+    """
+    return any("발행" in ln and ("`01_발행완료/%s`" % ep) in ln
+               for ln in publog_check.main_table(text).split("\n"))
+
+
 def record(s):
     text = PUBLOG.read_text("utf-8")
-    if any("발행" in r for r in ep_rows(text, s["ep"].split("_")[0])):
+    if logged(text, s["ep"]):
         return {"recorded": "already"}
-    ep = s["ep"].split("_")[0]
+    ep = row_key(s["ep"])
     now = dt.datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")
     row = (f"| **{ep}** | {s['title']} | **발행** | **{s['published_kst']}** | — | {s['kit']} | "
            f"`01_발행완료/{s['ep']}` | **인스타 {s['media_type']} {s['cards']}장** · `{s['permalink']}` — "
@@ -256,9 +281,8 @@ def move(s):
     src, dst = WORKSHOP / "02_제작중" / s["ep"], WORKSHOP / "01_발행완료" / s["ep"]
     if not src.exists() and dst.exists():
         return {"moved": "already"}
-    ep = s["ep"].split("_")[0]
-    if not any("발행" in r for r in ep_rows(PUBLOG.read_text("utf-8"), ep)):
-        raise RuntimeError("발행로그에 «발행» 행이 없다 — §2 예외 6 은 행 선재가 조건")
+    if not logged(PUBLOG.read_text("utf-8"), s["ep"]):
+        raise RuntimeError("발행로그에 이 편 폴더를 가리킨 «발행» 행이 없다 — §2 예외 6 은 행 선재가 조건")
     if dst.exists():
         raise RuntimeError(f"대상이 이미 있다: {dst}")
     before = tree_hashes(src)
@@ -406,7 +430,10 @@ def _self_test():
             assert "2건" in str(e)
         # 역검증 ③ 이동 중 해시가 달라지면 되돌리고 FAIL
         (WORKSHOP / "02_제작중" / "ep97_y").mkdir(); (WORKSHOP / "02_제작중" / "ep97_y" / "a.png").write_bytes(b"a")
-        PUBLOG.write_text(PUBLOG.read_text("utf-8").replace("| **ep99** |", "| **ep97** |"), "utf-8")  # ep97 «발행» 행을 흉내
+        # ep97 «발행» 행을 흉내 — 🔴 위치 칸까지 바꾼다. `logged()` 가 번호가 아니라 **폴더**로 재므로
+        #    번호만 바꾼 흉내는 «행 없음» 이 되어 이 케이스가 엉뚱한 자리에서 선다(2026-09-12).
+        PUBLOG.write_text(PUBLOG.read_text("utf-8").replace("| **ep99** |", "| **ep97** |")
+                          .replace("`01_발행완료/ep99_시험편`", "`01_발행완료/ep97_y`"), "utf-8")
         orig = tree_hashes
         try:
             globals()["tree_hashes"] = lambda f: orig(f) if f.name != "ep97_y" or f.parent.name == "02_제작중" else {"a.png": "tampered"}
@@ -467,6 +494,33 @@ def _self_test():
                 assert "못 읽었다" in str(e)
         finally:
             globals()["threads_media"] = orig_media
+
+        # 🔴 한 번호에 캐러셀과 릴스가 같이 있는 경우 (2026-09-12 · ep56 실측 결함).
+        #    종전에는 번호만 봐서 릴스가 «already» 로 조용히 건너뛰어지고, `move` 는 같은
+        #    번호의 캐러셀 행을 보고 통과시켜 **행 없이 폴더만 옮겨졌다.**
+        reel = WORKSHOP / "02_제작중" / "ep98_시험편_릴스"
+        reel.mkdir(parents=True)
+        (reel / "01_reel.mp4").write_bytes(b"reel")
+        base_row = ("| **ep98** | [AI 소식] 시험 | **발행** | **2026-09-12 20:01 KST** | — | k.html | "
+                    "`01_발행완료/ep98_시험편` | **인스타 캐러셀 7장** · `x` | 2026-09-12 20:10 KST |")
+        PUBLOG.write_text(append_main_table_row(PUBLOG.read_text("utf-8"), base_row), "utf-8")
+        rs = {"ep": "ep98_시험편_릴스", "title": "[AI 소식] 시험 릴스",
+              "published_kst": "2026-09-12 14:05 KST", "kit": "k.html", "media_type": "릴스",
+              "cards": 2, "permalink": "https://www.instagram.com/reel/RRR/"}
+        got = record(rs)["recorded"]
+        assert got.startswith("| **ep98-릴스**"), got
+        assert len(ep_rows(PUBLOG.read_text("utf-8"), "ep98")) == 1, "캐러셀 행이 늘었다"
+        # 반대쪽 — 같은 폴더를 두 번 돌리면 «already» 다. 없으면 «전부 적는 규칙» 도 위를 통과한다.
+        assert record(rs)["recorded"] == "already", "릴스 행이 두 번 붙었다"
+        # 🔴 그리고 «행 없이 이동» 이 다시 막힌다 — 종전에는 캐러셀 행이 이 조건을 대신 채웠다.
+        (WORKSHOP / "02_제작중" / "ep98_없는행").mkdir()
+        try:
+            move({"ep": "ep98_없는행"})
+            raise AssertionError("그 폴더의 행이 없는데 옮겼다")
+        except RuntimeError as e:
+            assert "행이 없다" in str(e), e
+        assert move(rs)["files"] == 1, "행이 있는 릴스는 옮겨진다"
+    print("ok   같은 번호 캐러셀+릴스: 릴스는 «epNN-릴스» 행을 얻고 · 재실행은 already · 행 없는 폴더 이동은 FAIL")
     print("ok   WAIT→재개→행(본 표 끝·값 정확)→해시 이동→재실행 안전 · 역검증: 행 선재 없이 이동 FAIL · 애매 감지 FAIL · 해시 불일치 롤백")
     print("ok   재유통(--redist): 행 1건 기록 · 재기록·선점만·영수증없음 3건 건너뜀 · 원류없음·조회실패 2건 FAIL")
     print("STATUS: OK")
