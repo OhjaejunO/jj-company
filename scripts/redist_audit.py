@@ -22,8 +22,11 @@ r"""재유통 감사 — **발행됐는데 스레드가 안 나간 편**을 센�
 1. 유통팩 `reports\<날짜>_dist_<ep>.md` — `dist_transform.pack()` 은 게이트 FAIL 이 하나라도
    있으면 **파일을 안 쓰므로** 그 존재가 곧 «게이트를 통과했다» 이다.
 2. 발행 영수증 `logs\publish-receipts\<ep>.jsonl` 에 `media_id` 를 가진 줄 — 실제로 나갔다.
-3. **보류 선언** `departments\marketing\redist\<ep>.py` 의 `SKIP` — JJ 가 «안 낸다» 고 정한 편.
-   사유를 같이 적는다. 🔴 보류는 **자동으로 생기지 않는다** — 사람이 적어야 한다.
+3. **제외 선언** `departments\marketing\redist\<ep>.py` 의 `SKIP` — JJ 가 «안 낸다» 고 정한 편.
+   사유를 같이 적는다. 🔴 제외는 **자동으로 생기지 않는다** — 사람이 적어야 한다.
+   🔴 **«미룬 편»과 «뺀 편»을 칸으로 가르지 않는다** — 어느 쪽이든 «이번에 안 낸다»이고,
+   둘을 가르는 말은 사유 문자열이 진다. 칸을 늘리면 적는 사람이 매번 어느 칸인지 고르게 되고,
+   고르는 순간 «나중에» 가 기본값이 된다(ep44 가 그 자리였다 · 2026-09-12 JJ 「9월1주차는 빼자」).
 
 🔴 **못 잡는 것 (§0 4층 ④)**: 유통팩이 있는데 **발행만 안 한** 편은 «했다» 로 읽는다 — 팩까지
    갔으면 나머지는 워커 한 번이라 병목이 아니고, 여기서 재려면 영수증과 팩의 짝을 맞춰야 하는데
@@ -43,7 +46,7 @@ PUBLISHED = os.environ.get("TOMANGCHI_PUBLISHED") or \
     r"C:\Users\ojaej\orca\tomangchi-lab.github.io\workshop\01_발행완료"
 REPORTS = os.path.join(HQ, "reports")
 RECEIPTS = os.path.join(HQ, "logs", "publish-receipts")
-#: 보류 선언만은 **이 파일 옆**에서 읽는다 — worktree 에서 고친 선언이 그 자리에서 먹어야 한다.
+#: 제외 선언만은 **이 파일 옆**에서 읽는다 — worktree 에서 고친 선언이 그 자리에서 먹어야 한다.
 DECL = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                     "departments", "marketing", "redist")
 SINCE_EP = 39          # 정관 §0 — 재유통 적용은 ep39 부터
@@ -83,7 +86,7 @@ def skip_reason(ep, decl=None):
 
 
 def audit(published=None, reports=None, receipts=None, decl=None):
-    """(빠진 편, 보류 편) — 빠진 편은 `[(번호, 폴더)]`, 보류는 `[(번호, 사유)]`."""
+    """(빠진 편, 제외 편) — 빠진 편은 `[(번호, 폴더)]`, 제외는 `[(번호, 사유)]`."""
     missing, skipped = [], []
     for n, name in sorted(episodes(published).items()):
         if n < SINCE_EP:
@@ -101,19 +104,19 @@ def main():
     missing, skipped = audit()
     print("재유통 감사 — `01_발행완료` ep%d 이상" % SINCE_EP)
     for n, why in skipped:
-        print("  보류 ep%-3d %s" % (n, why))
+        print("  제외 ep%-3d %s" % (n, why))
     for n, name in missing:
         print("  🔴 빠짐 ep%-3d %s" % (n, name))
     if missing:
         print("STATUS: FAIL 재유통 %d편 (%s)"
               % (len(missing), "·".join("ep%d" % n for n, _ in missing)))
         return 1
-    print("STATUS: OK (보류 %d편)" % len(skipped))
+    print("STATUS: OK (제외 %d편)" % len(skipped))
     return 0
 
 
 def _self_test():
-    """역검증 — 빠진 편을 잡는가 · 세 자격이 각각 통과시키는가 · 보류는 사유가 있어야 하는가."""
+    """역검증 — 빠진 편을 잡는가 · 세 자격이 각각 통과시키는가 · 제외는 사유가 있어야 하는가."""
     import shutil
     import tempfile
     t = tempfile.mkdtemp(prefix="redist_audit_")
@@ -136,7 +139,7 @@ def _self_test():
         ("🔴 선점만 있는 편은 «나갔다» 가 아니다 (ep44)", 44 in got),
         ("유통팩이 있으면 통과 (ep40)", 40 not in got),
         ("영수증에 media_id 가 있으면 통과 (ep41)", 41 not in got),
-        ("보류 선언이 있으면 통과하고 사유가 남는다 (ep42)",
+        ("제외 선언이 있으면 통과하고 사유가 남는다 (ep42)",
          42 not in got and skipped == [(42, "지난 주간판이라 낸다")]),
         ("🔴 ep%d 미만은 안 본다 (소급 없음)" % SINCE_EP, 38 not in got),
         ("🔴 헛돌지 않는다 — 전부 통과시키는 검사가 아니다", bool(got)),
