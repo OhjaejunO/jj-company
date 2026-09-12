@@ -46,11 +46,33 @@ def parse(text):
         if not line.startswith("|"):
             continue
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if len(cells) != NCOL or not cells[0].isdigit():
+        if not cells[0].isdigit():
             continue  # 머리글·구분선·다른 표
+        if len(cells) != NCOL:
+            continue  # 칸 수가 틀린 «번호 있는 줄» 은 strays() 가 FAIL 로 잡는다
         rows.append(dict(zip(
             ("no", "date", "ep", "note", "layer", "place", "repeat", "resolved"), cells)))
     return rows
+
+
+def strays(text):
+    """번호는 달렸는데 **칸 수가 틀린 줄** — 종전에는 조용히 빠졌다.
+
+    🔴 **정관 §0 «조용히 실패하는 코드를 남기지 않는다» 의 자리다.** `parse()` 가
+    머리글·구분선과 같은 취급으로 건너뛰어서, 칸 하나가 모자란 행이 **표에 보이는데
+    세어지지는 않는** 상태가 됐다 — 2026-09-13 실측: 71행을 넣었는데 검사기는
+    `rows=70` 을 냈고 아무것도 FAIL 하지 않았다. 「적었다」가 「셌다」로 읽히는 것이
+    이 원장이 막으려던 바로 그것이다.
+    """
+    out = []
+    for line in text.splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if cells[0].isdigit() and len(cells) != NCOL:
+            out.append("행 %s: 칸이 %d 개다 — 원장 행은 %d 칸이어야 센다"
+                       % (cells[0], len(cells), NCOL))
+    return out
 
 
 def resolve(place):
@@ -129,7 +151,7 @@ def check(rows, shut=None):
 
 def run(text):
     rows = parse(text)
-    fails = check(rows)
+    fails = strays(text) + check(rows)
     # 🔴 재는 값은 «**해소 안 된** 재발» 이다 — 닫힌 뒤에도 세면 그 숫자는 실제를 안 가리킨다.
     live = [r for r in rows if r["repeat"] != "—" and r.get("resolved", "—") == "—"]
     done = sum(1 for r in rows if r.get("resolved", "—") != "—")
@@ -189,6 +211,16 @@ def self_test():
             fails = check(parse(text), SHUT)
             assert not fails, f"{name}: 통과해야 하는데 {fails}"
             print("ok  ", name)
+
+    # ── 칸 수 (2026-09-13) ─────────────────────────────────────────────────
+    # 🔴 **적혀 있는데 세어지지 않던 자리.** 양방향으로 본다 — 한쪽만 보면 «전부 걸리는
+    #    검사» 도 정상으로 보인다.
+    short = HEAD + f"| 1 | 2026-09-06 | ep0 | x | 검사 | {me}#def check | — |\n"
+    assert len(strays(short)) == 1, strays(short)
+    assert not parse(short), "칸이 모자란 줄이 행으로 세어졌다"
+    print("ok   칸이 모자란 행이 걸린다 →", strays(short)[0])
+    assert not strays(good), strays(good)
+    print("ok   제 칸 수인 행은 안 걸린다")
 
     # 🔴 «닫힘» 을 읽는 자 자신도 양방향으로 본다 — 표기가 없으면 닫혔다고 하지 않는다.
     src = ("## C-1 — 가\n- 본문\n"
