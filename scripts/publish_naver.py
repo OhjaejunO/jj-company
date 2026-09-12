@@ -41,6 +41,8 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import naver_draft as nd  # noqa: E402
+import naver_blog as nb  # noqa: E402  (발행한 글을 되읽는다 — 조회기는 한 벌)
+import blog_audit as ba  # noqa: E402  (영수증 읽기·쓰기와 제목 정규화도 한 벌)
 
 HQ = nd.HQ
 SHOT_DIR = os.path.join(HQ, "logs", "naver-publish")
@@ -72,8 +74,80 @@ def time_problem(when):
 
 def load_post(stem):
     p, meta, body = nd.read_post(stem)
-    title, _chunks, tags, _images = nd.parse_blocks(body)
-    return p, meta, title, tags
+    title, _chunks, tags, images = nd.parse_blocks(body)
+    return p, meta, title, tags, len(images)
+
+
+#: 캡처가 못 찍힌 사유 — 드라이런·발행 두 자리가 **같은 문구**를 쓴다.
+NO_SHOT = "화면 증적 없음 — Orca 캡처 실패"
+
+
+def part(reasons):
+    """STATUS 줄 꼬리. 사유가 없으면 **한 글자도 안 붙는다.**
+
+    🔴 «부분» 은 정관 §4 의 «작업은 끝났지만 빠진 단계가 있다» 자리다 — 발행이 끝났으면
+       `FAIL` 이 아니고, 그렇다고 아무 표시 없는 `OK` 도 아니다.
+    """
+    return (" (부분: %s)" % " · ".join(reasons)) if reasons else ""
+
+
+def readback_verdict(got, title, n_img):
+    r"""되읽은 글이 «우리가 올린 그 글» 인가 — 어긋난 사유 목록(빈 목록 = 이상 없음).
+
+    🔴 **화면 캡처의 못잡음을 여기서 좁힌다** (2026-09-12). 캡처는 «찍혔는가» 만 말하고
+       «맞는 화면인가» 는 말하지 못했다. 그래서 캡처 대신 **실물을 되읽어** 잰다 — 제목이
+       원고와 같은지, 그림이 실릴 만큼 실렸는지, 본문이 비지 않았는지.
+    🔴 되읽기 실패는 **`FAIL` 이 아니다.** 발행은 이미 끝났고 못 본 것은 우리 쪽 사정이다 —
+       그 사실만 «부분» 으로 남긴다.
+    🔴 여전히 못 잡는 것: 그림이 **맞는 그림인지**, 문단이 초안 순서대로인지. 에디터가 본문을
+       재구성하므로 바이트 대조가 성립하지 않는다 — 사람 자리다.
+    """
+    if not got:
+        return ["되읽기 못 함 — 발행은 됐고 실물 내용은 못 봤다"]
+    bad = []
+    if ba.norm(got.get("title")) != ba.norm(title):
+        bad.append("실물 제목이 원고와 다르다: %r" % (got.get("title") or "")[:30])
+    if n_img and (got.get("images") or 0) < n_img:
+        bad.append("그림이 %d/%d 장만 실렸다" % (got.get("images") or 0, n_img))
+    if not (got.get("chars") or 0):
+        bad.append("실물 본문이 비었다")
+    return bad
+
+
+def read_published(url, log):
+    """발행된 글을 실물에서 다시 뜬다. 못 뜨면 `None` — **조용히 넘어가지 않는다.**"""
+    m = nb.POST_URL.search(url or "")
+    if not m:
+        log("readback| 주소에서 글 번호를 못 읽었다: %r" % ((url or "")[:80]))
+        return None
+    try:
+        got = nb.post(m.group(1), m.group(2))
+    except Exception as e:                       # 네트워크·차단 — 발행은 이미 끝났다
+        log("readback| 실패: %s: %s" % (type(e).__name__, e))
+        return None
+    log("readback| title=%r images=%d chars=%d"
+        % ((got.get("title") or "")[:40], got.get("images") or 0, got.get("chars") or 0))
+    return got
+
+
+def keep_receipt(post, title, url, got, shot, why, log):
+    """발행 영수증 — `blog_audit` 이 «무엇이 나갔는가» 를 셀 때 읽는다.
+
+    🔴 **글 번호가 없으면 쓰지 않는다** — 가리키는 것이 없는 영수증은 «나갔다» 를 주장만 하고
+       확인은 못 하게 만든다. 못 쓴 사유는 로그에 남긴다(정관 §0).
+    """
+    no = ba.log_no(url)
+    if not no:
+        log("receipt| 안 씀 — 주소에서 글 번호를 못 읽었다: %r" % ((url or "")[:60]))
+        return None
+    q = ba.write_receipt(post, {
+        "post": post, "title": title, "url": url, "log_no": no, "source": "worker",
+        "published_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "shot": shot or "",
+        "readback": {k: got.get(k) for k in ("title", "images", "chars")} if got else None,
+        "partial": why,
+    })
+    log("receipt| " + q)
+    return q
 
 
 def plan_problem(tags, category, when):
@@ -218,7 +292,7 @@ def gate(md_path, log):
 
 
 def run(a, log):
-    md_path, _meta, title, tags = load_post(a.post)
+    md_path, _meta, title, tags, n_img = load_post(a.post)
     category, when = a.category, a.at
     bad = plan_problem(tags, category, when)
     if bad:
@@ -270,19 +344,21 @@ def run(a, log):
         #    `shot=None` 은 본문 줄에만 남고 **STATUS 는 그냥 `OK`** 였다 — 로그 꼬리만 읽는 사람에게는
         #    다른 회차와 구별되지 않는다. 정관 §4 는 이 자리에 «부분» 을 쓰라고 정해 뒀다:
         #    발행은 끝났으므로 `FAIL` 이 아니고, **증적이 없다는 사실은 남는다.**
-        #    🔴 못 잡는 것: 캡처가 찍혔어도 «맞는 화면인가» 는 사람 자리다.
-        def _part(shot):
-            return "" if shot else " (부분: 화면 증적 없음 — Orca 캡처 실패)"
-
+        #    🔴 캡처는 «찍혔는가» 만 말한다 — «맞는 화면인가» 는 아래 되읽기가 잰다.
         if a.publish:
             url = o.confirm()
             shot = o.screenshot(os.path.join(SHOT_DIR, a.post + "_published.png"))
             log("published url=%s shot=%s" % (url, shot))
-            log("STATUS: OK published %s%s" % (url, _part(shot))); return 0
+            # 🔴 **실물을 되읽어 확인한다** (2026-09-12) — 여기서만 돈다. 드라이런에는 되읽을
+            #    글이 없고, 없는 것을 뜨러 가면 매 회차 헛되이 네트워크를 탄다.
+            got = read_published(url, log)
+            why = ([] if shot else [NO_SHOT]) + readback_verdict(got, title, n_img)
+            keep_receipt(a.post, title, url, got, shot, why, log)
+            log("STATUS: OK published %s%s" % (url, part(why))); return 0
         shot = o.screenshot(os.path.join(SHOT_DIR, a.post + "_dry.png"))
         left = "(수정 회차 — 원 글 태그는 건드리지 않는다)" if a.update else o.clear_tags()
         log("dry: panel filled, «발행» not clicked, tags cleared (left: %s) shot=%s" % (left, shot))
-        log("STATUS: OK (dry run — 발행 안 함)%s" % _part(shot)); return 0
+        log("STATUS: OK (dry run — 발행 안 함)%s" % part([] if shot else [NO_SHOT])); return 0
     except nd.Missing as e:
         o.screenshot(os.path.join(SHOT_DIR, a.post + "_fail.png"))
         log("STATUS: FAIL selector %s" % e); return 1
@@ -293,15 +369,6 @@ def run(a, log):
         import traceback
         log(traceback.format_exc()[-800:])
         log("STATUS: FAIL worker-error %s" % type(e).__name__); return 1
-
-
-def _part_probe(shot):
-    """`main()` 안 `_part` 와 **같은 식**. 지역 함수는 밖에서 못 불러서 이 자리를 둔다.
-
-    🔴 두 벌이 되는 것이 마음에 걸려 위 축이 «STATUS 줄이 `_part(shot)` 을 두 번 쓴다» 를
-       같이 본다 — 식이 갈리면 그 축이 먼저 걸린다.
-    """
-    return "" if shot else " (부분: 화면 증적 없음 — Orca 캡처 실패)"
 
 
 def self_test():
@@ -349,14 +416,33 @@ def self_test():
          _src.count("o.confirm(") == 1),
         # ── 캡처 증적 (2026-09-12) — 🔴 **양쪽을 본다.** «붙는다» 만 보면 늘 붙이는 코드도
         #    통과하고, 그러면 증적이 있는 회차까지 «부분» 으로 읽힌다(정관 §0 역검증).
-        ("🔴 캡처가 없으면 STATUS 에 «부분» 이 붙는다", _part_probe(None) != ""),
-        ("캡처가 있으면 «부분» 이 안 붙는다 — 늘 붙이는 코드가 아니다", _part_probe("x.png") == ""),
+        ("🔴 사유가 있으면 STATUS 에 «부분» 이 붙는다", part([NO_SHOT]) != ""),
+        ("사유가 없으면 «부분» 이 안 붙는다 — 늘 붙이는 코드가 아니다", part([]) == ""),
+        ("사유가 둘이면 둘 다 적는다 (첫 하나로 뭉개지 않는다)",
+         "가" in part(["가", "나"]) and "나" in part(["가", "나"])),
         # 🔴 찾는 문자열을 **이어 붙여 만든다** — 그대로 적으면 이 줄 자신이 세어져
         #    숫자가 늘 어긋난다(이 레포에서 네 번째 자기참조다).
         ("«부분» 표기를 STATUS: OK 줄들이 **전부** 쓴다 (본문 줄에만 적지 않는다)",
          (lambda n, ls: len(ls) >= 2 and all(n in l for l in ls))(
-             "_part" + "(shot)",
+             "part" + "(",
              [l for l in _src.splitlines() if l.strip().startswith('log("STATUS: OK')])),
+        # ── 되읽기 (2026-09-12) — 🔴 **맞는 쪽과 어긋난 쪽을 따로** 본다 ─────────
+        ("🔴 되읽은 글이 원고와 맞으면 사유 0건",
+         readback_verdict({"title": "AI 뉴스", "images": 3, "chars": 3000}, "AI 뉴스", 3) == []),
+        ("🔴 실물 제목이 다르면 걸린다 (캡처는 이것을 못 봤다)",
+         len(readback_verdict({"title": "남의 글", "images": 3, "chars": 3000}, "AI 뉴스", 3)) == 1),
+        ("🔴 그림이 덜 실렸으면 걸린다",
+         len(readback_verdict({"title": "AI 뉴스", "images": 1, "chars": 3000}, "AI 뉴스", 3)) == 1),
+        ("🔴 본문이 비었으면 걸린다 (제목만 맞는 빈 글)",
+         len(readback_verdict({"title": "AI 뉴스", "images": 3, "chars": 0}, "AI 뉴스", 3)) == 1),
+        ("🔴 되읽기 자체를 못 했으면 «부분» 이지 «통과» 가 아니다",
+         readback_verdict(None, "AI 뉴스", 3) != []),
+        ("제목 공백 꼴이 달라도 같은 글로 본다 (네이버가 \\xa0 로 저장한다)",
+         readback_verdict({"title": "AI\xa0 뉴스", "images": 3, "chars": 3000}, "AI 뉴스", 3) == []),
+        # 🔴 드라이런은 되읽을 글이 없다 — 없는 것을 뜨러 매 회차 네트워크를 타면 안 된다.
+        ("되읽기·영수증은 --publish 분기 안에만 있다",
+         _src.count("read_published(") == 1 and _src.count("keep_receipt(") == 1
+         and _src.index("if a.publish:") < _src.index("read_published(") < _src.index("_dry.png")),
     ]
     for name, res in extra:
         fails += not res
