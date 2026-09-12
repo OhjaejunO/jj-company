@@ -44,6 +44,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -51,6 +52,13 @@ import tempfile
 PAT = re.compile(r"02_제작중[\\/]+(ep[0-9]+[^\\/\"'\s,]*)")  # 02_제작중\epNN...
 TAIL_LINES = 14
 GATE_TIMEOUT = 240
+
+# 코덱스 모드(--codex)에서만 쓴다. 하드코딩하면 그 줄이 또 사본이 되므로 환경변수로 덮는다
+# (편 verify.py 의 EPCHECK_DIR 과 같은 꼴).
+WORKSHOP = os.environ.get(
+    "WORKSHOP_DIR",
+    os.path.join(os.path.expanduser("~"), "orca", "tomangchi-lab.github.io", "workshop"))
+SKIP_DIRS = ("__pycache__", ".git")  # 게이트 자신이 남기는 것을 «건드렸다»로 읽지 않는다
 
 
 def _out(obj):
@@ -116,6 +124,78 @@ def run_gate(folder):
             break
     tail = "\n".join(text.strip().splitlines()[-TAIL_LINES:])
     return status, tail
+
+
+def newest_mtime(folder):
+    """이 폴더에서 가장 최근에 바뀐 파일의 시각. 없으면 0."""
+    newest = 0.0
+    for root, dirs, files in os.walk(folder):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        for fn in files:
+            if fn.endswith(".pyc"):
+                continue
+            try:
+                m = os.path.getmtime(os.path.join(root, fn))
+            except OSError:
+                continue
+            if m > newest:
+                newest = m
+    return newest
+
+
+def touched_eps_since(workshop, since):
+    """«이 세션이 건드린 편» 을 트랜스크립트가 아니라 mtime 으로 고른다.
+
+    코덱스는 클로드의 트랜스크립트 JSONL 을 남기지 않는다. 그런데 게이트가 재려는 것은
+    «무엇을 적었는가» 가 아니라 «어느 편이 바뀌었는가» 이므로, 파일 시각이 더 곧은 자다 —
+    셸 변수 경로($W/ep44...)나 `cd` 뒤의 별도 호출처럼 클로드판이 놓치던 자리도 같이 잡힌다.
+    """
+    eps = {}
+    base = os.path.join(workshop, "02_제작중")
+    if not os.path.isdir(base):
+        return eps
+    for name in sorted(os.listdir(base)):
+        folder = os.path.join(base, name)
+        if not os.path.isdir(folder):
+            continue
+        if newest_mtime(folder) > since:
+            eps[os.path.normcase(os.path.abspath(folder))] = name
+    return eps
+
+
+def main_codex(stamp_path):
+    """코덱스 Stop 훅용. 리포트를 stdout 에 «글»로 내고 종료 코드로만 말한다.
+
+    0 = 막을 것 없음 / 3 = 게이트 미통과. 코덱스가 요구하는 JSON 꼴은 래퍼(.codex\\hooks\\stop.ps1)가
+    안다 — 그 지식을 한 곳에만 둔다(PreToolUse 에서 exit 2 가 무시되고 JSON deny + exit 0 이어야
+    했던 것과 같은 자리).
+    """
+    if not stamp_path or not os.path.exists(stamp_path):
+        # 조용히 통과시키지 않는다(§0). 잴 기준이 없었다는 사실 자체를 남긴다.
+        print("gate-codex: 세션 스탬프가 없다(%s) — 아무것도 재지 못했다." % stamp_path)
+        return 0
+    since = os.path.getmtime(stamp_path)
+    eps = touched_eps_since(WORKSHOP, since)
+    if not eps:
+        return 0
+    results = {name: run_gate(folder) for folder, name in eps.items()}
+    fails = {k: v for k, v in results.items() if v[0] == "FAIL"}
+    oks = sorted(k for k, v in results.items() if v[0] == "OK")
+    nogate = sorted(k for k, v in results.items() if v[0] == "NOVERIFY")
+    head = []
+    if oks:
+        head.append("게이트 OK - " + ", ".join(oks))
+    if nogate:
+        head.append("게이트 없음(verify.py 없음, 못 잰다) - " + ", ".join(nogate))
+    if not fails:
+        if head:
+            print("gate-codex: " + " / ".join(head))
+        return 0
+    body = "\n\n".join("[%s] %s\n%s" % (name, st, tail) for name, (st, tail) in sorted(fails.items()))
+    if head:
+        body = " / ".join(head) + "\n\n" + body
+    print("gate-codex: 게이트 미통과. 고치고 verify.py 를 다시 돌린 뒤 결과를 보고하라.\n" + body)
+    return 3
 
 
 def main(payload):
@@ -222,11 +302,94 @@ def self_test():
     finally:
         sys.stdout = old
     cases.append(("no new transcript lines -> silent (state file)", buf.getvalue().strip() == ""))
+    cases += _codex_cases()
     ok = all(v for _, v in cases)
     for name, v in cases:
         print(("PASS " if v else "FAIL ") + name)
     print("STATUS: " + ("OK" if ok else "FAIL selftest"))
     return 0 if ok else 1
+
+
+# ------------------------------------------------- self-test (codex mode)
+def _touch(path, when):
+    os.utime(path, (when, when))
+
+
+def _codex_run(stamp):
+    buf = io.StringIO()
+    old = sys.stdout
+    sys.stdout = buf
+    try:
+        code = main_codex(stamp)
+    finally:
+        sys.stdout = old
+    return code, buf.getvalue()
+
+
+def _codex_cases():
+    """축마다 폴더를 따로 둔다 — 한 폴더로 겹치면 «그 축이 없었어도 잡혔을 입력» 이 된다(§0)."""
+    root = tempfile.mkdtemp(prefix="gate_codex_")
+    globals()["WORKSHOP"] = root
+    base = os.path.join(root, "02_제작중")
+    stamp = os.path.join(root, "s.stamp")
+    io.open(stamp, "w").write("x")
+    t0 = os.path.getmtime(stamp)
+
+    def ep(name, ok=True, verify=True, mtime=t0 + 10):
+        d = os.path.join(base, name)
+        os.makedirs(d, exist_ok=True)
+        if verify:
+            p = os.path.join(d, "verify.py")
+            with io.open(p, "w", encoding="utf-8") as fh:
+                fh.write("print('STATUS: %s')\n" % ("OK" if ok else "FAIL selftest"))
+            _touch(p, mtime)
+        else:
+            p = os.path.join(d, "note.txt")
+            io.open(p, "w").write("x")
+            _touch(p, mtime)
+        return d
+
+    out = []
+
+    # 1. 바뀐 편이 FAIL 이면 막는다
+    ep("ep91_fail", ok=False)
+    c, s = _codex_run(stamp)
+    out.append(("codex: 바뀐 편 FAIL -> 차단", c == 3 and "ep91_fail" in s))
+    shutil.rmtree(base)
+
+    # 2. 바뀐 편이 OK 면 안 막는다 (전부 막는 게이트가 아님을 증명)
+    ep("ep92_ok", ok=True)
+    c, s = _codex_run(stamp)
+    out.append(("codex: 바뀐 편 OK -> 통과", c == 0 and "ep92_ok" in s))
+    shutil.rmtree(base)
+
+    # 3. 스탬프보다 «오래된» FAIL 편은 재지 않는다 — mtime 축이 실제로 거른다(헛돎 점검)
+    ep("ep93_old_fail", ok=False, mtime=t0 - 60)
+    c, s = _codex_run(stamp)
+    out.append(("codex: 안 건드린 FAIL 편 -> 조용", c == 0 and s.strip() == ""))
+    shutil.rmtree(base)
+
+    # 4. __pycache__ 만 새것이면 «건드린 것» 이 아니다 (게이트가 자기 흔적에 스스로 걸리지 않는다)
+    d = ep("ep94_cache_only", ok=False, mtime=t0 - 60)
+    pc = os.path.join(d, "__pycache__")
+    os.makedirs(pc, exist_ok=True)
+    f = os.path.join(pc, "x.cpython-313.pyc")
+    io.open(f, "w").write("x")
+    _touch(f, t0 + 10)
+    c, s = _codex_run(stamp)
+    out.append(("codex: __pycache__ 만 새것 -> 조용", c == 0 and s.strip() == ""))
+    shutil.rmtree(base)
+
+    # 5. 스탬프가 없으면 조용히 통과하지 않고 «못 쟀다» 를 남긴다
+    c, s = _codex_run(os.path.join(root, "nope.stamp"))
+    out.append(("codex: 스탬프 없음 -> 통과하되 말한다", c == 0 and "스탬프" in s))
+
+    # 6. verify.py 없는 폴더는 보고만 하고 절대 안 막는다
+    ep("ep95_reel", verify=False)
+    c, s = _codex_run(stamp)
+    out.append(("codex: verify.py 없음 -> 보고만", c == 0 and "ep95_reel" in s))
+    shutil.rmtree(base)
+    return out
 
 
 def check():
@@ -249,6 +412,10 @@ if __name__ == "__main__":
         raise SystemExit(self_test())
     if "--check" in sys.argv:
         raise SystemExit(check())
+    if "--codex" in sys.argv:
+        # 코덱스 Stop 훅. 페이로드는 래퍼가 로그에 남기고, 여기는 스탬프만 받는다.
+        i = sys.argv.index("--stamp") + 1 if "--stamp" in sys.argv else 0
+        raise SystemExit(main_codex(sys.argv[i] if i else ""))
     try:
         payload = json.load(sys.stdin)
     except Exception:
