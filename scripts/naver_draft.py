@@ -440,9 +440,12 @@ class Orca(object):
         """자리표 문단 하나를 문장으로 **바꾼다** — 나간 글의 «[[JJ 한마디]]» 자리.
 
         🔴 **딱 하나여야 연다.** `cursor_after` 와 같은 규율이다 — 여럿이면 어느 자리인지 모른다.
-        🔴 **에디터는 DOM 선택이 아니라 자기 커서를 본다**(제목 넣기에서 실측한 그것). 그래서
-           먼저 합성 마우스 이벤트로 그 문단 안에 커서를 앉힌 뒤, 문단 내용 전체를 선택하고
-           붙여넣는다. 선택만 바꾸면 엉뚱한 자리에 들어간다.
+        🔴 **에디터는 DOM 선택이 아니라 자기 커서를 본다**(제목 넣기에서 실측한 그것).
+           2026-09-12 에 그것을 여기서 두 번 밟았다 — ⓐ paste 를 **문단 요소**에 던지면 아예 안 받고
+           (`not-handled`), ⓑ Range 로 문단을 선택해도 **무시하고 클릭 자리에** 넣는다
+           (결과가 «[[JJ 한마디]]댓글로 짚어…» 였다). 그래서 **선택도 에디터가 만들게 한다** —
+           문단 첫 줄 왼쪽에서 마지막 줄 오른쪽까지 **끌고**(mousedown→mousemove→mouseup),
+           붙여넣기는 **루트**에 던진다. 선택 위에 떨어지므로 그 선택이 대체된다.
         되고 안 되고는 **부르는 쪽이 되재야 한다** — 이 메서드는 붙여넣기가 먹혔는지까지만 본다.
         """
         js = ("const ps=[...d.querySelectorAll('.se-component.se-text .se-text-paragraph')]"
@@ -450,9 +453,12 @@ class Orca(object):
               "if(ps.length!==1) return 'n=' + ps.length;"
               "const p=ps[0]; const rg0=d.createRange(); rg0.selectNodeContents(p);"
               "const rs=[...rg0.getClientRects()].filter(x=>x.width>0&&x.height>0);"
-              "const r=rs[rs.length-1] || p.getBoundingClientRect();"
-              "for(const ty of ['mousedown','mouseup','click']) p.dispatchEvent(new MouseEvent(ty,"
-              "{bubbles:true,cancelable:true,clientX:r.right-2,clientY:r.top+r.height/2,button:0}));"
+              "const a=rs[0] || p.getBoundingClientRect(), b=rs[rs.length-1] || a;"
+              "const mk=(ty,x,y,btn)=>p.dispatchEvent(new MouseEvent(ty,{bubbles:true,cancelable:true,"
+              "clientX:x,clientY:y,button:0,buttons:btn}));"
+              "mk('mousedown',a.left+1,a.top+a.height/2,1);"
+              "mk('mousemove',b.right-2,b.top+b.height/2,1);"
+              "mk('mouseup',b.right-2,b.top+b.height/2,0);"
               "const sel=d.getSelection(); const rg=d.createRange(); rg.selectNodeContents(p);"
               "sel.removeAllRanges(); sel.addRange(rg);"
               "const dt=new DataTransfer(); dt.setData('text/plain', %s);"
