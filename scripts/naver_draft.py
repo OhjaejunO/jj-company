@@ -457,7 +457,10 @@ class Orca(object):
               "sel.removeAllRanges(); sel.addRange(rg);"
               "const dt=new DataTransfer(); dt.setData('text/plain', %s);"
               "const ev=new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true});"
-              "p.dispatchEvent(ev); return ev.defaultPrevented?'ok':'not-handled';"
+              # 🔴 **루트에 던진다.** 문단 요소에 던지면 에디터가 **안 받는다**(2026-09-12 실측:
+              #    드라이런이 `not-handled` 로 섰다). 본문 붙여넣기는 처음부터 루트에 던지고
+              #    있었는데 이 자리만 문단에 던졌다 — 선택 영역은 루트 안에 있으니 루트가 받는다.
+              "root.dispatchEvent(ev); return ev.defaultPrevented?'ok':'not-handled';"
               ) % (json.dumps(anchor), json.dumps(text))
         r = self.in_frame(js)
         time.sleep(STEP_PAUSE)
