@@ -14,15 +14,26 @@
 #
 # USAGE
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\publish-naver.ps1 -Post 2026-09-07_Fable_Mythos5_1
+#   ... -Post <stem> -Draft          <- STAGE 1: fills the editor and saves a temp draft. NEVER publishes.
 #   ... -Post <stem> -Publish        <- actually publishes. Without it the worker is a dry run.
 #   ... -Post <stem> -Update <logNo> <- refills an ALREADY PUBLISHED post from the draft.
 #       The live post is untouched until Publish is clicked, so without -Publish this is a dry run too.
 #   The worker needs the Orca browser tab logged in to Naver (person's job).
+#
+# WHY STAGE 1 LIVES HERE (2026-09-12)
+#   Naver publishing is two stages: naver_draft.py saves a temp draft, publish_naver.py loads it
+#   and clicks Publish. Only stage 2 had a wrapper, so stage 1 had no lock, no log the audit
+#   can find, and no version gate - and on 2026-09-12 stage 2 failed with 'no-entry' on four
+#   posts for the simple reason that nobody had run stage 1. Half of the pipeline was invisible.
+#   Same wrapper, same lock: the lock also keeps stage 1 and stage 2 off the browser at once.
+#   -Draft is strictly LESS consequential than -Publish, which this wrapper already does.
 
 param(
     [Parameter(Mandatory = $true)][string]$Post,
     [string]$Update,
+    [switch]$Draft,
     [switch]$Publish,
+    [string]$Blog = 'ai-tomangchi-lab',
     [string]$Hq = 'C:\Users\ojaej\jj-company'
 )
 
@@ -57,8 +68,20 @@ if (Test-Path -LiteralPath $LockFile) {
 
 Write-Log ('=== ' + $Task + ' start (pid ' + $PID + ') ===')
 Write-Log ('post: ' + $Post)
-Write-Log ('mode: ' + $(if ($Publish) { 'PUBLISH' } else { 'dry run (no publish)' }))
+if ($Draft) {
+    Write-Log 'mode: DRAFT (stage 1 - save temp draft, never publishes)'
+} else {
+    Write-Log ('mode: ' + $(if ($Publish) { 'PUBLISH' } else { 'dry run (no publish)' }))
+}
 if ($Update) { Write-Log ('target: UPDATE existing post logNo ' + $Update) }
+
+# Stage 1 saves a temp draft and stage 2 publishes one. Mixing the switches would read as
+# 'write it and push it out in one go', which is not what either worker does - and the
+# reader of the log could not tell which one ran. Refuse instead of guessing.
+if ($Draft -and ($Publish -or $Update)) {
+    Write-Log 'STATUS: FAIL draft-with-publish (stage 1 and stage 2 are separate runs)'
+    exit 2
+}
 
 $lockTaken = $false
 try {
@@ -95,16 +118,21 @@ try {
     Write-Log ('operations server now at ' + $rev)
 
     # --- worker ------------------------------------------------------------------
-    $WorkerPy = Join-Path $Hq 'scripts\publish_naver.py'
+    $WorkerName = $(if ($Draft) { 'naver_draft.py' } else { 'publish_naver.py' })
+    $WorkerPy = Join-Path $Hq ('scripts\' + $WorkerName)
     if (-not (Test-Path -LiteralPath $WorkerPy)) {
         Write-Log ('worker missing: ' + $WorkerPy)
         Write-Log 'STATUS: FAIL worker-missing'
         exit 1
     }
     $WorkerArgs = @('--post', $Post)
-    if ($Update) { $WorkerArgs += @('--update', $Update) }
-    if ($Publish) { $WorkerArgs += '--publish' }
-    Write-Log ('publish_naver.py ' + ($WorkerArgs -join ' '))
+    if ($Draft) {
+        $WorkerArgs += @('--blog', $Blog)
+    } else {
+        if ($Update) { $WorkerArgs += @('--update', $Update) }
+        if ($Publish) { $WorkerArgs += '--publish' }
+    }
+    Write-Log ($WorkerName + ' ' + ($WorkerArgs -join ' '))
     $out  = & py $WorkerPy @WorkerArgs 2>&1
     $code = $LASTEXITCODE
     foreach ($l in $out) { Write-Log ('  worker| ' + $l) }
