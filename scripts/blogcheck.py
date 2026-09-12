@@ -66,6 +66,34 @@ SRC = re.compile(r"\(출처: (?:[a-z0-9.-]+\.[a-z]{2,}|X / @[A-Za-z0-9_]+)(?: [^
 VIDEO_AXIS_SINCE = "2026-09-12"
 #: «토망치랩 한마디» 절을 되살린 날 (JJ 지시 2026-09-12). 그 전 초안은 절이 없어도 통과한다.
 COMMENT_AXIS_SINCE = "2026-09-12"
+#: 이미지 경로 실재 축이 서는 날. 이전 글은 이미 나갔으므로 소급하지 않는다.
+IMG_PATH_AXIS_SINCE = "2026-09-12"
+
+#: `## 이미지` 한 줄 — «1. `<경로>` — <설명> (출처: …)». `naver_draft.parse_blocks` 와 **같은 꼴**이다.
+IMG_LINE = re.compile(r"^\d+\.\s+`([^`]+)`\s+\u2014\s+(.*)$")
+
+#: 상대 경로를 푸는 두 뿌리. `naver_draft` 가 쓰던 값을 여기로 옮겼다 — 두 벌로 두면 갈린다.
+HQ_ROOT = r"C:\Users\ojaej\jj-company"
+WORKSHOP_ROOT = r"C:\Users\ojaej\orca\tomangchi-lab.github.io"
+
+
+def resolve_image(path):
+    r"""상대 경로는 «있는 쪽»으로 푼다 — `workshop\\…` 은 워크숍 루트, `reports\\…` 는 운영 서버(HQ).
+
+    2026-09-06 실측: 영상 프레임을 `reports\\blog\\img\\` 에 뽑아 두고 워크숍 루트로만 풀어
+    image-missing 이 났다.
+
+    🔴 **이 함수는 `naver_draft` 에 있었고 게이트는 그것을 몰랐다** (2026-09-12). 그래서 채우기는
+       경로를 풀 수 있었고 게이트는 줄 수만 셌다 — 아래 `[IMG-2]` 가 재는 것이 바로 이 함수의 결과다.
+       **부르는 자리를 하나로 둔다**: 두 벌이면 한쪽만 고쳐지고 그때부터 둘이 다른 것을 푼다.
+    """
+    if os.path.isabs(path):
+        return path
+    for root in (WORKSHOP_ROOT, HQ_ROOT):
+        q = os.path.join(root, path)
+        if os.path.exists(q):
+            return q
+    return os.path.join(WORKSHOP_ROOT, path)   # 없으면 종전 경로 그대로 — 오류 메시지가 그 경로를 가리킨다
 
 #: 채우기가 **먹어 치우는** 자리 표시 둘 — 이건 원고에 남아도 지면에 안 나간다.
 CONSUMED_MARK = re.compile(r"^\[\[(이미지|영상)\s+\d+\]\]$")
@@ -231,6 +259,24 @@ def check(md, publish=False, caption=None, kind=None):
         fails.append("이미지 %d장 (3~6)" % n_img)
     elif len(re.findall(r"\(출처: ", imgs)) < n_img:
         fails.append("이미지 캡션에 (출처: …) 누락")
+
+    # ── [IMG-2] 그림이 실제로 거기 있는가 (2026-09-12 신설) ─────────────────────
+    # 🔴 **종전 축은 «줄 수»만 셌다.** 2026-09-09 코덱스이사 초안은 경로를 `01_cover.png` 처럼
+    #    **파일 이름만** 적어 놨는데 게이트는 내내 `STATUS: OK` 였고, 발행 워커가 에디터를 열기
+    #    **직전에** `image-missing` 으로 섰다 — 재는 자리가 한 단계 늦었다(정관 §0 «검사는 쓰기 전에»).
+    #    그날 다섯 편을 올리는 회차에서 그 한 편만 두 번 돌게 됐다.
+    # 🔴 판정은 `resolve_image()` 의 결과다 — **채우기가 쓰는 바로 그 함수**다. 규칙을 베껴 쓰면
+    #    한쪽만 고쳐지고 그때부터 게이트와 채우기가 다른 곳을 본다.
+    # 🔴 **못 잡는 것**: 그림이 «맞는 그림인가» 는 못 본다. 있는가만 본다.
+    if (meta.get("date") or "") >= IMG_PATH_AXIS_SINCE:
+        gone = []
+        for ln in imgs.splitlines():
+            m = IMG_LINE.match(ln.strip())
+            if m and not os.path.exists(resolve_image(m.group(1))):
+                gone.append(m.group(1))
+        if gone:
+            fails.append("[IMG-2] 그림 파일이 없다 — 발행 때 선다: %s%s"
+                         % (gone[0], (" 외 %d건" % (len(gone) - 1)) if len(gone) > 1 else ""))
 
     # ── [VID] 영상 축 (2026-09-12 신설) ──────────────────────────────────────
     # 🔴 **블로그에만 영상 자리가 없었다** — 조문·게이트·채우기 셋 다 0건이라
@@ -414,6 +460,18 @@ def self_test():
     ph_ok = cmt_ok.replace("## 관련글", "[[이미지 2]]\n[[영상 1]]\n\n## 관련글")
     cases.append(("자리표 축이 헛돌지 않는다 — 채우기가 먹는 둘은 통과",
                   not any(x.startswith("[PH]") for x in check(ph_ok)[0]), check(ph_ok)[0]))
+    # ── [IMG-2] 그림 실재 — 세 면 (2026-09-12). 🔴 **있는 쪽과 없는 쪽을 따로** 본다:
+    #    한쪽만 보면 «전부 통과시키는 검사» 도 «전부 막는 검사» 도 정상으로 보인다(정관 §0).
+    _here = os.path.dirname(os.path.abspath(__file__))
+    _real = dated
+    for _n, _f in (("a.png", "blogcheck.py"), ("b.png", "blogcheck.py"), ("c.png", "blogcheck.py")):
+        _real = _real.replace("`%s`" % _n, "`%s`" % os.path.join(_here, _f))
+    cases.append(("🔴 [IMG-2] 없는 그림 경로 → FAIL (발행 워커가 직전에 서던 자리)",
+                  any(x.startswith("[IMG-2]") for x in check(dated)[0]), check(dated)[0]))
+    cases.append(("[IMG-2] 실재하는 경로는 통과 — 전부 막는 검사가 아니다",
+                  not any(x.startswith("[IMG-2]") for x in check(_real)[0]), check(_real)[0]))
+    cases.append(("[IMG-2] 축이 서기 전 초안은 안 본다 (기발행분 소급 없음)",
+                  not any(x.startswith("[IMG-2]") for x in check(good)[0]), check(good)[0]))
     f, _ = check(good, publish=True)
     cases.append(("옛 초안은 --publish 로도 판정이 같다", not f, f))
     f, _ = check(good.replace("(출처: blog.google · 2026-09-07)", ""))
