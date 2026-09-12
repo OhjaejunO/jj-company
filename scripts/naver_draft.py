@@ -26,6 +26,7 @@ r"""네이버 블로그 초안 넣기 (1단계) — 승인된 초안 md 를 Orca
 """
 import argparse
 import base64
+import hashlib
 import html
 import io
 import json
@@ -133,12 +134,12 @@ def parse_blocks(body):
             continue
         buf = []
         for ln in q.splitlines():
-            m = re.match(r"^\[\[이미지 (\d+)\]\]\s*$", ln.strip())
+            m = re.match(r"^\[\[(이미지|영상) (\d+)\]\]\s*$", ln.strip())
             if m:
                 if "\n".join(buf).strip():
                     chunks.append(md_to_html("\n".join(buf)))
                 buf = []
-                chunks.append(("img", int(m.group(1))))
+                chunks.append(("img" if m.group(1) == "이미지" else "vid", int(m.group(2))))
             else:
                 buf.append(ln)
         if "\n".join(buf).strip():
@@ -154,6 +155,34 @@ def parse_blocks(body):
         if m:
             images.append({"path": m.group(1), "caption": m.group(2)})
     return title, chunks, tags, images
+
+
+#: `## 영상` 절 한 줄. 경로만 있으면 통째로, `· 12~20` 이면 그 구간, `· <주소>` 면 원본 링크 카드도 붙인다.
+VIDEO_LINE = re.compile(r"^\d+\.\s+`([^`]+)`\s*"
+                        r"(?:·\s*([\d.]+)~([\d.]+)\s*)?"
+                        r"(?:·\s*(https?://\S+)\s*)?"
+                        r"—\s+(.*)$")
+
+
+def parse_videos(body):
+    """`## 영상` 절 → `[{path, start, end, url, caption}, …]`. 절이 없으면 빈 목록.
+
+    🔴 **왜 영상 자리가 필요한가 (2026-09-12 JJ 지적).** 블로그 규격에는 영상 축이
+       **0건**이었다 — 조문·게이트·채우기 셋 다. 그래서 `2026-09-11_챗지피티이미지2_5`
+       글이 「소개 필름 한 편에 … **한 영상에서 차례로 볼 수 있어요**」라고 적어 놓고
+       **정지 캡처 한 장**만 실었다. 독자에게는 없는 것을 가리키는 문장이다.
+       인스타·릴스·Threads 에는 «영상 소스는 영상으로»(SKILL v3.24·v3.83)가 서 있는데
+       블로그만 비어 있었다.
+    """
+    out = []
+    for ln in _section(body, "영상").splitlines():
+        m = VIDEO_LINE.match(ln.strip())
+        if m:
+            out.append({"path": m.group(1),
+                        "start": float(m.group(2)) if m.group(2) else None,
+                        "end": float(m.group(3)) if m.group(3) else None,
+                        "url": m.group(4), "caption": m.group(5)})
+    return out
 
 
 def resolve_image(path):
@@ -175,6 +204,52 @@ def jpeg_b64(path):
         im = im.resize((IMG_MAX_W, round(im.height * IMG_MAX_W / im.width)))
     buf = io.BytesIO(); im.save(buf, "JPEG", quality=JPEG_Q)
     return base64.b64encode(buf.getvalue()).decode()
+
+
+#: GIF 규격 — 붙여넣기로 올릴 수 있는 크기 안에서 «움직임이 보이는» 최소값 (2026-09-12 실측).
+GIF_W, GIF_FPS, GIF_MAX_S, GIF_MAX_BYTES = 560, 8, 12.0, 8 * 1024 * 1024
+GIF_DIR = os.path.join(HQ, "logs", "naver-draft", "gif")
+
+
+def gif_for(v):
+    r"""영상 한 줄 → 구워 둔 GIF 경로.
+
+    🔴 **왜 GIF 인가 (2026-09-12 실측).** 네이버 스마트에디터는
+       ⓐ **영상 File 붙여넣기를 받지 않는다** — `paste` 는 삼켜지는데(`defaultPrevented`)
+         컴포넌트가 **0건** 생긴다(4.9MB mp4 로 실측, 40초까지 기다려도 그대로).
+       ⓑ **동영상 단추는 OS 파일 대화상자**를 여는데, 이 워커에는 키 입력 경로가 **없고**
+         자체 검사가 그것을 못 만들게 막고 있다(«OS 키 입력 경로 없음»).
+       ⓒ **GIF 붙여넣기는 된다** — `blogfiles.pstatic.net` 주소를 받는다(실측).
+       그래서 **이미 도는 이미지 경로를 그대로 쓴다.** 움직임이 보이는 것이 요점이고,
+       원본 전체는 같은 줄의 주소가 **링크 카드**로 받는다(그쪽도 실측 — `se-oglink` 1건).
+
+    🔴 **구간을 안 적으면 앞에서부터 %.0f초**다 — 통째로 굽지 않는다. GIF 는 코덱이 없어
+       길이가 곧 크기이고, 붙여넣기로 보낼 수 있는 한도를 넘으면 아무것도 못 싣는다.
+    """ % GIF_MAX_S
+    src = resolve_image(v["path"])
+    if not os.path.exists(src):
+        raise Missing("영상 파일이 없다: %s" % src)
+    start = v["start"] or 0.0
+    end = v["end"] if v["end"] is not None else start + GIF_MAX_S
+    dur = min(end - start, GIF_MAX_S)
+    if dur <= 0:
+        raise Missing("영상 구간이 비었다: %s~%s" % (v["start"], v["end"]))
+    key = hashlib.sha1(("%s|%.2f|%.2f|%d|%d" % (src, start, dur, GIF_W, GIF_FPS)).encode("utf-8")).hexdigest()[:16]
+    out = os.path.join(GIF_DIR, key + ".gif")
+    if not os.path.exists(out):
+        os.makedirs(GIF_DIR, exist_ok=True)
+        vf = ("fps=%d,scale=%d:-2:flags=lanczos,split[a][b];[a]palettegen=max_colors=128[p];"
+              "[b][p]paletteuse=dither=bayer" % (GIF_FPS, GIF_W))
+        r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", "%.2f" % start, "-t", "%.2f" % dur,
+                            "-i", src, "-vf", vf, "-loop", "0", out],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if r.returncode != 0 or not os.path.exists(out):
+            raise Missing("GIF 굽기 실패: %s" % (r.stderr or "")[-200:])
+    n = os.path.getsize(out)
+    if n > GIF_MAX_BYTES:
+        raise Missing("GIF 가 너무 크다 (%.1fMB > %.0fMB) — 구간을 줄여라: %s"
+                      % (n / 1048576.0, GIF_MAX_BYTES / 1048576.0, os.path.basename(src)))
+    return out
 
 
 # ---------------------------------------------------------------- 브라우저 (Orca CLI · 페이지 안 JS 만)
@@ -294,6 +369,55 @@ class Orca(object):
         raise Missing("이미지 업로드가 90초 안에 안 끝남: %s (에디터 상태 %s)"
                       % (os.path.basename(path), last))
 
+    def _send_bytes(self, blob):
+        """바이트를 페이지 안 `window.__jj` 로 옮긴다. 길이가 다르면 붙여넣지 않는다."""
+        b = base64.b64encode(blob).decode()
+        self.eval("window.__jj=''")
+        for i in range(0, len(b), CHUNK):
+            self.eval("(()=>{window.__jj+=%s; return 1;})()" % json.dumps(b[i:i + CHUNK]))
+        got = self.eval("window.__jj.length")
+        if got != len(b):
+            raise Missing("전송 길이 불일치 %s≠%d" % (got, len(b)))
+
+    def paste_gif(self, path):
+        """GIF 를 **다시 굽지 않고** 그대로 붙인다 — 다시 구우면 움직임이 사라진다.
+
+        판정은 이미지와 같은 자(`UPLOADED_JS` · `alt` 로 그 장을 본다).
+        """
+        name = os.path.basename(path)
+        self._send_bytes(open(path, "rb").read())
+        js = (self._cursor_to_end() +
+              "const bin=atob(window.__jj); const arr=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);"
+              "const file=new File([arr], %s, {type:'image/gif'}); const dt=new DataTransfer(); dt.items.add(file);"
+              "const ev=new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true}); root.dispatchEvent(ev); window.__jj=''; return ev.defaultPrevented?'ok':'not-handled';"
+              ) % json.dumps(name)
+        r = self.in_frame(js)
+        if r != "ok":
+            raise Missing("GIF 붙여넣기 실패: %s" % r)
+        self.bold_off()
+        last = "none"
+        for _ in range(60):
+            time.sleep(1.5)
+            last = self.in_frame(UPLOADED_JS % json.dumps(name)) or "none"
+            if last == "ok":
+                return
+        raise Missing("GIF 업로드가 90초 안에 안 끝남: %s (에디터 상태 %s)" % (name, last))
+
+    def paste_link(self, url):
+        """주소를 붙여 **링크 카드**(`se-oglink`)를 만든다. 안 생기면 글자 링크로 남는다 — 그건 실패가 아니다."""
+        before = self.in_frame("return d.querySelectorAll('.se-oglink').length;") or 0
+        js = (self._cursor_to_end() +
+              "const dt=new DataTransfer(); dt.setData('text/plain', %s);"
+              "const ev=new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true});"
+              "root.dispatchEvent(ev); return ev.defaultPrevented?'ok':'not-handled';" % json.dumps(url))
+        if self.in_frame(js) != "ok":
+            raise Missing("주소 붙여넣기 실패: %s" % url)
+        for _ in range(10):
+            time.sleep(1.5)
+            if (self.in_frame("return d.querySelectorAll('.se-oglink').length;") or 0) > before:
+                return "카드"
+        return "글자"
+
     def click_named_button(self, name):
         snap = self.run("snapshot")
         refs = (snap.get("result") or {}).get("refs") or {}
@@ -398,6 +522,15 @@ def run(stem, blog, log):
     missing = [f for f in files if not os.path.exists(f)]
     if missing:
         log("STATUS: FAIL image-missing %s" % missing[0]); return 1
+    # 🔴 GIF 는 **에디터를 열기 전에** 다 구워 둔다 — 굽다 실패하면 반쯤 채운 글이 남는다(§0 «검사는 쓰기 전에»).
+    videos = parse_videos(body)
+    try:
+        gifs = [gif_for(v) for v in videos]
+    except Missing as e:
+        log("STATUS: FAIL video %s" % e); return 1
+    for v, gp in zip(videos, gifs):
+        log("video: %s -> %s (%.1fMB)" % (os.path.basename(v["path"]), os.path.basename(gp),
+                                          os.path.getsize(gp) / 1048576.0))
     os.makedirs(SHOT_DIR, exist_ok=True)
     o = Orca(find_page(blog, fresh=True))
     if not open_editor(o, blog, log):
@@ -405,22 +538,42 @@ def run(stem, blog, log):
     try:
         o.set_title(title); log("title ok")
         o._body_clicked = False
-        explicit = any(isinstance(c, tuple) for c in chunks)
-        placed = set()
+        # 자리 지정은 **종류마다 따로** 본다 — 영상 자리만 적은 글에서 이미지 자동 배치가 꺼지면 안 된다.
+        explicit = any(isinstance(c, tuple) and c[0] == "img" for c in chunks)
+        vexplicit = any(isinstance(c, tuple) and c[0] == "vid" for c in chunks)
+        placed, vplaced = set(), set()
         img_i = 0
+
+        def put_video(n_, where):
+            """영상 한 편 = GIF 한 장 + (주소가 있으면) 원본 링크 카드."""
+            o.paste_gif(gifs[n_ - 1]); vplaced.add(n_)
+            log("video %d/%d (%s): %s" % (n_, len(gifs), where, os.path.basename(gifs[n_ - 1])))
+            u = videos[n_ - 1]["url"]
+            if u:
+                log("  원본 링크: %s (%s)" % (u, o.paste_link(u)))
+
         for k, ch in enumerate(chunks):
-            if isinstance(ch, tuple):                      # [[이미지 N]] 자리
-                n_ = ch[1]
-                if 1 <= n_ <= len(files) and n_ not in placed:
-                    o.paste_image(files[n_ - 1]); placed.add(n_); log("image %d/%d (자리 지정): %s" % (n_, len(files), os.path.basename(files[n_ - 1])))
+            if isinstance(ch, tuple):                      # [[이미지 N]] · [[영상 N]] 자리
+                kind, n_ = ch
+                if kind == "img":
+                    if 1 <= n_ <= len(files) and n_ not in placed:
+                        o.paste_image(files[n_ - 1]); placed.add(n_); log("image %d/%d (자리 지정): %s" % (n_, len(files), os.path.basename(files[n_ - 1])))
+                elif 1 <= n_ <= len(gifs) and n_ not in vplaced:
+                    put_video(n_, "자리 지정")
                 continue
             o.paste_html(ch)
             if not explicit and (k == 0 or (0 < k < len(chunks) - 3)) and img_i < len(files):
                 o.paste_image(files[img_i]); placed.add(img_i + 1); log("image %d/%d: %s" % (img_i + 1, len(files), os.path.basename(files[img_i]))); img_i += 1
+            if k == 0 and not vexplicit:                   # 자리를 안 적은 영상은 요약 바로 뒤 — 그 편의 주인공이라 위에 둔다
+                for n_ in range(1, len(gifs) + 1):
+                    put_video(n_, "요약 뒤")
             log("chunk %d/%d ok" % (k + 1, len(chunks)))
         for n_ in range(1, len(files) + 1):               # 자리 지정이 없는 나머지는 끝에
             if n_ not in placed:
                 o.paste_image(files[n_ - 1]); log("image %d/%d (끝): %s" % (n_, len(files), os.path.basename(files[n_ - 1])))
+        for n_ in range(1, len(gifs) + 1):                # 🔴 자리 번호가 어긋난 영상도 **버리지 않는다** (정관 §0 «조용히 실패하는 코드를 남기지 않는다»)
+            if n_ not in vplaced:
+                put_video(n_, "끝")
         st = o.state()
         log("state: %s" % st)
         # 순서 검증 — 조각이 뒤섞였으면 저장하지 않는다
@@ -460,6 +613,21 @@ def probe(blog, log):
 
 
 # ---------------------------------------------------------------- self-test
+#: 영상 절 표본 — 구간·주소가 **있는** 줄과 **없는** 줄 둘 다 든다.
+_VID_MD = ("## 영상\n\n"
+           "1. `workshop\\v.mp4` · 3~9.5 · https://x.com/OpenAI/status/1 — 스케치가 그림이 되는 구간\n"
+           "2. `workshop\\w.mp4` — 통째로\n\n## 태그\n")
+
+
+def _raises_missing(fn, head):
+    """그 호출이 `Missing` 을 내고, 사유가 그 말로 시작하는가."""
+    try:
+        fn()
+    except Missing as e:
+        return str(e).startswith(head)
+    return False
+
+
 def self_test():
     global BLOG_DIR
     import tempfile
@@ -503,6 +671,26 @@ def self_test():
             and ("filter(i=>/pstatic|blogfiles/" + ".test(i.src)).length") not in src),
         ("업로드 판정은 자리표를 «올라갔다» 로 읽지 않는다 (세 값이 갈린다)",
             all(v in UPLOADED_JS for v in ("'none'", "'ok'", "'placeholder'"))),
+        # ── 영상 절 (2026-09-12) — 블로그에 영상 축이 아예 없던 자리 ──────────────
+        ("영상 절이 없으면 빈 목록이다 (영상 없는 편은 아무것도 안 바뀐다)", parse_videos(body) == []),
+        ("영상 줄 파싱: 경로 · 구간 · 주소 · 설명이 갈린다",
+            parse_videos(_VID_MD) == [{"path": "workshop\\v.mp4", "start": 3.0, "end": 9.5,
+                                       "url": "https://x.com/OpenAI/status/1", "caption": "스케치가 그림이 되는 구간"},
+                                      {"path": "workshop\\w.mp4", "start": None, "end": None,
+                                       "url": None, "caption": "통째로"}]),
+        ("[[영상 N]] 줄은 ('vid', N) 조각이 된다",
+            ("vid", 1) in parse_blocks(body.replace("### Q. 둘?", "[[영상 1]]\n\n### Q. 둘?"))[1]),
+        ("영상 자리만 적어도 이미지 자동 배치는 안 꺼진다 (종류마다 따로 본다)",
+            (lambda c: not any(isinstance(x, tuple) and x[0] == "img" for x in c)
+                       and any(isinstance(x, tuple) and x[0] == "vid" for x in c))(
+                parse_blocks(body.replace("### Q. 둘?", "[[영상 1]]\n\n### Q. 둘?"))[1])),
+        # 🔴 반대쪽 — 걸려야 하는 입력 둘. 없으면 «전부 받아들이는 파서» 도 위를 통과한다.
+        ("꼴이 안 맞는 줄은 영상 목록에 안 들어간다",
+            parse_videos(_VID_MD.replace("1. `workshop\\v.mp4`", "- workshop/v.mp4")) ==
+            parse_videos(_VID_MD)[1:]),
+        ("구간이 비면 굽지 않고 선다 (ffmpeg 까지 가지 않는다)",
+            _raises_missing(lambda: gif_for({"path": __file__, "start": 5.0, "end": 5.0,
+                                             "url": None, "caption": ""}), "영상 구간이 비었다")),
         # 검사 문자열은 이어 붙여 만든다 — 이 줄 자체가 검사에 걸리지 않게
         ("OS 키 입력 경로 없음 (run 에 type·keypress 호출 0건)", ("run(\"" + "type\"") not in src and ("run(\"" + "keypress\"") not in src),
         ("발행 버튼을 누르는 코드 없음", ("click_named_button(\"" + "발행\")") not in src),
