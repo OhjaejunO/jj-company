@@ -248,6 +248,7 @@ def run(a, log):
         if a.update:
             if not nd.open_update(o, title, log):
                 return 1
+            nd.fill_comment(o, prep, log)
             nd.insert_videos(o, prep, log)
         else:
             if not nd.open_editor(o, a.blog, log):
