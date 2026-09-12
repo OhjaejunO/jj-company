@@ -1095,11 +1095,18 @@ def run_cli(argv=None):
 
 
 def report(r):
+    #: 🔴 **`WARN` 이 여기 없어서 게이트가 죽었다 (2026-09-12 실측 · ep56).** 2026-09-11 에
+    #:    `Result.warn()` 을 넣으면서 찍는 쪽을 안 고쳤다 — 경고가 하나라도 붙으면
+    #:    `KeyError: 'WARN'` 으로 **게이트가 통째로 중단**되고, `pack()` 은 검사 뒤에 쓰므로
+    #:    원고가 한 글자도 안 나온다. 즉 **«발행을 막지 않는다»고 적어 둔 층이 실제로는
+    #:    발행을 전부 막고 있었다**(정관 §0 «장치가 재는 대상이 틀렸다» 의 이웃 — 여기서는
+    #:    장치가 재기 전에 죽는다). 경고는 `r.failed` 에 안 들어가므로 STATUS 판정은 그대로다.
     for label, verdict, detail in r.items:
-        mark = {"OK": "  OK  ", "FAIL": " FAIL ", "NA": "  --  "}[verdict]
+        mark = {"OK": "  OK  ", "FAIL": " FAIL ", "WARN": " WARN ", "NA": "  --  "}[verdict]
         print("[%s] %s%s" % (mark, label, ("  — " + detail) if detail else ""))
-    n_fail = len(r.failed)
-    print("STATUS: %s" % ("OK" if not n_fail else "FAIL %d건" % n_fail))
+    n_fail, n_warn = len(r.failed), len(r.warned)
+    print("STATUS: %s%s" % ("OK" if not n_fail else "FAIL %d건" % n_fail,
+                            (" (경고 %d건)" % n_warn) if n_warn else ""))
 
 
 # ── 역검증 ──────────────────────────────────────────────────────────────
@@ -1835,6 +1842,50 @@ def _ad_selftest(cc):
     return bad
 
 
+def _reportmark_selftest():
+    """`report()` 가 `Result` 가 낼 수 있는 판정을 **전부** 찍는가 (2026-09-12 신설).
+
+    🔴 양쪽을 본다. ⓐ 경고가 섞인 결과를 죽지 않고 찍고 STATUS 는 여전히 OK 인가
+    ⓑ **모르는 판정은 여전히 던지는가** — 없으면 표를 «전부 통과시키는 기본값»으로
+    고쳐도 이 검사가 통과해 버린다(정관 §0 역검증 · 한쪽만 보면 헛돈다).
+    """
+    bad = 0
+    r = Result()
+    r.ok("[t-1] 통과 축", True)
+    r.warn("[t-2] 경고 축", False, "경고 사유")
+    r.na("[t-3] 해당 없음", "대상 0건")
+    buf, keep = io.StringIO(), sys.stdout
+    sys.stdout = buf
+    try:
+        report(r)
+    except Exception as e:                              # noqa: BLE001 - 무엇이든 잡아 보고한다
+        sys.stdout = keep
+        print("[ FAIL ] report() 가 경고 축에서 죽는다 — %s: %s" % (type(e).__name__, e))
+        return 1
+    finally:
+        sys.stdout = keep
+    out = buf.getvalue()
+    if " WARN " in out and "STATUS: OK (경고 1건)" in out:
+        print("[  OK  ] report() — 경고는 찍히고 STATUS 판정은 안 내려간다")
+    else:
+        bad += 1
+        print("[ FAIL ] report() — 경고 출력이 없거나 STATUS 가 어긋났다: %r" % out.splitlines()[-1:])
+    r2 = Result()
+    r2.items.append(("[t-4] 모르는 판정", "MAYBE", ""))
+    sys.stdout = io.StringIO()
+    try:
+        report(r2)
+        sys.stdout = keep
+        bad += 1
+        print("[ FAIL ] 모르는 판정이 조용히 통과했다 — 표가 기본값을 갖고 있다")
+    except KeyError:
+        sys.stdout = keep
+        print("[  OK  ] report() — 모르는 판정은 여전히 던진다")
+    finally:
+        sys.stdout = keep
+    return bad
+
+
 def selftest():
     cc = load_cardcheck()
     quote_bad = _quote_tone_selftest()
@@ -1888,6 +1939,7 @@ def selftest():
     bad += _postsmin_selftest(cc)
     bad += _reference_selftest(cc)
     bad += _ad_selftest(cc)
+    bad += _reportmark_selftest()
     # 규격 추출 자체의 역검증 — 못 찾으면 던져야 한다.
     try:
         skill_regex("__NOT_A_REAL_REGEX__")
