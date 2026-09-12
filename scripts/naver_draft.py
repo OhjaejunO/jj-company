@@ -424,12 +424,16 @@ class Orca(object):
         🔴 **딱 하나여야 연다.** 여럿이면 어느 자리인지 모르고, 모르는 채로 끼우면
            엉뚱한 절에 영상이 앉는다. 0개·2개 이상이면 세운다.
         """
+        # 🔴 **마지막 줄의 오른쪽 끝**을 누른다. 문단 상자의 왼쪽(`left+5`)을 누르면 에디터 커서가
+        #    **첫 글자 뒤**에 앉아 «S | GIF | ketch는…» 처럼 문단이 쪼개진다(2026-09-12 실측).
+        #    에디터는 DOM 선택이 아니라 **자기 커서**에 붙여넣으므로 누르는 자리가 곧 자리다.
         js = ("const ps=[...d.querySelectorAll('.se-component.se-text .se-text-paragraph')]"
               ".filter(p=>((p.innerText||'').replace(/\\s+/g,' ')).includes(%s));"
               "if(ps.length!==1) return 'n=' + ps.length;"
-              "const p=ps[0]; const r=p.getBoundingClientRect();"
+              "const p=ps[0]; const rects=[...p.getClientRects()]; const r=rects[rects.length-1]"
+              " || p.getBoundingClientRect();"
               "for(const ty of ['mousedown','mouseup','click']) p.dispatchEvent(new MouseEvent(ty,"
-              "{bubbles:true,cancelable:true,clientX:r.left+5,clientY:r.top+r.height/2,button:0}));"
+              "{bubbles:true,cancelable:true,clientX:r.right-2,clientY:r.top+r.height/2,button:0}));"
               "const sel=d.getSelection(); const rg=d.createRange(); rg.selectNodeContents(p);"
               "rg.collapse(false); sel.removeAllRanges(); sel.addRange(rg); return 'ok';") % json.dumps(anchor)
         r = self.in_frame(js)
@@ -438,6 +442,12 @@ class Orca(object):
             raise Missing("닻 문단을 못 찾았다 (%s): %s" % (r, anchor[:30]))
         self._body_clicked = True      # 우리가 자리를 잡았으니 붙여넣기는 커서를 옮기지 않는다
         return r
+
+    def paragraph_intact(self, anchor):
+        """닻 문구가 **한 문단 안에** 그대로 남아 있는가 (끼운 뒤 되재기)."""
+        return bool(self.in_frame(
+            "return [...d.querySelectorAll('.se-component.se-text .se-text-paragraph')]"
+            ".some(p=>((p.innerText||'').replace(/\\s+/g,' ')).includes(%s));" % json.dumps(anchor)))
 
     def has_image_named(self, name):
         """그 이름의 그림이 이미 글에 있는가 — 같은 영상을 두 번 끼우지 않기 위해."""
@@ -632,6 +642,10 @@ def insert_videos(o, prep, log):
         u = videos[n_ - 1]["url"]
         if u:
             log("  원본 링크: %s (%s)" % (u, o.paste_link(u)))
+        # 🔴 **끼운 자리를 되잰다.** 커서가 문단 가운데 앉으면 «S | GIF | ketch는…» 으로 쪼개지는데
+        #    그 순간 닻 문구가 한 문단에 온전히 남지 않는다 — 그것으로 판별한다(2026-09-12 실측).
+        if not o.paragraph_intact(anchors[n_]):
+            raise Missing("문단이 쪼개졌다 — 영상 %d 의 닻 %r 이 한 문단에 안 남았다" % (n_, anchors[n_][:20]))
         done += 1
     log("inserted %d/%d (나머지는 이미 있던 것)" % (done, len(gifs)))
     return done
@@ -852,6 +866,10 @@ def self_test():
             all(len(v) <= ANCHOR_LEN for v in video_anchors(
                 parse_blocks(body.replace("### Q. 둘?", "[[영상 1]]\n\n### Q. 둘?"))[1], 1).values())),
         # 🔴 반대쪽 — 닻을 «딱 하나일 때만» 쓰는 축은 페이지 안 JS 라 여기서는 그 문안만 본다.
+        ("닻 커서는 문단 **오른쪽 끝**을 누른다 (왼쪽을 누르면 첫 글자 뒤에 끼워진다)",
+            "clientX:r.right-2" in src and "clientX:r.left+5,clientY:r.top+r.height/2,button:0}));"
+            "const sel" not in src),
+        ("끼운 뒤 문단이 쪼개졌는지 되잰다", "paragraph_intact(" in src and "문단이 쪼개졌다" in src),
         ("닻이 여럿이면 세운다 (어느 자리인지 모르는 채로 끼우지 않는다)",
             ("ps.length!==" + "1") in src and "닻 문단을 못 찾았다" in src),
         # 검사 문자열은 이어 붙여 만든다 — 이 줄 자체가 검사에 걸리지 않게
