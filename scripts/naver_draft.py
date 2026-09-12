@@ -480,11 +480,26 @@ class Orca(object):
             "return [...d.querySelectorAll('.se-component.se-text .se-text-paragraph')]"
             ".some(p=>((p.innerText||'').replace(/\\s+/g,' ')).includes(%s));" % json.dumps(anchor)))
 
-    def has_image_named(self, name):
-        """그 이름의 그림이 이미 글에 있는가 — 같은 영상을 두 번 끼우지 않기 위해."""
+    def gif_after(self, anchor):
+        """닻 문단 **바로 뒤**에 GIF 가 이미 있는가 — 같은 영상을 두 번 끼우지 않기 위해.
+
+        🔴 **이름으로 묻지 않는다.** 발행되고 나면 네이버가 그 그림의 `alt` 를 **지운다**
+           (2026-09-12 실측: 올릴 때 준 `4a9c…gif` 가 나간 글에서는 빈 문자열이다). 그래서
+           이름으로 묻던 종전 검사는 늘 «없다» 를 돌려줘 수정 회차가 **한 벌 더 끼웠다.**
+           정관 §0 «장치가 재는 대상이 틀렸다».
+        재는 것은 «영상 자리가 이미 찼는가» 이고, 그 자리는 **닻 문단 다음 컴포넌트**다.
+        🔴 **못 잡는 것 (§0 4층 ④)**: 그 자리에 GIF 가 아닌 다른 그림이 앉아 있으면 «비었다» 로
+           읽어 한 장 더 끼운다 — 자리를 우리가 `[[영상 N]]` 로 정하므로 그런 글은 안 나오지만,
+           손으로 고친 글이라면 날 수 있다.
+        """
         return bool(self.in_frame(
-            "return [...d.querySelectorAll('.se-component.se-image img')]"
-            ".some(i=>i.getAttribute('alt')===%s);" % json.dumps(name)))
+            "const ps=[...d.querySelectorAll('.se-component.se-text .se-text-paragraph')]"
+            ".filter(p=>((p.innerText||'').replace(/\\s+/g,' ')).includes(%s));"
+            "if(ps.length!==1) return false;"
+            "const c=ps[0].closest('.se-component'); const n=c && c.nextElementSibling;"
+            "if(!n || !n.classList.contains('se-image')) return false;"
+            "const im=n.querySelector('img');"
+            "return !!im && /\\.gif(\\?|$)/i.test(im.src);" % json.dumps(anchor)))
 
     def click_named_button(self, name):
         snap = self.run("snapshot")
@@ -669,8 +684,8 @@ def insert_videos(o, prep, log):
     done = 0
     for n_ in range(1, len(gifs) + 1):
         name = os.path.basename(gifs[n_ - 1])
-        if o.has_image_named(name):
-            log("video %d/%d: 이미 들어 있다 — 건너뛴다 (%s)" % (n_, len(gifs), name)); continue
+        if o.gif_after(anchors[n_][:ANCHOR_LEN]):
+            log("video %d/%d: 그 자리에 이미 GIF 가 있다 — 건너뛴다 (%s)" % (n_, len(gifs), name)); continue
         o.cursor_after(anchors[n_][:ANCHOR_LEN])
         o.paste_gif(gifs[n_ - 1])
         log("video %d/%d 끼움: %s (닻 %r · 출처 %s)"
@@ -933,6 +948,10 @@ def self_test():
         ("자리표 채우기는 **되잰다** (자리표가 남았는지·문장이 앉았는지 양쪽)",
             src.count("def fill_" + "comment") == 1
             and "자리표가 그대로 남았다" in src and "한마디 문장이 한 문단에 안 앉았다" in src),
+        # 🔴 찾을 문자열은 이어 붙여 만든다 — 이 줄 자체가 src 에 있으면 축이 늘 통과한다.
+        ("«이미 들어 있는가» 는 이름이 아니라 자리로 잰다 (발행되면 alt 가 지워진다)",
+            ("has_image_" + "named") not in src and src.count("def gif_" + "after") == 1
+            and "nextElementSibling" in src),
         ("자리표 문단이 여럿이면 세운다 (어느 자리인지 모르는 채로 안 바꾼다)",
             "if(ps.length!==1) return 'n=' + ps.length;" in src.split("def replace_" + "paragraph")[1]),
         ("🔴 영상 줄의 주소는 지면에 싣지 않는다 (링크 카드·맨 URL 줄 0건)",
