@@ -171,6 +171,15 @@ case "$git_dir" in
             *scripts/skill_drift_audit.py*)
                 run_check "skill_drift selftest" py scripts/skill_drift_audit.py --self-test ;;
         esac
+        # The event watcher decides WHAT to alert (deterministic) and hermes only
+        # words it - so a dead provider must not swallow the alert. Two of the
+        # report self-test cases are the "must stay silent" side, and the watcher
+        # self-test proves two rows on one URL no longer share a baseline slot.
+        case "$staged" in
+            *scripts/event_watch.py*|*scripts/event_watch_report.py*)
+                run_check "event_watch selftest" py scripts/event_watch.py --self-test
+                run_check "event_watch_report selftest" py scripts/event_watch_report.py --self-test ;;
+        esac
         case "$staged" in
             *scripts/class101.py*)
                 run_check "class101 selftest" py scripts/class101.py --self-test ;;
