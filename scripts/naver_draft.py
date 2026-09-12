@@ -418,30 +418,32 @@ class Orca(object):
                 return "카드"
         return "글자"
 
-    def clear_body(self):
-        """본문을 통째로 지운다 (발행글 수정 화면 전용).
+    def cursor_after(self, anchor):
+        """`anchor` 로 시작하는 문단을 찾아 그 **끝**에 커서를 둔다 (발행글에 끼워 넣기).
 
-        🔴 **지워졌는지 재고, 안 지워졌으면 선다.** 안 서면 채우기가 **옛 글 위에 얹혀**
-           같은 글이 두 번 실린다 — 그 상태로 «발행» 을 누르면 되돌릴 것이 실물 글이다.
-        🔴 실물 글은 «발행» 을 누르기 전까지 한 글자도 안 바뀐다 — 여기서 지우는 것은
-           **에디터 안의 사본**이다.
+        🔴 **딱 하나여야 연다.** 여럿이면 어느 자리인지 모르고, 모르는 채로 끼우면
+           엉뚱한 절에 영상이 앉는다. 0개·2개 이상이면 세운다.
         """
-        js = ("const ps=[...d.querySelectorAll('.se-component.se-text .se-text-paragraph')];"
-              "const p=ps[ps.length-1]; if(p){const r=p.getBoundingClientRect();"
+        js = ("const ps=[...d.querySelectorAll('.se-component.se-text .se-text-paragraph')]"
+              ".filter(p=>((p.innerText||'').replace(/\\s+/g,' ')).includes(%s));"
+              "if(ps.length!==1) return 'n=' + ps.length;"
+              "const p=ps[0]; const r=p.getBoundingClientRect();"
               "for(const ty of ['mousedown','mouseup','click']) p.dispatchEvent(new MouseEvent(ty,"
-              "{bubbles:true,cancelable:true,clientX:r.left+5,clientY:r.top+r.height/2,button:0}));}"
-              "d.defaultView.focus(); root.focus();"
-              "const a=d.execCommand('selectAll'); const b=d.execCommand('delete');"
-              "return JSON.stringify([a,b]);")
+              "{bubbles:true,cancelable:true,clientX:r.left+5,clientY:r.top+r.height/2,button:0}));"
+              "const sel=d.getSelection(); const rg=d.createRange(); rg.selectNodeContents(p);"
+              "rg.collapse(false); sel.removeAllRanges(); sel.addRange(rg); return 'ok';") % json.dumps(anchor)
         r = self.in_frame(js)
-        time.sleep(STEP_PAUSE * 2)
-        st = self.state()
-        st = json.loads(st) if isinstance(st, str) else (st or {})
-        if len(st.get("comps", [])) > 2 or (st.get("chars") or 0) > 50:
-            raise Missing("본문이 안 비워졌다 (comps=%d chars=%s · execCommand %s) — 옛 글 위에 얹지 않는다"
-                          % (len(st.get("comps", [])), st.get("chars"), r))
-        self._body_clicked = False
+        time.sleep(STEP_PAUSE)
+        if r != "ok":
+            raise Missing("닻 문단을 못 찾았다 (%s): %s" % (r, anchor[:30]))
+        self._body_clicked = True      # 우리가 자리를 잡았으니 붙여넣기는 커서를 옮기지 않는다
         return r
+
+    def has_image_named(self, name):
+        """그 이름의 그림이 이미 글에 있는가 — 같은 영상을 두 번 끼우지 않기 위해."""
+        return bool(self.in_frame(
+            "return [...d.querySelectorAll('.se-component.se-image img')]"
+            ".some(i=>i.getAttribute('alt')===%s);" % json.dumps(name)))
 
     def click_named_button(self, name):
         snap = self.run("snapshot")
@@ -516,10 +518,14 @@ def find_update_page(blog, logno):
 
 
 def open_update(o, title, log):
-    """발행글 수정 화면을 열고 본문을 비운다. 제목이 다르면 **아무것도 안 지우고 선다.**
+    """발행글 수정 화면을 연다. 제목이 다르면 **아무것도 안 하고 선다.**
 
     🔴 **엉뚱한 글을 고치지 않는다** — 이 화면의 제목과 원고 제목이 글자 그대로 같아야
-       열린다. 글 번호를 손으로 넘기는 자리라 오타 하나가 남의 글을 지우는 자리다.
+       열린다. 글 번호를 손으로 넘기는 자리라 오타 하나가 남의 글을 바꾸는 자리다.
+    🔴 **본문을 비우지 않는다 (2026-09-12 실측).** 처음에는 «비우고 원고대로 다시 채우기» 로
+       만들었는데 `execCommand('selectAll')` 이 **false** 를 돌려주고 컴포넌트가 하나도 안
+       지워졌다(comps 11 · chars 4019 그대로). 그래서 길을 바꿨다 — **있는 글은 그대로 두고
+       빠진 것만 그 자리에 끼운다.** 고칠 것이 본문 몇 군데일 때 그쪽이 되돌림 비용도 낮다.
     """
     time.sleep(10)
     if "nid.naver.com" in (o.url() or ""):
@@ -535,7 +541,6 @@ def open_update(o, title, log):
             % (got[:40], title[:40]))
         return False
     log("update target ok: %r (comps=%d chars=%s)" % (got[:40], len(st.get("comps", [])), st.get("chars")))
-    log("cleared: %s" % o.clear_body())
     return True
 
 
@@ -571,6 +576,65 @@ def body_order_problem(text):
     if n_src < MIN_SOURCE_LINES:
         return "출처 줄이 %d개뿐이다 (%d개 이상이어야 한다 — 조각이 잘렸다는 뜻)" % (n_src, MIN_SOURCE_LINES)
     return None
+
+
+ANCHOR_LEN = 25       # 닻으로 쓸 문단 앞머리 길이 — 짧으면 여러 문단에 걸리고, 길면 줄바꿈·공백에 어긋난다
+
+
+def _last_para(html_text):
+    """조각 HTML 의 마지막 문단 글자."""
+    for t in reversed(re.findall(r"<p>(.*?)</p>", html_text, re.S)):
+        txt = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", "", t))).strip()
+        if txt:
+            return txt
+    return ""
+
+
+def video_anchors(chunks, n_videos):
+    """`[[영상 N]]` **앞 문단**의 앞머리 → `{N: 닻}`. 이미 나간 글에 끼울 자리를 이것으로 찾는다.
+
+    🔴 자리 표시가 없는 영상은 닻이 없다 — 새 글이면 «요약 뒤» 로 놓지만, **이미 나간 글에는
+       놓을 자리를 모른다.** 부르는 쪽이 그 경우 선다.
+    """
+    out, prev = {}, ""
+    for ch in chunks:
+        if isinstance(ch, tuple):
+            if ch[0] == "vid" and prev and 1 <= ch[1] <= n_videos:
+                out[ch[1]] = prev[:ANCHOR_LEN]
+            continue
+        t = _last_para(ch)
+        if t:
+            prev = t
+    return out
+
+
+def insert_videos(o, prep, log):
+    """이미 나간 글에 **영상만** 끼운다 — 본문은 한 글자도 안 건드린다.
+
+    이미 들어 있는 영상은 건너뛴다(두 번 돌려도 두 번 실리지 않는다).
+    """
+    gifs, videos = prep["gifs"], prep["videos"]
+    if not gifs:
+        raise Missing("원고에 «## 영상» 절이 없다 — 끼울 것이 없다")
+    anchors = video_anchors(prep["chunks"], len(gifs))
+    missing = [n for n in range(1, len(gifs) + 1) if n not in anchors]
+    if missing:
+        raise Missing("영상 %s 의 «[[영상 N]]» 자리 표시가 없다 — 나간 글에는 놓을 자리를 모른다"
+                      % ("·".join(map(str, missing))))
+    done = 0
+    for n_ in range(1, len(gifs) + 1):
+        name = os.path.basename(gifs[n_ - 1])
+        if o.has_image_named(name):
+            log("video %d/%d: 이미 들어 있다 — 건너뛴다 (%s)" % (n_, len(gifs), name)); continue
+        o.cursor_after(anchors[n_])
+        o.paste_gif(gifs[n_ - 1])
+        log("video %d/%d 끼움: %s (닻 %r)" % (n_, len(gifs), name, anchors[n_][:20]))
+        u = videos[n_ - 1]["url"]
+        if u:
+            log("  원본 링크: %s (%s)" % (u, o.paste_link(u)))
+        done += 1
+    log("inserted %d/%d (나머지는 이미 있던 것)" % (done, len(gifs)))
+    return done
 
 
 def prepare(stem, log):
@@ -778,6 +842,18 @@ def self_test():
         ("구간이 비면 굽지 않고 선다 (ffmpeg 까지 가지 않는다)",
             _raises_missing(lambda: gif_for({"path": __file__, "start": 5.0, "end": 5.0,
                                              "url": None, "caption": ""}), "영상 구간이 비었다")),
+        # ── 끼워 넣기 닻 (2026-09-12) — 이미 나간 글을 고치는 길 ────────────────
+        ("닻은 «[[영상 N]]» **앞 문단**의 앞머리다",
+            (lambda c: video_anchors(c, 1).get(1, "").startswith("굵은 첫 문장이에요."))(
+                parse_blocks(body.replace("### Q. 둘?", "[[영상 1]]\n\n### Q. 둘?"))[1])),
+        ("자리 표시가 없으면 닻도 없다 (나간 글에는 놓을 자리를 모른다)",
+            video_anchors(parse_blocks(body)[1], 1) == {}),
+        ("닻 길이 상한이 있다 (길면 줄바꿈·공백에 어긋난다)",
+            all(len(v) <= ANCHOR_LEN for v in video_anchors(
+                parse_blocks(body.replace("### Q. 둘?", "[[영상 1]]\n\n### Q. 둘?"))[1], 1).values())),
+        # 🔴 반대쪽 — 닻을 «딱 하나일 때만» 쓰는 축은 페이지 안 JS 라 여기서는 그 문안만 본다.
+        ("닻이 여럿이면 세운다 (어느 자리인지 모르는 채로 끼우지 않는다)",
+            ("ps.length!==" + "1") in src and "닻 문단을 못 찾았다" in src),
         # 검사 문자열은 이어 붙여 만든다 — 이 줄 자체가 검사에 걸리지 않게
         ("OS 키 입력 경로 없음 (run 에 type·keypress 호출 0건)", ("run(\"" + "type\"") not in src and ("run(\"" + "keypress\"") not in src),
         ("발행 버튼을 누르는 코드 없음", ("click_named_button(\"" + "발행\")") not in src),
