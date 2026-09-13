@@ -131,6 +131,15 @@ function Get-ClaimOwnerState([string[]]$Lines) {
     return 'alive'
 }
 
+# THE one way to read a claim file. -Encoding UTF8 is not optional: the file is
+# written UTF-8 (goals carry Korean) and PS 5.1 reads with the ANSI codepage by
+# default, which turned the goal line - the line that tells the next session
+# what is already being done - into garbage (measured 2026-09-13 at byte level).
+# Both the refusal and -List go through here so there is one place to get right.
+function Read-ClaimLines([string]$Path) {
+    return @(Get-Content -LiteralPath $Path -Encoding UTF8)
+}
+
 function Get-ClaimPath([string]$t) {
     if ($t -notmatch '^[A-Za-z0-9_.-]{1,64}$') {
         throw ('topic must be [A-Za-z0-9_.-]{1,64}: ' + $t)
@@ -141,7 +150,7 @@ function Get-ClaimPath([string]$t) {
 function Take([string]$t, [string]$g) {
     $p = Get-ClaimPath $t
     if (Test-Path -LiteralPath $p) {
-        $held = @(Get-Content -LiteralPath $p)
+        $held = Read-ClaimLines $p
         $state = Get-ClaimOwnerState -Lines $held
         if ($state -eq 'gone') {
             # The holder's session is provably over. Leaving the file would make
@@ -221,6 +230,19 @@ if ($SelfTest) {
     $dirC = Resolve-ClaimDir 'C:\nowhere\repo\scripts' 'C:\nowhere\at\all\claims'
     if ($dirC -ne 'C:\nowhere\repo\logs\claims') { $fails++; Say ('SELFTEST: fallback dir wrong: ' + $dirC) }
 
+    # The goal must survive being written and read back. It is the one line that
+    # tells the next session what is already being done, and goals are Korean -
+    # PS 5.1 reads with the ANSI codepage unless told otherwise, which turned
+    # that line into garbage (measured 2026-09-13 at byte level).
+    # This file is ASCII-only, so the sample is built from code points.
+    $ko = -join ([char]0xD55C, [char]0xAE00, [char]0x20, [char]0xBAA9, [char]0xD45C)   # "Korean goal"
+    $tKo = $t + '-ko'
+    Take $tKo $ko | Out-Null
+    $readBack = Read-ClaimLines (Get-ClaimPath $tKo)
+    $goalLine = $readBack | Where-Object { $_ -like 'goal:*' } | Select-Object -First 1
+    if ($goalLine -notlike ('*' + $ko + '*')) { $fails++; Say ('SELFTEST: the goal did not survive the round trip: ' + $goalLine) }
+    Free $tKo | Out-Null
+
     # Staleness. Each case gets its OWN claim file: if two cases shared one, a
     # pass would not say which rule earned it (charter section 0 - separate the
     # reverse-check inputs).
@@ -286,7 +308,7 @@ if ($List) {
     if (-not $items) { Say 'no claims'; Write-Host 'STATUS: OK'; exit 0 }
     foreach ($i in $items) {
         Write-Host ('--- ' + $i.Name)
-        Get-Content -LiteralPath $i.FullName | ForEach-Object { Write-Host ('    ' + $_) }
+        Read-ClaimLines $i.FullName | ForEach-Object { Write-Host ('    ' + $_) }
     }
     Write-Host 'STATUS: OK'
     exit 0
