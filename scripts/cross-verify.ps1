@@ -37,6 +37,13 @@
 # the system ANSI codepage. All Korean text lives in scripts\prompts\*.md and is
 # read as explicit UTF-8.
 #
+# WHAT THIS STILL CANNOT MEASURE (charter section 0, layer 4)
+#   The lag guard below only answers "is $Hq equal to origin/main". It does NOT
+#   answer "is the auditor reading the branch under audit". $Hq is main; a PR's
+#   code is not in main until it merges, so an audit of a PR branch still reads
+#   past it. The other half of the 2026-09-12 misread ("the base is not main")
+#   sits exactly there. Fixing it means unpinning $Hq - a separate change.
+#
 # SELF-TEST
 #   powershell -File scripts\cross-verify.ps1 -SelfTest
 #   Deterministic only (no model calls): rules/author resolution, the
@@ -142,6 +149,74 @@ function Append-Section {
     Append-Utf8 -Path $Report -Text ($text.TrimEnd() + "`r`n")
 }
 
+# --- HQ lag ------------------------------------------------------------------
+#
+# The auditor reads its evidence from $Hq. Charter section 2 pins the operations
+# server to "refreshed by git pull only", so $Hq being BEHIND origin/main is its
+# normal resting state, not an anomaly - and an auditor pointed at a stale tree
+# answers about code that no longer exists.
+#
+# 2026-09-12: the audit read gate_on_stop.py out of a lagging $Hq, found no
+# newest_mtime, and filed a red finding. The function was sitting in the PR
+# branch the whole time. That is a FALSE red, and charter section 0 names the
+# cost: false alarms blunt the watch.
+#
+# This is lifted from check-repo-guard.ps1 (the same comparison charter section 3
+# already makes a session run) rather than invented here. The fetch happens at
+# call time so the verdict is about the remote as it is NOW.
+#
+# It STOPS instead of writing the warning into the prompt: putting it in the
+# prompt is layer 3 of the 4-layer clause (hoping the model notices), stopping is
+# layer 1 (the wrong bytes are never readable in the first place).
+function Get-BehindCount {
+    param([string]$Repo, [string]$LocalRef, [string]$RemoteRef)
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $n = (& git -C $Repo rev-list --count ($LocalRef + '..' + $RemoteRef) 2>$null)
+    $rc = $LASTEXITCODE
+    $ErrorActionPreference = $prev
+    if ($rc -ne 0 -or [string]::IsNullOrWhiteSpace($n)) { return $null }
+    return [int]($n.Trim())
+}
+
+# Returns $null when the tree is current, else a STATUS token.
+# A fetch that did not run is 'lag-unknown', NOT a pass: an uncompared tree is
+# unknown, and answering "not behind" from stale refs is the failure this exists
+# to catch.
+function Test-RepoLag {
+    param(
+        [string]$Repo,
+        [string]$LocalRef = 'main',
+        [string]$RemoteRef = 'origin/main'
+    )
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    & git -C $Repo fetch --quiet origin main *>&1 | Out-Null
+    $rc = $LASTEXITCODE
+    $ErrorActionPreference = $prev
+    if ($rc -ne 0) { return 'lag-unknown' }
+
+    $behind = Get-BehindCount -Repo $Repo -LocalRef $LocalRef -RemoteRef $RemoteRef
+    if ($null -eq $behind) { return 'lag-unknown' }
+    if ($behind -gt 0) { return ('hq-behind-' + $behind) }
+    return $null
+}
+
+# The failure body is built HERE, not inline at the call site, so the self-test
+# can measure it. Charter section 3: a guard that blocks without naming the way
+# out sends the next session looking for a bypass.
+function Get-LagFailureBody {
+    param([string]$Lag, [string]$Repo)
+    $recover = 'git -C "' + $Repo + '" pull --ff-only origin main'
+    if ($Lag -eq 'lag-unknown') {
+        return ('hq-lag-unknown: could not compare ' + $Repo + ' with origin/main (fetch failed - offline?). ' +
+                'Not compared is not "up to date": the audit would read whatever the tree happens to hold. Run: ' + $recover)
+    }
+    return ('hq-behind: ' + $Repo + ' lags origin/main (' + $Lag + '). Charter section 2 refreshes the operations ' +
+            'server by pull only, so the auditor would read code that is no longer current and file findings against ' +
+            'it (2026-09-12: a false red on a function that existed in the PR branch). Run: ' + $recover)
+}
+
 # --- self-test ----------------------------------------------------------------
 #
 # What it measures, and why each half exists (charter section 0): a check that
@@ -219,6 +294,116 @@ function Invoke-SelfTest {
     t 'claude branch: native stdout survives as UTF-8 (not mojibake)' `
         ($encOut -eq ([char]0xAC00 + [string][char]0xB098 + [string][char]0xB2E4)) $encOut
 
+    # 5. the HQ lag guard. Three axes, and the middle one is the point: a check
+    #    that only ever fires looks identical to a correct one until you feed it
+    #    the input it must stay QUIET on. Real repos on disk, no network - a fake
+    #    return value would measure the test, not the comparator.
+    $lagRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('jj-crossverify-lag-' + $PID + '-' + (Get-Date).Ticks)
+    function New-LagRepo {
+        param([string]$Root, [string]$Name, [int]$Commits, [switch]$BreakOrigin)
+        $bare = Join-Path $Root ($Name + '.git')
+        $work = Join-Path $Root $Name
+        & git init -q $work 2>$null | Out-Null
+
+        # NEVER mutate a repository this function did not just create.
+        # `git -C <path>` LOSES to GIT_DIR, and this self-test runs from
+        # pre-commit (charter section 3 registers it there), where git exports
+        # GIT_DIR / GIT_INDEX_FILE into the hook process. The caller clears
+        # those; this is the net under it, checked before the first mutation.
+        # Measured 2026-09-13: without it the temp-repo commits landed on the
+        # real branch, 'branch -M main' clobbered main, and 'push origin main'
+        # sent all of it to GitHub.
+        $top = & git -C $work rev-parse --show-toplevel 2>$null
+        $want = (Resolve-Path -LiteralPath $work).Path
+        if (-not $top -or ((Resolve-Path -LiteralPath ($top.Trim())).Path -ne $want)) {
+            throw ('lag self-test refused: git inside ' + $work + ' resolves to ' + $top)
+        }
+
+        & git -C $work config user.email 'selftest@local' 2>$null | Out-Null
+        & git -C $work config user.name  'selftest'       2>$null | Out-Null
+        for ($i = 1; $i -le $Commits; $i++) {
+            & git -C $work commit -q --allow-empty -m ('c' + $i) 2>$null | Out-Null
+        }
+        & git -C $work branch -q -M main 2>$null | Out-Null
+        # clone rather than 'init --bare $bare': a hijacked 'init --bare' is what
+        # set core.bare on the real repository, and it fires before any guard can
+        # look at it. Cloning an ALREADY-VERIFIED work tree has no such reach.
+        & git clone -q --bare $work $bare 2>$null | Out-Null
+        & git -C $work remote add origin $bare 2>$null | Out-Null
+        & git -C $work push -q origin main 2>$null | Out-Null
+        if ($BreakOrigin) {
+            # Push FIRST, then break the URL. A repo that never had a remote also
+            # has no origin/main ref, so rev-list fails on its own and the case
+            # would pass with the fetch check DELETED - it would prove nothing.
+            # Here the stale origin/main still resolves and reads "0 behind", so
+            # only the fetch return code can tell that the answer is unknown.
+            & git -C $work remote set-url origin (Join-Path $Root 'no-such-remote.git') 2>$null | Out-Null
+        }
+        return $work
+    }
+    # git hands its hooks GIT_DIR / GIT_INDEX_FILE / GIT_WORK_TREE, and those
+    # OUTRANK `git -C`. This self-test is registered in pre-commit, so inside a
+    # commit every git call below would otherwise drive the repository being
+    # committed to. Clear them for the block and put them back afterwards.
+    $gitEnvNames = @(
+        'GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE', 'GIT_COMMON_DIR',
+        'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_PREFIX'
+    )
+    $gitEnvSaved = @{}
+    foreach ($n in $gitEnvNames) {
+        $gitEnvSaved[$n] = [Environment]::GetEnvironmentVariable($n)
+        Remove-Item -LiteralPath ('Env:' + $n) -ErrorAction SilentlyContinue
+    }
+    try {
+        New-Item -ItemType Directory -Force -Path $lagRoot | Out-Null
+
+        # a/b share one repo because they ARE the two directions of one axis:
+        # same comparator, opposite inputs, one commit apart by construction.
+        $repoAB = New-LagRepo -Root $lagRoot -Name 'ab' -Commits 2
+        $behindRef = Test-RepoLag -Repo $repoAB -LocalRef 'main~1'
+        t 'lag: a ref that IS behind reads as behind' ($behindRef -eq 'hq-behind-1') ([string]$behindRef)
+        $currentRef = Test-RepoLag -Repo $repoAB -LocalRef 'main'
+        t 'lag: a current ref stays quiet (guard does not refuse everything)' ($null -eq $currentRef) ([string]$currentRef)
+
+        # c gets its own repo: a broken remote in the a/b repo would also break
+        # a/b, and then neither case would prove anything on its own.
+        $repoC = New-LagRepo -Root $lagRoot -Name 'c' -Commits 1 -BreakOrigin
+        $unknown = Test-RepoLag -Repo $repoC -LocalRef 'main'
+        t 'lag: a failed fetch is lag-unknown, not a pass' ($unknown -eq 'lag-unknown') ([string]$unknown)
+
+        # d. the two tokens must not render the same text, and both must carry
+        #    the recovery command. The live FAIL path cannot be exercised here
+        #    (it needs the operations server to actually lag), so the half that
+        #    CAN be measured - what the reader is handed - is measured.
+        $bBehind  = Get-LagFailureBody -Lag 'hq-behind-2' -Repo 'C:\hq'
+        $bUnknown = Get-LagFailureBody -Lag 'lag-unknown' -Repo 'C:\hq'
+        t 'lag body: behind names the recovery command'  ($bBehind  -match 'pull --ff-only origin main') $bBehind
+        t 'lag body: unknown names the recovery command' ($bUnknown -match 'pull --ff-only origin main') $bUnknown
+        t 'lag body: the two failures do not read alike' ($bBehind -ne $bUnknown) 'identical'
+        t 'lag body: behind reports the count'           ($bBehind -match 'hq-behind-2') $bBehind
+
+        # e. the net itself, and the axis this incident paid for. Put back the
+        #    hook environment (GIT_DIR pointed at a decoy repo) and confirm the
+        #    builder REFUSES instead of driving the decoy. Without this case the
+        #    guard above is prose: nothing here would notice if it were deleted.
+        $decoy = New-LagRepo -Root $lagRoot -Name 'decoy' -Commits 1
+        $decoyBefore = (& git -C $decoy rev-parse HEAD 2>$null)
+        $env:GIT_DIR = (Join-Path $decoy '.git')
+        $refused = $false
+        try { New-LagRepo -Root $lagRoot -Name 'victim' -Commits 1 | Out-Null } catch { $refused = $true }
+        Remove-Item -LiteralPath 'Env:GIT_DIR' -ErrorAction SilentlyContinue
+        $decoyAfter = (& git -C $decoy rev-parse HEAD 2>$null)
+        t 'lag: a hijacked GIT_DIR is refused, not followed' $refused 'proceeded'
+        t 'lag: the hijacked repo was left untouched' ($decoyBefore -eq $decoyAfter) ([string]$decoyBefore + ' -> ' + [string]$decoyAfter)
+    } catch {
+        t 'lag: temp repos built without touching the real repo' $false ([string]$_)
+    } finally {
+        Remove-Item -LiteralPath $lagRoot -Recurse -Force -ErrorAction SilentlyContinue
+        foreach ($n in $gitEnvNames) {
+            if ($null -ne $gitEnvSaved[$n]) { Set-Item -LiteralPath ('Env:' + $n) -Value $gitEnvSaved[$n] }
+        }
+    }
+
     if ($script:stFails -gt 0) { Write-Host ('STATUS: FAIL selftest ' + $script:stFails); return 1 }
     Write-Host 'STATUS: OK'
     return 0
@@ -282,6 +467,17 @@ if (-not $Rules -or -not (Test-Path -LiteralPath $Rules)) {
     exit 1
 }
 Write-Log ('rules: ' + $Rules)
+
+# Before any auditor starts: the tree it will read must match origin/main.
+# See the Test-RepoLag comment above for the 2026-09-12 false red.
+$lag = Test-RepoLag -Repo $Hq
+if ($lag) {
+    Write-Log ('hq lag check: ' + $lag + ' (' + $Hq + ')')
+    Append-Section -Body (Get-LagFailureBody -Lag $lag -Repo $Hq) -Failed $true -AuditorName $Auditor -AuthorName $Author
+    Write-Log ('STATUS: FAIL ' + $lag)
+    exit 1
+}
+Write-Log 'hq lag check OK - not behind origin/main'
 
 $Bin = if ($Auditor -eq 'codex') { $Codex } else { $Claude }
 if (-not (Test-Path -LiteralPath $Bin)) {
