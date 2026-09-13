@@ -119,7 +119,15 @@ _TAGLINE_RE = re.compile(r"^[#@][^\s]+(\s+[#@][^\s]+)*$")
 #:    `_official\` 은 C-22 가 «미채택 공식 원본을 여기 보존한다» 로 정한 자리다. 두 규칙이
 #:    정면으로 부딪혀 ep39 는 **통과할 수 있는 조합이 없었다.** 정관 §0 «검사가 틀린 것을
 #:    요구하고 있으면 산출물보다 검사부터 고친다» 그대로다(ep28 게이트 선례와 같은 꼴).
-MEDIA_DIRS = ("shots/", "_assets/", "_official/")
+#: 🔴 **`_eps/` 는 2026-09-13 에 더했다 — `_official/` 때와 같은 꼴이다.** 주간 편(ep44·ep60)은
+#:    지난 편들의 **공식 원본을 `_eps/` 에 이고 온다**(ep60 `_eps/ep52_ant_apply.mp4` 는 ep52 가
+#:    검증한 앤트로픽 공식 영상이고 빌더 `OFFICIAL_SHA` 가 해시로 못박는다). 그런데 화이트리스트에
+#:    그 폴더가 없어서, `[10-6]` 이 «공식 영상 선언이 있으면 첨부에 영상 1건 이상» 을 요구하는데
+#:    **그 영상이 사는 유일한 폴더를 `[10-2]` 가 막았다** — ep60 은 통과할 수 있는 조합이 없었다.
+#:    정관 §0 «검사가 틀린 것을 요구하고 있으면 산출물보다 검사부터 고친다» 그대로다.
+#:    🔴 **덱 산출물을 막는 몫은 그대로다** — `_eps/` 는 편 폴더 **루트가 아니라** 하위 폴더이고,
+#:    우리가 조립한 카드는 여전히 루트의 `01_`~`09_` 에 앉으므로 `_DECK_RE` 가 계속 잡는다.
+MEDIA_DIRS = ("shots/", "_assets/", "_official/", "_eps/")
 #: 편 폴더 루트의 덱 산출물 꼴 — 걸렸을 때 «인스타 카드를 붙였다» 고 짚어 주기 위한 것.
 _DECK_RE = re.compile(r"^\d\d_[^/]+\.(png|jpg|jpeg|mp4)$", re.I)
 #: 본문에 넣는 출처 줄. 카드에서는 하단 크레딧 라벨이 하던 일을 **본문이 대신한다** —
@@ -1349,6 +1357,9 @@ def _media_selftest(cc):
         os.makedirs(os.path.join(tmp, "shots"))
         Image.new("RGB", (20, 10), (200, 200, 200)).save(os.path.join(tmp, "shots", "demo.png"))
         Image.new("RGB", (20, 10), (200, 200, 200)).save(os.path.join(tmp, "02_banner.png"))
+        #: `_eps/` 열린 쪽 역검증용 — 주간 편이 이고 오는 공식 원본 자리다.
+        os.makedirs(os.path.join(tmp, "_eps"))
+        Image.new("RGB", (20, 10), (200, 200, 200)).save(os.path.join(tmp, "_eps", "ep52_demo.png"))
 
         def run(media, posts=None, rows=None, **epkw):
             return check(posts or _MEDIA_POSTS, rows or _MEDIA_ROWS, _MediaFacts(), _BASE_KIT,
@@ -1396,6 +1407,15 @@ def _media_selftest(cc):
             else:
                 bad += 1
                 print("[ FAIL ] %-8s %s → 걸린 검사 %s" % (tag, why, sorted(diff) or "없음"))
+        # [10-2] `_eps/` **열린 쪽** (2026-09-13 신설). 닫힌 쪽(루트의 우리 카드)은 위 케이스가
+        #   이미 본다 — 한쪽만 보면 «전부 막는» 상태와 «맞게 여는» 상태가 구별되지 않는다(정관 §0).
+        _eps_got = run([dict(_MEDIA_BASE[0], path="_eps/ep52_demo.png")]).labels_failed() - base_fail
+        if any(g.startswith("[10-2]") for g in _eps_got):
+            bad += 1
+            print("[ FAIL ] [10-2]   _eps/ 아래 공식 원본 → 막힌다 (열려야 한다)")
+        else:
+            print("[  OK  ] [10-2]   _eps/ 아래 공식 원본 → 통과한다 (열린 쪽)")
+
         # [10-0] 🔴 **P1 공식 미디어 필수** 의 역검증 — 세 면을 따로 본다 (2026-09-10 신설).
         #   `[10-1]`~`[10-6]` 케이스는 전부 «P1 에 공식 첨부가 있는» 기준선을 변형한 것이라
         #   **이 축이 없어도 그대로 통과한다** — 즉 위 목록만으로는 이 축이 실재하는지 모른다.
