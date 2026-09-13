@@ -101,7 +101,15 @@ def md_to_html(sec):
         if not table:
             return
         rows = [r for r in table if not re.match(r"^\|[-| ]+\|$", r)]
-        cells = [[c.strip() for c in r.strip("|").split("|")] for r in rows]
+        #: 🔴 **이스케이프한 파이프(`\|`)는 칸 구분이 아니다** (2026-09-13 실측).
+        #:    종전에는 그냥 `split("|")` 이라, 마크다운이 «칸 안의 글자»로 적어 둔 `\|` 에서
+        #:    칸이 하나 더 갈렸다. 2026-09-13 네이버 글에서 실제로 났다 —
+        #:    「Fable 5.1 Build Days (서울은 Seoul \| Claude Fable 5.1 Build Day)」 한 칸이
+        #:    둘로 쪼개져 **없던 셋째 열이 생기고**, 그 열이 너무 좁아 뒷글자가 세로로 한 자씩
+        #:    흘렀다. 남은 역슬래시는 한글 글꼴에서 `₩` 로 보였다.
+        #:    🔴 **게이트는 이 축을 안 잰다** — `blogcheck` 는 «표가 있는가»(`|---`)만 본다.
+        cells = [[c.strip().replace("\\|", "|")
+                  for c in re.split(r"(?<!\\)\|", r.strip().strip("|"))] for r in rows]
         out.append("<table>" + "".join(
             "<tr>" + "".join(("<th>%s</th>" if i == 0 else "<td>%s</td>") % _inline(c) for c in row) + "</tr>"
             for i, row in enumerate(cells)) + "</table>")
@@ -886,6 +894,13 @@ def self_test():
         ("청크 = 요약 · Q 둘 · FAQ · 한마디 · 관련글 = 6", len(chunks) == 6 and chunks[1].startswith("<h3>Q. 왜?</h3>") and chunks[2].startswith("<h3>Q. 둘?</h3>")),
         ("[[이미지 N]] 줄은 ('img', N) 조각이 된다", (lambda c: ("img", 2) in c and all("[[이미지" not in x for x in c if isinstance(x, str)))(parse_blocks(body.replace("### Q. 둘?", "[[이미지 2]]\n\n### Q. 둘?"))[1])),
         ("굵게 strong · 표 table · 이스케이프", "<strong>굵은 첫 문장이에요.</strong>" in chunks[1] and "<table><tr><th>소식</th>" in chunks[2] and "&lt;문장&gt;" in chunks[1]),
+        # 🔴 이스케이프한 파이프 (2026-09-13 신설) — 네이버 글에서 **실제로** 칸이 하나 더
+        #    갈렸다. 양방향이다: `\|` 는 **안 가르고**, 보통 `|` 는 그대로 가른다
+        #    (가르는 쪽은 바로 위 «표 table» 케이스가 이미 본다 — 한쪽만 보면
+        #     «아무것도 안 가르는» 상태와 구별되지 않는다 · 정관 §0).
+        ("표: `\\|` 는 칸을 가르지 않고 글자로 남는다",
+            md_to_html("| 이름 | 값 |\n|---|---|\n| 행사 | A \\| B |\n")
+            == "<table><tr><th>이름</th><th>값</th></tr><tr><td>행사</td><td>A | B</td></tr></table>"),
         ("절 제목 h2", chunks[3].startswith("<h2>FAQ</h2>") and chunks[4].startswith("<h2>토망치랩 한마디</h2>")),
         ("태그·이미지는 따로, 본문에 안 들어간다", tags == ["AI뉴스", "토망치랩"] and images[0]["path"] == "workshop\\a.png" and not any("a.png" in c or "#AI뉴스" in c for c in chunks)),
         ("상대 경로는 있는 쪽으로 — HQ 에만 있는 파일은 HQ, 어디에도 없으면 워크숍 루트, 절대 경로는 그대로",
