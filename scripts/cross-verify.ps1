@@ -58,13 +58,19 @@ param(
     [ValidateSet('codex', 'claude')][string]$Auditor = 'codex',
     [ValidateSet('codex', 'claude')][string]$Author,
     [int]$TimeoutSec = 600,
+    # The repository the auditor is pointed at (`codex exec -C $Hq`) AND the one
+    # the lag guard measures - one value, so the guard cannot end up checking a
+    # different tree than the auditor reads. It is a parameter so the self-test
+    # can run this script end to end against a repository that is deliberately
+    # behind; without that the axes below measure a FUNCTION while the live call
+    # site goes unmeasured (round-4 audit, measured).
+    [string]$Hq = 'C:\Users\ojaej\jj-company',
     [switch]$SelfTest
 )
 
 $ErrorActionPreference = 'Continue'
 
 $Task      = 'cross-verify'
-$Hq        = 'C:\Users\ojaej\jj-company'
 $Codex     = 'C:\Users\ojaej\AppData\Roaming\npm\codex.cmd'
 $Claude    = 'C:\Users\ojaej\.local\bin\claude.exe'
 $CodexHome = 'C:\Users\ojaej\.codex-jjcompany'
@@ -467,6 +473,17 @@ function Invoke-SelfTest {
         # is the correct predicate for a field that fails while HEAD survives,
         # but it is depth, not a measured check, and it is written down as such
         # rather than counted.
+        #
+        # THE SAME IS TRUE OF THE `cat-file -e` PROBE BELOW, in the other
+        # direction, and the two cover for each other (round-4 audit, measured
+        # 2026-09-13): delete the probe and a broken repo is still refused,
+        # because a missing HEAD object also kills `rev-list --count` and that
+        # field is stamped UNREADABLE. Neither is proven NECESSARY, and no input
+        # we can build separates them - anything that hides an object from
+        # cat-file also stops the walk. They answer different lies (a hash for
+        # an object that is not there, vs. a field git never answered) so both
+        # stay, and this paragraph is the layer-4 record that the self-test does
+        # not prove either one.
         if ($Fingerprint -like '*UNREADABLE*') { return $false }
         $head = ($Fingerprint -split '\|')[0]
         return ($head -match '^[0-9a-f]{40}$')
@@ -570,9 +587,22 @@ function Invoke-SelfTest {
         Write-Utf8 -Path (Join-Path $fakeHome '.gitconfig') -Text "[user]`n`tsigningkey = HIJACKED`n"
         $realHome = $env:HOME
         $env:HOME = $fakeHome
+        # CONTROL FIRST. `-ne 'HIJACKED'` is also satisfied by git failing and
+        # saying nothing at all, and "read nothing" is not "read and clean"
+        # (the same mistake the fingerprint carries). So lift the pin and prove
+        # the planted value DOES arrive; only then is its absence evidence.
+        $pinnedG = $env:GIT_CONFIG_GLOBAL
+        $pinnedN = $env:GIT_CONFIG_NOSYSTEM
+        Remove-Item -LiteralPath 'Env:GIT_CONFIG_GLOBAL' -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath 'Env:GIT_CONFIG_NOSYSTEM' -ErrorAction SilentlyContinue
+        $control = (& git -C $repoH config --get user.signingkey 2>$null)
+        $env:GIT_CONFIG_GLOBAL   = $pinnedG
+        $env:GIT_CONFIG_NOSYSTEM = $pinnedN
         $leaked = (& git -C $repoH config --get user.signingkey 2>$null)
         if ($null -eq $realHome) { Remove-Item -LiteralPath 'Env:HOME' -ErrorAction SilentlyContinue }
         else { $env:HOME = $realHome }
+        t 'config: the planted HOME .gitconfig IS readable once the pin is lifted (control)' `
+            ($control -eq 'HIJACKED') ([string]$control)
         t 'config: a planted HOME .gitconfig does not reach a temp repo' `
             ($leaked -ne 'HIJACKED') ([string]$leaked)
 
@@ -633,6 +663,35 @@ function Invoke-SelfTest {
             (($null -eq $threw2) -and ($binOk -eq $Claude)) ([string]$threw2 + [string]$binOk)
         t 'guard: it picks the binary the caller asked for' `
             ((Resolve-AuditorBinary -Auditor 'codex' -Repo $repoG) -eq $Codex) 'wrong binary'
+
+        # f1b. THE PROGRAM, not the function. Everything above measures
+        #      Resolve-AuditorBinary; nothing above fails if the live call site
+        #      stops calling it and picks a binary directly, because -SelfTest
+        #      returns long before that line is ever reached (round-4 audit).
+        #      That is the round-3 lesson one level out: a structure is only the
+        #      only path while the program still walks it. So run THIS script as
+        #      a real process against a repository that is behind, and read what
+        #      it did - exit code, the STATUS token in its log, and the section
+        #      it appended to the artifact.
+        $repoE = New-LagRepo -Root $lagRoot -Name 'e2e' -Commits 2 -Behind
+        $eRep  = Join-Path $lagRoot 'e2e-report.md'
+        $eRul  = Join-Path $lagRoot 'e2e-rules.md'
+        Write-Utf8 -Path $eRep -Text "# e2e artifact`r`nSTATUS: OK`r`n"
+        Write-Utf8 -Path $eRul -Text "e2e rules`r`n"
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath `
+            -Report $eRep -Rules $eRul -Auditor codex -Author claude -Hq $repoE *>&1 | Out-Null
+        $eCode = $LASTEXITCODE
+        $eLog  = Join-Path $repoE ('logs\scheduled\' + $Task + '_' + $Stamp + '.log')
+        $eLogText = if (Test-Path -LiteralPath $eLog) { Get-Content -LiteralPath $eLog -Raw } else { '<no log>' }
+        $eRepText = Get-Content -LiteralPath $eRep -Raw
+        # The exit code alone does not discriminate - measured: with the guard
+        # bypassed the run still exits 1, on `codex-not-found`. The STATUS token
+        # is the axis that carries the meaning; this one only says it stopped.
+        t 'program: a behind Hq stops the whole run (exit 1)' ($eCode -eq 1) ([string]$eCode)
+        t 'program: and the STATUS line names the lag' `
+            ($eLogText -match 'STATUS: FAIL hq-behind-1') ([string]$eLogText)
+        t 'program: and the artifact carries the recovery command' `
+            ($eRepText -match 'pull --ff-only') ([string]$eRepText)
 
         # f2. what the caller does with what was thrown. A lag verdict and any
         #     other failure must not read alike: telling someone to pull when
