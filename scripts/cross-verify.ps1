@@ -253,6 +253,25 @@ function Resolve-AuditorBinary {
     return $Claude
 }
 
+# Turns whatever Resolve-AuditorBinary threw into a STATUS token and a report
+# body. Only an 'hq-lag:' message is a lag verdict: anything else thrown in
+# there is a DIFFERENT failure, and dressing it up as "your tree is behind"
+# would send the reader to run a pull that fixes nothing. A wrong diagnosis is
+# worse than none (charter section 0). The token is flattened to one line so a
+# stray multi-line message cannot forge extra STATUS lines in the log.
+function Get-LagCatchVerdict {
+    param([string]$Message, [string]$Repo)
+    if ($Message -like 'hq-lag:*') {
+        $token = $Message.Substring(7)
+        return @{ Token = ($token -replace '[\r\n]+', ' '); Body = (Get-LagFailureBody -Lag $token -Repo $Repo) }
+    }
+    return @{
+        Token = 'lag-check-error'
+        Body  = ('lag-check-error: the pre-audit check on ' + $Repo + ' did not complete, so nothing is known ' +
+                 'about whether it is current. This is NOT a lag verdict. Underlying failure: ' + $Message)
+    }
+}
+
 # The failure body is built HERE, not inline at the call site, so the self-test
 # can measure it. Charter section 3: a guard that blocks without naming the way
 # out sends the next session looking for a bypass.
@@ -614,6 +633,19 @@ function Invoke-SelfTest {
             (($null -eq $threw2) -and ($binOk -eq $Claude)) ([string]$threw2 + [string]$binOk)
         t 'guard: it picks the binary the caller asked for' `
             ((Resolve-AuditorBinary -Auditor 'codex' -Repo $repoG) -eq $Codex) 'wrong binary'
+
+        # f2. what the caller does with what was thrown. A lag verdict and any
+        #     other failure must not read alike: telling someone to pull when
+        #     the check never ran sends them to fix a thing that is not broken.
+        $vLag   = Get-LagCatchVerdict -Message 'hq-lag:hq-behind-3' -Repo 'C:\hq'
+        $vOther = Get-LagCatchVerdict -Message 'something else went wrong' -Repo 'C:\hq'
+        $vMulti = Get-LagCatchVerdict -Message "hq-lag:hq-behind-3`nSTATUS: OK" -Repo 'C:\hq'
+        t 'catch: a lag message keeps its token'        ($vLag.Token -eq 'hq-behind-3') ([string]$vLag.Token)
+        t 'catch: a lag message renders the lag body'   ($vLag.Body -match 'pull --ff-only') ([string]$vLag.Body)
+        t 'catch: any other failure is NOT called lag'  ($vOther.Token -eq 'lag-check-error') ([string]$vOther.Token)
+        t 'catch: and does not tell the reader to pull' (-not ($vOther.Body -match 'pull --ff-only')) ([string]$vOther.Body)
+        t 'catch: the other failure carries its cause'  ($vOther.Body -match 'something else went wrong') ([string]$vOther.Body)
+        t 'catch: a token cannot forge a second STATUS line' (($vMulti.Token -notmatch '[\r\n]')) ([string]$vMulti.Token)
     } catch {
         t 'lag: temp repos built without touching the real repo' $false ([string]$_)
     } finally {
@@ -696,9 +728,16 @@ $Bin = $null
 try {
     $Bin = Resolve-AuditorBinary -Auditor $Auditor -Repo $Hq
 } catch {
-    $lag = ([string]$_.Exception.Message) -replace '^hq-lag:', ''
+    # Only an 'hq-lag:' message is a lag verdict. Anything else thrown in there
+    # is a different failure, and dressing it up as "your tree is behind" would
+    # send the reader to run a pull that fixes nothing - a wrong diagnosis is
+    # worse than none (charter section 0). Tokens are one line by construction;
+    # a stray message is flattened so it cannot forge extra STATUS lines.
+    $verdict = Get-LagCatchVerdict -Message ([string]$_.Exception.Message) -Repo $Hq
+    $lag  = $verdict.Token
+    $body = $verdict.Body
     Write-Log ('hq lag check: ' + $lag + ' (' + $Hq + ')')
-    Append-Section -Body (Get-LagFailureBody -Lag $lag -Repo $Hq) -Failed $true -AuditorName $Auditor -AuthorName $Author
+    Append-Section -Body $body -Failed $true -AuditorName $Auditor -AuthorName $Author
     Write-Log ('STATUS: FAIL ' + $lag)
     exit 1
 }
