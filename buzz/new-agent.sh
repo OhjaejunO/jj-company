@@ -39,6 +39,11 @@ command -v docker >/dev/null || die "docker 가 없다"
 docker ps --format '{{.Names}}' | grep -qx "$RELAY_C" || die "릴레이 컨테이너가 안 보인다: ${RELAY_C}"
 [ -f "${ENVDIR}/common.env" ] || die "공통 env 가 없다: ${ENVDIR}/common.env"
 
+# 🔴 reconcile 이 릴레이 키 없이 돌면 «임시 키로 서명» 하고 성공한 척한다 -
+#    그 이벤트는 릴레이가 재시작하면 검증 불가가 된다(--help 실측). 미리 막는다.
+docker exec "$RELAY_C" sh -c 'test -n "$BUZZ_RELAY_PRIVATE_KEY"' \
+  || die "릴레이 컨테이너에 BUZZ_RELAY_PRIVATE_KEY 가 없다 - reconcile 이 임시 키로 서명한다"
+
 RELAY_HTTPS="$(sed -n 's/^BUZZ_RELAY_URL=wss:/https:/p' "${ENVDIR}/common.env")"
 [ -n "$RELAY_HTTPS" ] || die "common.env 에서 릴레이 주소를 못 읽었다"
 
@@ -52,17 +57,31 @@ if ! cmp -s "$UNIT_SRC" "$UNIT_DST"; then
 fi
 
 # --- 2. 신원 --------------------------------------------------------------
+# 🔴 여기서부터는 실물이 생긴다. 도중에 죽으면 «반쪽 상태»가 남아 다음 실행이
+#    0단계 가드에 걸려 영영 못 돈다 - 그래서 만든 것을 되돌리고 무엇이 남았는지 말한다.
+KEY_MADE=""
+cleanup() {
+  [ -n "$KEY_MADE" ] || return 0
+  systemctl disable --now "buzz-acp@${NAME}" >/dev/null 2>&1 || true
+  rm -f "${KEYDIR}/${NAME}.env" "${ENVDIR}/${NAME}.env"
+  printf '[new-agent] 되돌림: 키·역할 env 를 지웠다. 다시 부르면 새 신원으로 처음부터 간다.\n' >&2
+  printf '[new-agent] 🔴 남았을 수 있는 것: 릴레이 멤버 %s\n' "$KEY_MADE" >&2
+  printf '[new-agent]    지우려면: docker exec %s buzz-admin remove-member --pubkey %s\n' "$RELAY_C" "$KEY_MADE" >&2
+}
+trap cleanup EXIT
+
 KEYOUT="$(docker exec "$RELAY_C" buzz-admin generate-key)"
 PUB="$(printf '%s' "$KEYOUT" | sed -n 's/.*Public key:[[:space:]]*\([0-9a-f]\{64\}\).*/\1/p')"
 SEC="$(printf '%s' "$KEYOUT" | sed -n 's/.*Secret key:[[:space:]]*\([0-9a-f]\{64\}\).*/\1/p')"
 [ ${#PUB} -eq 64 ] && [ ${#SEC} -eq 64 ] || die "키 생성 출력이 예상과 다르다 (값은 찍지 않는다)"
 
+KEY_MADE="$PUB"
 ( umask 077; printf 'BUZZ_PRIVATE_KEY=%s\nBUZZ_PUBKEY=%s\n' "$SEC" "$PUB" > "${KEYDIR}/${NAME}.env" )
 chmod 600 "${KEYDIR}/${NAME}.env"
 say "신원 발급 · 공개키 ${PUB}"   # 🔴 비밀키는 어디에도 찍지 않는다
 
 # --- 3. 릴레이 멤버 -------------------------------------------------------
-docker exec "$RELAY_C" buzz-admin add-member "$PUB" >/dev/null
+docker exec "$RELAY_C" buzz-admin add-member --pubkey "$PUB" >/dev/null
 say "릴레이 멤버 등록"
 
 # --- 4. 채널 멤버 ---------------------------------------------------------
@@ -109,4 +128,5 @@ case "${CH:-0}" in
   ''|0) die "채널을 0개로 본다 - 4단계(reconcile)나 3단계가 안 먹었다.
   이 상태의 봇은 멘션을 받지 못하면서도 살아 있는 것처럼 보인다." ;;
 esac
+KEY_MADE=""   # 여기까지 왔으면 되돌리지 않는다
 say "완료. #general 에서 @${DISPLAY} 로 불러 실제로 답하는지 확인한다."
