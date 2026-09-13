@@ -1,2 +1,4 @@
-# git hooks must keep LF. CRLF here yields "/bin/sh^M: bad interpreter" on Windows.
+# 리눅스에서 실행되는 것들 - CRLF 가 섞이면 "bad interpreter" 로 죽는다
+buzz/*.sh text eol=lf
+buzz/*.service text eol=lf
 scripts/githooks/* text eol=lf
