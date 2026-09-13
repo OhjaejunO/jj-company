@@ -38,11 +38,14 @@
 # read as explicit UTF-8.
 #
 # WHAT THIS STILL CANNOT MEASURE (charter section 0, layer 4)
-#   The lag guard below only answers "is $Hq equal to origin/main". It does NOT
-#   answer "is the auditor reading the branch under audit". $Hq is main; a PR's
-#   code is not in main until it merges, so an audit of a PR branch still reads
-#   past it. The other half of the 2026-09-12 misread ("the base is not main")
-#   sits exactly there. Fixing it means unpinning $Hq - a separate change.
+#   The lag guard below answers ONE question: "is $Hq's main BEHIND origin/main".
+#   Not "equal to" - an AHEAD main, a detached or wrong HEAD, and a dirty working
+#   tree all read as fine while the auditor sees different bytes.
+#   It also does NOT answer "is the auditor reading the branch under audit".
+#   $Hq is main; a PR's code is not in main until it merges, so an audit of a PR
+#   branch still reads past it. The other half of the 2026-09-12 misread ("the
+#   base is not main") sits exactly there. Fixing it means unpinning $Hq - a
+#   separate change, backlog C-57.
 #
 # SELF-TEST
 #   powershell -File scripts\cross-verify.ps1 -SelfTest
@@ -76,6 +79,10 @@ $LAG_GIT_ENV = @(
     'GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE', 'GIT_COMMON_DIR',
     'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_PREFIX',
     'GIT_CONFIG', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM', 'GIT_CONFIG_COUNT',
+    # GIT_CONFIG_PARAMETERS is how `git -c` reaches a subprocess, so it can set
+    # core.worktree or a remote URL from outside with nothing on the command
+    # line to show for it. Named by the round-2 audit, 2026-09-13.
+    'GIT_CONFIG_PARAMETERS',
     'GIT_IMPLICIT_WORK_TREE', 'GIT_NAMESPACE', 'GIT_CEILING_DIRECTORIES'
 )
 
@@ -385,6 +392,18 @@ function Invoke-SelfTest {
     # HEAD alone is not enough: the 2026-09-13 incident changed core.bare and the
     # origin URL, and an "untouched" verdict that reads only HEAD would have
     # called that clean.
+    # A fingerprint that read NOTHING is not evidence of anything. Every git call
+    # below hides its stderr, so a repository that has been destroyed outright
+    # answers with empty strings - and two destroyed repositories then compare
+    # EQUAL, which would render "left untouched" as a pass over rubble. The
+    # caller checks this before believing a comparison. (Round-2 audit,
+    # 2026-09-13: the first version had exactly that hole.)
+    function Test-FingerprintUsable {
+        param([string]$Fingerprint)
+        $head = ($Fingerprint -split '\|')[0]
+        return ($head -match '^[0-9a-f]{40}$')
+    }
+
     function Get-RepoFingerprint {
         param([string]$Repo)
         return (@(
@@ -450,6 +469,17 @@ function Invoke-SelfTest {
         Remove-Item -LiteralPath 'Env:GIT_DIR' -ErrorAction SilentlyContinue
         $stillSet = [Environment]::GetEnvironmentVariable('GIT_DIR')
         $decoyAfter = Get-RepoFingerprint -Repo $decoy
+        # The two halves prove DIFFERENT guards, which is why both are here:
+        #   'refused'   <- guard 2 (it throws once the repo resolves elsewhere)
+        #   'untouched' <- guard 1 (guard 2 fires too late to prevent the damage)
+        # Measured 2026-09-13 on this commit: delete guard 1 and 'refused' still
+        # passes while core.bare goes false -> true. The mutation comes from the
+        # plain `git init` - with GIT_DIR set and no work tree, git initialises
+        # that directory as a BARE repository - not from `clone --bare`, which
+        # never runs on that path.
+        t 'lag: the before/after fingerprints are real readings, not empty' `
+            ((Test-FingerprintUsable $decoyBefore) -and (Test-FingerprintUsable $decoyAfter)) `
+            ([string]$decoyBefore + '  ->  ' + [string]$decoyAfter)
         t 'lag: a hijacked GIT_DIR is refused, not followed' $refused 'proceeded'
         t 'lag: the hijacked repo was left untouched (HEAD, branch, count, core.bare, origin, all refs)' `
             ($decoyBefore -eq $decoyAfter) ([string]$decoyBefore + '  ->  ' + [string]$decoyAfter)
@@ -461,19 +491,23 @@ function Invoke-SelfTest {
         #    fails. Reading our own source is the only handle on that ordering.
         #    NOT proof that `exit 1` stops the run - see "WHAT THIS STILL CANNOT
         #    MEASURE" in the header.
-        #    The needles are ASSEMBLED AT RUNTIME. Spelled literally, each one
-        #    would also match itself here, and then deleting the call site would
-        #    still find a hit - measured 2026-09-13: the first version of this
-        #    axis passed with the wiring removed, because it was reading its own
-        #    search string.
+        #    Two traps were walked into here, both worth keeping written down:
+        #    (1) needles spelled literally MATCH THEMSELVES. Deleting the call
+        #        site still found a hit, because the search string was the hit.
+        #        They are assembled at runtime instead.
+        #    (2) matching the MARKER ALONE measures a comment. Round-2 audit,
+        #        2026-09-13: `$lag = $null  # LAGGUARD-CALLSITE` would have
+        #        passed all three. So the lag needle requires the actual call
+        #        text AND the marker on the same line.
         $src    = Get-Content -LiteralPath $PSCommandPath -Raw
-        $nLag   = 'LAGGUARD' + '-CALLSITE'
+        $nLag   = 'Test-Repo' + 'Lag -Repo \$Hq[^\r\n]*LAGGUARD' + '-CALLSITE'
         $nBin   = 'AUDITOR'   + '-BINARY-PICKED'
         $nJob   = 'AUDITOR'   + '-PROCESS-STARTED'
-        $iLag   = $src.IndexOf($nLag)
+        $mLag   = [regex]::Match($src, $nLag)
+        $iLag   = if ($mLag.Success) { $mLag.Index } else { -1 }
         $iBin   = $src.IndexOf($nBin)
         $iJob   = $src.IndexOf($nJob)
-        t 'wiring: the lag check is present in the live path' ($iLag -ge 0) 'missing'
+        t 'wiring: the lag CALL (not just its marker) is in the live path' ($iLag -ge 0) 'missing'
         t 'wiring: it runs before the auditor binary is picked' (($iLag -ge 0) -and ($iBin -gt $iLag)) ('lag=' + $iLag + ' bin=' + $iBin)
         t 'wiring: it runs before any auditor process is started' (($iLag -ge 0) -and ($iJob -gt $iLag)) ('lag=' + $iLag + ' job=' + $iJob)
     } catch {
