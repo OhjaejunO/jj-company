@@ -161,6 +161,15 @@ try {
         if ($hrOn) { $env:ANTHROPIC_BASE_URL = $HeadroomUrl; $hrBefore = Get-HeadroomSavedTokens; Write-Log ('headroom: ON -> ' + $HeadroomUrl) }
         else { Remove-Item Env:ANTHROPIC_BASE_URL -ErrorAction SilentlyContinue; Write-Log 'headroom: OFF (direct)' }
     } else { Write-Log 'headroom: helper missing -> OFF (direct)' }
+    # claude -p waits for background tasks when the turn ends and then KILLS the
+    # ones still running; the default ceiling is 600s. Measured 2026-09-13: this
+    # very run spawned its agent, hit "Background tasks still running after 600s;
+    # terminating", and exited 0 with NO report - 31 notes (470KB) do not fit in
+    # ten minutes. Bounded on purpose: '0' would wait forever, and a scheduled
+    # task that never returns is worse than one that fails loudly. 30 min still
+    # fits inside PT1H after this task's 10-minute start stagger.
+    $env:CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS = '1800000'
+    Write-Log 'bg wait ceiling: 1800000 ms'
     $out = & $Claude -p (ConvertTo-NativeArg $prompt) --permission-mode default `
         --allowed-tools @AllowedTools `
         --add-dir $SkillDir --add-dir $StudyRoot 2>&1
