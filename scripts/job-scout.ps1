@@ -231,6 +231,11 @@ try {
         if ($hrOn) { $env:ANTHROPIC_BASE_URL = $HeadroomUrl; $hrBefore = Get-HeadroomSavedTokens; Write-Log ('headroom: ON -> ANTHROPIC_BASE_URL=' + $HeadroomUrl) }
         else { Remove-Item Env:ANTHROPIC_BASE_URL -ErrorAction SilentlyContinue; Write-Log 'headroom: OFF (direct)' }
     } else { Write-Log ('headroom: helper missing (' + $HrHelper + ') -> OFF (direct)') }
+    # See study-scout.ps1 for the measurement: claude -p kills background tasks
+    # still running when the turn ends, default ceiling 600s, and a run that
+    # loses its agent that way still exits 0. Bounded, never '0'.
+    $env:CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS = '1800000'
+    Write-Log 'bg wait ceiling: 1800000 ms'
     $out = & $Claude -p (ConvertTo-NativeArg $prompt) --permission-mode default `
         --allowed-tools @AllowedTools 2>&1
     $claudeCode = $LASTEXITCODE
