@@ -71,6 +71,27 @@ bash /srv/company/buzz/new-agent.sh <이름> "<표시이름>" "<소개>" [에이
 **옛 봇 셋(`claude`·`codex`·`hermes`)은 그대로 돈다.** 역할 정의가 없는 범용 신원이고,
 `dev`·`review` 가 그 자리를 대신하므로 **중복이다** — 끄는 것은 JJ 판정 자리로 남긴다.
 
+## 끄는 명령이 듣게 하는 것 (`Restart`)
+
+Buzz 원격 에이전트 규격(`docs/remote-agents.md`)의 **[L1] 5항**은 «의도적인 정상 종료를 되살리는
+supervisor 는 그 자체로 부적합» 이라고 못박는다. 종전 유닛 넷은 전부 `Restart=always` 였다.
+
+**2026-09-13 실측 — 축을 셋으로 갈라 쟀다** (내려둔 `ops` 로, 운영 봇은 건드리지 않고):
+
+| 넣은 것 | 하네스가 한 일 | 코드 |
+|---|---|---|
+| `BUZZ_ACP_EXIT_AFTER_INACTIVITY=60` (의도적 종료) | 「inactivity bound reached — exiting gracefully」 | **0** · `Result=success` |
+| 같은 것 + `Restart=always` | **5초 뒤 되살아났다** (`NRestarts=1` · `Scheduled restart job`) | — |
+| `BUZZ_ACP_AGENT_COMMAND=/nonexistent-agent-binary` (진짜 실패) | 「all 1 agents failed to start」 | **1** · `Result=exit-code` |
+| `BUZZ_RELAY_URL=wss://…invalid` (릴레이 불통) | 종료하지 않는다 — 백오프로 재시도 | — |
+
+그래서 `Restart=on-failure` 가 두 축을 다 만족한다. **되살아나는 것을 실제로 재현한 뒤에 고쳤다** —
+「always 는 나쁘다」는 추론이 아니라 `NRestarts` 가 0에서 1로 올라가는 것을 보고 고쳤다.
+
+🔴 **드롭인의 `Environment=` 는 `EnvironmentFile=` 을 못 덮는다.** 이 측정 중에 두 번 헛돌았다
+(릴레이 주소·에이전트 명령을 드롭인에 넣었는데 그대로 정상 동작했다). 역할 env 파일에 넣어야 먹는다 —
+**그 사이의 결과는 「안 죽었다」가 아니라 「안 바뀐 것을 쟀다」였다.**
+
 ## 🔴 이 배선이 못 막는 것
 
 - **PC 세션과 봇이 같은 일을 두 번 하는 것.** `claim.ps1` 은 이 기계에서 돌지 않는다
