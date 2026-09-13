@@ -13,7 +13,15 @@ EnvironmentFile=-/root/buzz-keys/%i-auth.env
 Environment=HOME=/root
 WorkingDirectory=/srv/company
 ExecStart=/usr/local/bin/buzz-acp
-Restart=always
+# 🔴 always 가 아니다. Buzz 원격 에이전트 규격 [L1] 5항: «의도적인 정상 종료를
+# 되살리는 supervisor 는 그 자체로 부적합» - 끄는 명령이 안 듣게 되기 때문이다.
+# 2026-09-13 실측 (셋을 따로 쟀다):
+#   - 의도적 자가 종료(inactivity bound) -> exit 0 / Result=success
+#   - always 로 두면 그 5초 뒤 되살아났다 (NRestarts=1 · 실제로 재현했다)
+#   - 진짜 실패(에이전트 바이너리 부재) -> exit 1 / Result=exit-code
+#   - 릴레이 불통은 아예 종료하지 않는다 - 백오프로 재시도한다
+# 그래서 on-failure 가 두 축을 다 만족한다: 0 은 안 살리고 1 은 살린다.
+Restart=on-failure
 RestartSec=10
 # 재시작 루프가 조용히 돌지 않게 - 5분에 5회 넘게 죽으면 멈추고 failed 로 남는다
 StartLimitIntervalSec=300
