@@ -50,10 +50,29 @@ param(
 $ErrorActionPreference = 'Stop'
 function Say([string]$m) { Write-Host ('[claim] ' + $m) }
 
-if (-not $Dir) {
-    $root = Split-Path -Parent $PSScriptRoot
-    $Dir = Join-Path $root 'logs\claims'
+# ONE directory per machine, not one per clone.
+#
+# The default used to be "<the repo this script lives in>\logs\claims", and this
+# repo has more than one working copy: the workshop tree and the operations
+# server. Measured 2026-09-13: seven claims sat in the workshop tree's directory
+# and one in the operations server's, and neither side could see the other - so
+# two sessions could hold "the same" topic at once and both be told OK. That is
+# the exact collision this script exists to prevent, and it had been open the
+# whole time because the header said "per machine" while the code said "per
+# clone" (charter section 0: the real thing is the authority, not the sentence).
+$CLAIM_DIR_MACHINE = 'C:\Users\ojaej\jj-company\logs\claims'
+
+function Resolve-ClaimDir([string]$ScriptRoot, [string]$MachineDir) {
+    if (Test-Path -LiteralPath (Split-Path -Parent $MachineDir)) { return $MachineDir }
+    # Somewhere else entirely (another machine, a fresh clone). Fall back to the
+    # old repo-relative directory, but SAY so - a silent fallback would bring
+    # back the split this change closes.
+    $d = Join-Path (Split-Path -Parent $ScriptRoot) 'logs\claims'
+    Say ('WARNING - machine claim dir not found, using this clone only: ' + $d)
+    return $d
 }
+
+if (-not $Dir) { $Dir = Resolve-ClaimDir $PSScriptRoot $CLAIM_DIR_MACHINE }
 New-Item -ItemType Directory -Path $Dir -Force | Out-Null
 
 # WHOSE claim is it - a handle that outlives this script.
@@ -190,6 +209,17 @@ if ($SelfTest) {
     if ((Free $t) -ne 0) { $fails++; Say 'SELFTEST: release failed' }
     if ((Take $t 'selftest-again') -ne 0) { $fails++; Say 'SELFTEST: take after release was refused' }
     Free $t | Out-Null
+
+    # One directory per machine. Two clones of this repo must land on the SAME
+    # place, or a claim taken in one is invisible to the other - measured
+    # 2026-09-13 with seven claims here and one there.
+    $dirA = Resolve-ClaimDir 'C:\Users\ojaej\orca\jj-company\scripts' $CLAIM_DIR_MACHINE
+    $dirB = Resolve-ClaimDir 'C:\Users\ojaej\jj-company\scripts'      $CLAIM_DIR_MACHINE
+    if ($dirA -ne $dirB) { $fails++; Say ('SELFTEST: two clones resolved to different dirs: ' + $dirA + ' vs ' + $dirB) }
+    # ...and the fallback is still there for a machine that has no such path -
+    # without this case, "always return the constant" would pass the line above.
+    $dirC = Resolve-ClaimDir 'C:\nowhere\repo\scripts' 'C:\nowhere\at\all\claims'
+    if ($dirC -ne 'C:\nowhere\repo\logs\claims') { $fails++; Say ('SELFTEST: fallback dir wrong: ' + $dirC) }
 
     # Staleness. Each case gets its OWN claim file: if two cases shared one, a
     # pass would not say which rule earned it (charter section 0 - separate the
