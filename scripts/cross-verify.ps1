@@ -68,6 +68,17 @@ $CodexHome = 'C:\Users\ojaej\.codex-jjcompany'
 
 $MODEL_LABEL = @{ 'codex' = 'codex default'; 'claude' = 'claude -p default' }
 
+# Everything git exports into a hook process that can redirect WHICH repository
+# or WHICH config a later `git` call touches. These OUTRANK `git -C <path>`.
+# The lag self-test builds real temp repos, so it clears all of these first and
+# refuses to run if any survives - see New-LagRepo guard 1.
+$LAG_GIT_ENV = @(
+    'GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE', 'GIT_COMMON_DIR',
+    'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_PREFIX',
+    'GIT_CONFIG', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM', 'GIT_CONFIG_COUNT',
+    'GIT_IMPLICIT_WORK_TREE', 'GIT_NAMESPACE', 'GIT_CEILING_DIRECTORIES'
+)
+
 # Prompts ship NEXT TO this script, not at a fixed HQ path: the self-test must
 # measure the templates that will actually run. Reading them from $Hq meant a
 # worktree self-test passed or failed on the DEPLOYED copy - the one case the
@@ -165,9 +176,15 @@ function Append-Section {
 # already makes a session run) rather than invented here. The fetch happens at
 # call time so the verdict is about the remote as it is NOW.
 #
-# It STOPS instead of writing the warning into the prompt: putting it in the
-# prompt is layer 3 of the 4-layer clause (hoping the model notices), stopping is
-# layer 1 (the wrong bytes are never readable in the first place).
+# It STOPS instead of writing the warning into the prompt. Both are layer 3 of
+# the 4-layer clause - this is a check, not a structural fix - but a check that
+# refuses is worth more than one that hopes the model notices a note. Layer 1
+# here would be not pinning $Hq at all, which is backlog C-57 and a separate
+# change.
+#
+# WHAT IT DOES NOT ASK. Only "is $Hq behind origin/main". An AHEAD main, a
+# detached or wrong HEAD, and a dirty working tree all pass while the auditor
+# still reads bytes that are not origin/main. Those are open, and named in C-57.
 function Get-BehindCount {
     param([string]$Repo, [string]$LocalRef, [string]$RemoteRef)
     $prev = $ErrorActionPreference
@@ -303,20 +320,43 @@ function Invoke-SelfTest {
         param([string]$Root, [string]$Name, [int]$Commits, [switch]$BreakOrigin)
         $bare = Join-Path $Root ($Name + '.git')
         $work = Join-Path $Root $Name
+
+        # GUARD 1 - BEFORE the first git call. `git init` with GIT_DIR set
+        # re-initialises the REAL repository, so a guard that waits for a repo to
+        # exist is already too late; the check has to be on the environment.
+        # `git -C <path>` LOSES to these variables, and this self-test runs from
+        # pre-commit (charter section 3 registers it there), where git exports
+        # them into the hook process. Measured 2026-09-13: without this the
+        # temp-repo commits landed on the real branch, 'init --bare' set
+        # core.bare on it, 'branch -M main' clobbered main, and 'push origin
+        # main' sent all of it to GitHub.
+        foreach ($n in $LAG_GIT_ENV) {
+            $v = [Environment]::GetEnvironmentVariable($n)
+            if ($v) { throw ('lag self-test refused: ' + $n + ' is set (' + $v + ')') }
+        }
+
         & git init -q $work 2>$null | Out-Null
 
-        # NEVER mutate a repository this function did not just create.
-        # `git -C <path>` LOSES to GIT_DIR, and this self-test runs from
-        # pre-commit (charter section 3 registers it there), where git exports
-        # GIT_DIR / GIT_INDEX_FILE into the hook process. The caller clears
-        # those; this is the net under it, checked before the first mutation.
-        # Measured 2026-09-13: without it the temp-repo commits landed on the
-        # real branch, 'branch -M main' clobbered main, and 'push origin main'
-        # sent all of it to GitHub.
-        $top = & git -C $work rev-parse --show-toplevel 2>$null
-        $want = (Resolve-Path -LiteralPath $work).Path
+        # GUARD 2 - the repo git actually resolves to must be the one just made.
+        # --show-toplevel alone is not the whole answer: GIT_DIR together with
+        # GIT_WORK_TREE can make the work tree match while the git dir - which
+        # holds the config, refs and objects the incident damaged - is somewhere
+        # else. So both halves are checked.
+        #
+        # NOT PROVEN (charter section 0, layer 4): no self-test axis reaches
+        # the git-dir half, because guard 1 refuses before anything gets this
+        # far. Sabotaging only that half leaves every axis green (measured
+        # 2026-09-13). It is depth under guard 1, not a measured check, and it is
+        # written down here rather than counted as one.
+        $want    = (Resolve-Path -LiteralPath $work).Path
+        $wantGit = (Join-Path $want '.git')
+        $top     = & git -C $work rev-parse --show-toplevel 2>$null
+        $gitDir  = & git -C $work rev-parse --absolute-git-dir 2>$null
         if (-not $top -or ((Resolve-Path -LiteralPath ($top.Trim())).Path -ne $want)) {
-            throw ('lag self-test refused: git inside ' + $work + ' resolves to ' + $top)
+            throw ('lag self-test refused: work tree of ' + $work + ' resolves to ' + $top)
+        }
+        if (-not $gitDir -or ((Resolve-Path -LiteralPath ($gitDir.Trim())).Path -ne $wantGit)) {
+            throw ('lag self-test refused: git dir of ' + $work + ' resolves to ' + $gitDir)
         }
 
         & git -C $work config user.email 'selftest@local' 2>$null | Out-Null
@@ -341,19 +381,35 @@ function Invoke-SelfTest {
         }
         return $work
     }
-    # git hands its hooks GIT_DIR / GIT_INDEX_FILE / GIT_WORK_TREE, and those
-    # OUTRANK `git -C`. This self-test is registered in pre-commit, so inside a
-    # commit every git call below would otherwise drive the repository being
-    # committed to. Clear them for the block and put them back afterwards.
-    $gitEnvNames = @(
-        'GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE', 'GIT_COMMON_DIR',
-        'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_PREFIX'
-    )
+    # Fingerprint enough of a repository that a hijack cannot hide in the gap.
+    # HEAD alone is not enough: the 2026-09-13 incident changed core.bare and the
+    # origin URL, and an "untouched" verdict that reads only HEAD would have
+    # called that clean.
+    function Get-RepoFingerprint {
+        param([string]$Repo)
+        return (@(
+            (& git -C $Repo rev-parse HEAD 2>$null),
+            (& git -C $Repo rev-parse --abbrev-ref HEAD 2>$null),
+            (& git -C $Repo rev-list --count HEAD 2>$null),
+            (& git -C $Repo config --local --get core.bare 2>$null),
+            (& git -C $Repo config --local --get remote.origin.url 2>$null),
+            ((& git -C $Repo for-each-ref --format='%(refname) %(objectname)' 2>$null) -join ',')
+        ) -join '|')
+    }
+
+    # Clear the hook environment for the block and put it back afterwards.
+    # Removal is VERIFIED, not attempted: a Remove-Item that quietly failed would
+    # leave the exact variable this block exists to get rid of, and the guard
+    # inside New-LagRepo would then be the only thing standing.
     $gitEnvSaved = @{}
-    foreach ($n in $gitEnvNames) {
+    $gitEnvStuck = @()
+    foreach ($n in $LAG_GIT_ENV) {
         $gitEnvSaved[$n] = [Environment]::GetEnvironmentVariable($n)
         Remove-Item -LiteralPath ('Env:' + $n) -ErrorAction SilentlyContinue
+        if ([Environment]::GetEnvironmentVariable($n)) { $gitEnvStuck += $n }
     }
+    t 'lag: the hook environment was actually cleared (not just asked to clear)' `
+        ($gitEnvStuck.Count -eq 0) ($gitEnvStuck -join ',')
     try {
         New-Item -ItemType Directory -Force -Path $lagRoot | Out-Null
 
@@ -387,19 +443,46 @@ function Invoke-SelfTest {
         #    builder REFUSES instead of driving the decoy. Without this case the
         #    guard above is prose: nothing here would notice if it were deleted.
         $decoy = New-LagRepo -Root $lagRoot -Name 'decoy' -Commits 1
-        $decoyBefore = (& git -C $decoy rev-parse HEAD 2>$null)
+        $decoyBefore = Get-RepoFingerprint -Repo $decoy
         $env:GIT_DIR = (Join-Path $decoy '.git')
         $refused = $false
         try { New-LagRepo -Root $lagRoot -Name 'victim' -Commits 1 | Out-Null } catch { $refused = $true }
         Remove-Item -LiteralPath 'Env:GIT_DIR' -ErrorAction SilentlyContinue
-        $decoyAfter = (& git -C $decoy rev-parse HEAD 2>$null)
+        $stillSet = [Environment]::GetEnvironmentVariable('GIT_DIR')
+        $decoyAfter = Get-RepoFingerprint -Repo $decoy
         t 'lag: a hijacked GIT_DIR is refused, not followed' $refused 'proceeded'
-        t 'lag: the hijacked repo was left untouched' ($decoyBefore -eq $decoyAfter) ([string]$decoyBefore + ' -> ' + [string]$decoyAfter)
+        t 'lag: the hijacked repo was left untouched (HEAD, branch, count, core.bare, origin, all refs)' `
+            ($decoyBefore -eq $decoyAfter) ([string]$decoyBefore + '  ->  ' + [string]$decoyAfter)
+        t 'lag: the decoy GIT_DIR was removed again' (-not $stillSet) ([string]$stillSet)
+
+        # f. the live wiring. No case here can make the real operations server
+        #    lag, so what is checked instead is that the call still SITS where it
+        #    has to: delete it, or move it below the auditor launch, and this
+        #    fails. Reading our own source is the only handle on that ordering.
+        #    NOT proof that `exit 1` stops the run - see "WHAT THIS STILL CANNOT
+        #    MEASURE" in the header.
+        #    The needles are ASSEMBLED AT RUNTIME. Spelled literally, each one
+        #    would also match itself here, and then deleting the call site would
+        #    still find a hit - measured 2026-09-13: the first version of this
+        #    axis passed with the wiring removed, because it was reading its own
+        #    search string.
+        $src    = Get-Content -LiteralPath $PSCommandPath -Raw
+        $nLag   = 'LAGGUARD' + '-CALLSITE'
+        $nBin   = 'AUDITOR'   + '-BINARY-PICKED'
+        $nJob   = 'AUDITOR'   + '-PROCESS-STARTED'
+        $iLag   = $src.IndexOf($nLag)
+        $iBin   = $src.IndexOf($nBin)
+        $iJob   = $src.IndexOf($nJob)
+        t 'wiring: the lag check is present in the live path' ($iLag -ge 0) 'missing'
+        t 'wiring: it runs before the auditor binary is picked' (($iLag -ge 0) -and ($iBin -gt $iLag)) ('lag=' + $iLag + ' bin=' + $iBin)
+        t 'wiring: it runs before any auditor process is started' (($iLag -ge 0) -and ($iJob -gt $iLag)) ('lag=' + $iLag + ' job=' + $iJob)
     } catch {
         t 'lag: temp repos built without touching the real repo' $false ([string]$_)
     } finally {
         Remove-Item -LiteralPath $lagRoot -Recurse -Force -ErrorAction SilentlyContinue
-        foreach ($n in $gitEnvNames) {
+        # Only variables that HAD a value are put back; one that was absent stays
+        # absent rather than coming back as an empty string.
+        foreach ($n in $LAG_GIT_ENV) {
             if ($null -ne $gitEnvSaved[$n]) { Set-Item -LiteralPath ('Env:' + $n) -Value $gitEnvSaved[$n] }
         }
     }
@@ -470,7 +553,7 @@ Write-Log ('rules: ' + $Rules)
 
 # Before any auditor starts: the tree it will read must match origin/main.
 # See the Test-RepoLag comment above for the 2026-09-12 false red.
-$lag = Test-RepoLag -Repo $Hq
+$lag = Test-RepoLag -Repo $Hq   # LAGGUARD-CALLSITE (self-test axis f reads this marker)
 if ($lag) {
     Write-Log ('hq lag check: ' + $lag + ' (' + $Hq + ')')
     Append-Section -Body (Get-LagFailureBody -Lag $lag -Repo $Hq) -Failed $true -AuditorName $Auditor -AuthorName $Author
@@ -479,7 +562,7 @@ if ($lag) {
 }
 Write-Log 'hq lag check OK - not behind origin/main'
 
-$Bin = if ($Auditor -eq 'codex') { $Codex } else { $Claude }
+$Bin = if ($Auditor -eq 'codex') { $Codex } else { $Claude }   # AUDITOR-BINARY-PICKED
 if (-not (Test-Path -LiteralPath $Bin)) {
     Write-Log ($Auditor + ' not found: ' + $Bin)
     Append-Section -Body ($Auditor + '-not-found: ' + $Bin) -Failed $true -AuditorName $Auditor -AuthorName $Author
@@ -528,7 +611,7 @@ if ($Auditor -eq 'codex') {
     # codex is a .cmd shim; Start-Process -PassThru returns $null for it, so the
     # process never launches. Invoke it directly and pipe the prompt on stdin, with
     # a background job supplying the timeout.
-    $job = Start-Job -ScriptBlock {
+    $job = Start-Job -ScriptBlock {   # AUDITOR-PROCESS-STARTED
         param($bin, $binArgs, $promptPath, $stdoutPath, $stderrPath, $codexHome)
         # Set explicitly rather than relying on the job process inheriting it.
         $env:CODEX_HOME = $codexHome
