@@ -92,6 +92,44 @@ supervisor 는 그 자체로 부적합» 이라고 못박는다. 종전 유닛 �
 (릴레이 주소·에이전트 명령을 드롭인에 넣었는데 그대로 정상 동작했다). 역할 env 파일에 넣어야 먹는다 —
 **그 사이의 결과는 「안 죽었다」가 아니라 「안 바뀐 것을 쟀다」였다.**
 
+## 앱에서 만든 에이전트를 VPS 에서 돌리는 길 (`backend/`)
+
+Buzz 데스크톱은 에이전트 실행을 **원격 기질**에 위임할 수 있다 — 규격은 buzz 레포
+`docs/remote-agents.md` 이고, 방식은 PATH 에 있는 `buzz-backend-<id>` 실행파일이다.
+앱이 그것을 한 번에 한 동작씩 띄워 stdin 으로 JSON 하나를 주고 stdout 에서 하나를 읽는다
+(`info` · `deploy` 둘뿐). `deploy` 페이로드에 신원·릴레이·시스템 프롬프트·모델·런타임·
+팀 지시문이 전부 들어 있어, 받아서 systemd 유닛으로 세우면 그것이 곧 «적합한 런처» 다
+(규격 §Launchers 가 systemd 유닛을 명시적으로 그 자리에 놓는다).
+
+`buzz/backend/` 가 우리 구현이다. 빌드는 **VPS 에서 크로스 컴파일**한다 — 이 PC 에
+컴파일러가 없다(cargo·rustc·go·gcc·cl 전부 부재, 2026-09-13 실측).
+
+```sh
+# PC 에서
+scp -i ~/.ssh/buzz_vps -r buzz/backend/Cargo.toml buzz/backend/src root@187.127.100.11:/root/build/jjvps/
+# VPS 에서
+cd /root/build/jjvps && PATH=$HOME/.cargo/bin:$PATH cargo build --release --target x86_64-pc-windows-gnu
+# 다시 PC 로 - 앱이 ~/.local/bin 을 PATH 와 별개로 뒤진다(discover_provider_candidates)
+scp -i ~/.ssh/buzz_vps root@187.127.100.11:/root/build/jjvps/target/x86_64-pc-windows-gnu/release/buzz-backend-jjvps.exe ~/.local/bin/
+```
+
+역검증은 `buzz-backend-jjvps.exe --self-test`(축 11개). 🔴 **그 검사는 `handle()` 만 잰다** —
+stdin/stdout 배관은 실제로 파이프를 물려 따로 봤다(정상 요청 · 깨진 JSON · 빈 입력 셋 다 exit 0).
+
+### 🔴 지금은 «탐침» 이고 `deploy` 는 일부러 비어 있다
+
+두 가지가 먼저 확인돼야 한다.
+
+- 규격이 **「v1 provider 범위는 macOS+Linux」** 라고 선언했다(DECISION B). 우리는 Windows 다.
+- **알려진 결함 1**: Windows 에서 `.exe` 접미사가 provider id 에 남아 **deploy 에서 id 검증에 걸린다** —
+  「드롭다운엔 뜨고, info 는 통과하고, deploy 만 깨진다」. 설치본이 2026-09-06 판이라 이 결함이
+  살아 있을 수 있다(소스 클론 9/08 판에는 접미사를 떼는 코드가 있다 — 두 판이 다르다).
+
+그래서 `deploy` 를 다 짜 놓고 그 자리에서 막히는 대신, **뜨는지·id 가 뭔지부터** 탐침으로 잰다.
+탐침의 `deploy` 는 `probe build: deploy is not implemented yet` 을 in-band 실패로 낸다 —
+**그 문구가 보이면 id 검증을 통과한 것**이고, 그 전에 다른 오류가 나면 결함 1 이 살아 있는 것이다.
+두 결과가 서로 다른 글자를 내므로 갈린다.
+
 ## 🔴 이 배선이 못 막는 것
 
 - **PC 세션과 봇이 같은 일을 두 번 하는 것.** `claim.ps1` 은 이 기계에서 돌지 않는다
