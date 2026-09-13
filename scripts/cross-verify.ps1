@@ -298,6 +298,21 @@ function Get-LagFailureBody {
 # What it measures, and why each half exists (charter section 0): a check that
 # only shows the guard FIRING cannot tell a working guard from one that refuses
 # everything. So every case here has its opposite next to it.
+# 'pass' / 'findings' for an answer that actually judged, $null for one that did
+# not. The contract is the prompt's own output format (scripts\prompts\cross-verify.md):
+# first line is exactly PASS, or "FINDINGS: <count>". Nothing else is a verdict -
+# not a "cannot review" sentence, not an apology, not an empty answer.
+#
+# Deliberately strict about the COUNT: "FINDINGS:" with no number is a half-written
+# header, and accepting it would let a truncated answer read as a real audit.
+function Get-VerdictKind {
+    param([string]$FirstLine)
+    $s = ([string]$FirstLine).Trim()
+    if ($s -eq 'PASS') { return 'pass' }
+    if ($s -match '^FINDINGS:\s*\d+') { return 'findings' }
+    return $null
+}
+
 function Invoke-SelfTest {
     $fails = @()
     function t { param([string]$Name, [bool]$Ok, [string]$Got)
@@ -693,6 +708,21 @@ function Invoke-SelfTest {
         t 'program: and the artifact carries the recovery command' `
             ($eRepText -match 'pull --ff-only') ([string]$eRepText)
 
+        # g. the auditor's ANSWER, not the auditor's exit code. Measured
+        #    2026-09-13: codex exited 0 having read nothing (it said "cannot review,
+        #    was blocked") and the run logged STATUS: OK. Both directions are
+        #    here, because a predicate that accepts everything and one that
+        #    accepts nothing both look fine from one side.
+        t 'verdict: PASS is a verdict'             ((Get-VerdictKind -FirstLine 'PASS') -eq 'pass') 'not pass'
+        t 'verdict: FINDINGS with a count is one'  ((Get-VerdictKind -FirstLine 'FINDINGS: 3') -eq 'findings') 'not findings'
+        # The real answer was Korean; this file is ASCII-only, so the sample is
+        # the sample is rebuilt from code points rather than typed.
+        $unread = (-join ([char]0xAC80, [char]0xD1A0, [char]0x20, [char]0xBD88, [char]0xAC00)) + '. Get-Content blocked'
+        t 'verdict: an unread audit is NOT one'    ($null -eq (Get-VerdictKind -FirstLine $unread)) 'accepted'
+        t 'verdict: an empty answer is NOT one'    ($null -eq (Get-VerdictKind -FirstLine '')) 'accepted'
+        t 'verdict: a bare FINDINGS header is NOT one' ($null -eq (Get-VerdictKind -FirstLine 'FINDINGS:')) 'accepted'
+        t 'verdict: PASS must be the whole line'   ($null -eq (Get-VerdictKind -FirstLine 'PASS is not quite the word for it')) 'accepted'
+
         # f2. what the caller does with what was thrown. A lag verdict and any
         #     other failure must not read alike: telling someone to pull when
         #     the check never ran sends them to fix a thing that is not broken.
@@ -929,8 +959,37 @@ if ($failure) {
     Append-Section -Body $failure -Failed $true -AuditorName $Auditor -AuthorName $Author
     Write-Log ('STATUS: FAIL ' + $failure)
 } else {
-    Append-Section -Body $answer.Trim() -Failed $false -AuditorName $Auditor -AuthorName $Author
+    # An auditor that READ NOTHING must not look like an auditor that passed.
+    # Measured 2026-09-13: codex returned "cannot review - Get-Content blocked",
+    # exited 0, and this branch appended it as an ordinary section and logged
+    # STATUS: OK. The prompt requires the first line to be PASS or FINDINGS: N,
+    # so anything else is the audit saying it could not judge - and a run that
+    # produced no judgement did not do its job (charter section 4: STATUS means
+    # "did the task complete"). This is the L-016 lesson one layer out: a value
+    # nobody read must not be compared against one somebody did.
+    #
+    # NOT MEASURED (charter section 0, layer 4): the self-test exercises
+    # Get-VerdictKind, not this wiring. Reaching this branch end to end needs a
+    # real auditor answer, and the only way to fake one is to make the binary
+    # path overridable - a far bigger hole (an auditor that always says PASS)
+    # than the one it would close. So the predicate is proven and the wiring is
+    # not, and that is written here rather than counted as covered. The round-4
+    # lesson above applies to this line too: reading it is not evidence it ran.
     $verdict = ($answer.Trim() -split "`n")[0].Trim()
+    if ($null -eq (Get-VerdictKind -FirstLine $verdict)) {
+        $flat = ($verdict -replace '[\r\n]+', ' ')
+        if ($flat.Length -gt 300) { $flat = $flat.Substring(0, 300) }
+        Write-Log ($Auditor + ' returned no verdict: ' + $flat)
+        Append-Section -Body ('audit-no-verdict: the auditor answered without the required first line ' +
+            '(PASS or "FINDINGS: <n>"), so NOTHING is known about this report - this is not a pass. ' +
+            'What it said instead: ' + $flat) -Failed $true -AuditorName $Auditor -AuthorName $Author
+        Write-Log 'STATUS: FAIL audit-no-verdict'
+        foreach ($f in @($promptPath, $answerPath, $stdoutPath, $stderrPath)) {
+            Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue
+        }
+        exit 1
+    }
+    Append-Section -Body $answer.Trim() -Failed $false -AuditorName $Auditor -AuthorName $Author
     Write-Log ($Auditor + ' verdict: ' + $verdict)
     Write-Log ('appended to: ' + $Report)
     Write-Log 'STATUS: OK'
