@@ -2263,7 +2263,7 @@ requestedOnPublicDomain:true}` 를 POST 하면 `isPublicShareLink` 가 온다.
 
 ## C-57 — 감리기가 «감리 대상 브랜치»가 아니라 운영 서버 main 을 읽는다 (2026-09-13)
 
-- **대상**: 본사 `jj-company` `scripts\cross-verify.ps1` 의 `$Hq = 'C:\Users\ojaej\jj-company'` 상수(현재 64줄 · **줄 번호는 조회 결과이지 정본이 아니다**, §0).
+- **대상**: 본사 `jj-company` `scripts\cross-verify.ps1` 의 `$Hq = 'C:\Users\ojaej\jj-company'` 상수(**줄 번호는 적지 않는다 — 편집마다 밀리고, 실물이 정본이다**, §0).
 - **근거 실측 (2026-09-12)**: 감리기가 그 트리에서 `gate_on_stop.py` 를 읽고 「`newest_mtime` 0건」이라는
   🔴 를 냈다. **함수는 PR 브랜치에 멀쩡히 있었다.** 원인이 둘로 갈린다 —
   ⓐ 운영 서버가 `origin/main` 보다 뒤처져 있었다 ⓑ **애초에 PR 내용은 `main` 에 없다.**
