@@ -64,7 +64,7 @@
 | 대표실 | study-scout | A | `C:\공부` 새 노트 → «요지 · 실물 대조 · 제안» 리포트 (주 1회 · 읽기 전용 · `scripts\study_watch.py` 가 새 노트를 잡는다) |
 | 마케팅팀 | content-scout | B | 토망치랩 소재 조사 → 카드 제안 |
 | 영업팀 | job-scout | B | AX/AI 엔지니어 채용 공고 발굴 → 요약 |
-| 마케팅팀 | blog-writer | B | 네이버 블로그 «AI 뉴스» 초안 (전날 스캔로그 + 발행편 검증로그 → `reports\blog\`) · 발행은 JJ (C) · 규격 `docs\blog-format.md` · 게이트 `scripts\blogcheck.py` |
+| 마케팅팀 | blog-writer | B | 네이버 블로그 «AI 뉴스» 초안 (전날 스캔로그 + 발행편 검증로그 → `reports\blog\`) · 발행은 워커(`scripts\publish_naver.py --publish` · `blogcheck` OK 일 때만 · §0 «발행은 매체별로 가른다») · 규격 `docs\blog-format.md` · 게이트 `scripts\blogcheck.py` |
 | 개발팀 | implementer / verifier (글로벌 상속) | B | 구현/검증 분리, adversarial cross-validation |
 | 개발팀 | **코덱스 (작업자)** | B | worktree 안 코드 작업·검사기·PR. 진입점은 `AGENTS.md` → 정본은 `CLAUDE.md` 하나. **감리는 클로드** |
 | 감리 | 교차검증 — **작성자 ≠ 감리자** | A | 작성자가 아닌 모델이 감리한다(방향 양쪽). read-only, 본문 미수정 append 전용 |
