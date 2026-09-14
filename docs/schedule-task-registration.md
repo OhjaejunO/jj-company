@@ -116,7 +116,7 @@ Task Scheduler 가 시간대 없는 값을 **로컬 시각**으로 읽기 때문
 
 네이버 블로그 «AI 뉴스» 초안 워커. 매일 09:00(래퍼 안 8분 지연 → 09:08) — scout 08:00·job 08:30 뒤에 서서
 전날 스캔로그를 재료로 쓴다. 산출은 `reports\blog\<날짜>_*.md`(초안) + `reports\<날짜>_blog-writer.md`.
-**발행은 C등급** — JJ 가 `[[JJ 한마디]]` 2문장을 채우고 `blogcheck.py --publish` OK 뒤 스마트에디터에 복붙한다.
+**발행은 워커가 한다 (2026-09-10 §0 개정 · 이 줄은 2026-09-14 까지 옛 C등급 문장이었다)** — 한마디 두 문장도 에이전트가 쓰고(2026-09-12), `blogcheck.py --publish` OK 일 때만 `publish_naver.py --publish` 가 «발행»을 누른다. 영수증은 `logs\publish-receipts\blog\`.
 
 🔴 순서: ① PR 머지 → ② 운영 서버 `git pull` → ③ 라이브 경로에서 `py scripts\blog_brief.py --self-test` 와
 `py scripts\blogcheck.py --self-test` 둘 다 `STATUS: OK` → ④ 관리자 PowerShell 에서 등록.
