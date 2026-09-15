@@ -53,7 +53,14 @@ const BINDING_VERSION: u64 = 1;
 const HARNESS_PATH: &str = "/usr/local/bin/buzz-acp";
 const MCP_COMMAND: &str = "buzz-dev-mcp";
 const STATE_ROOT: &str = "/etc/buzz-remote";
-const WORK_ROOT: &str = "/srv/work/remote";
+/// 기본 작업 자리. `%i` 는 systemd 가 인스턴스 이름으로 푼다 — 즉 **에이전트마다 따로**다.
+/// 규격의 `emptyDir` 자리이고, 「체크아웃과 낙서는 파드와 함께 죽는다」가 그 기본값의 뜻이다.
+/// 🔴 여럿이 **같은** 자리를 쓰게 하려면 `%i` 없는 경로를 설정에 적는다(공유 작업공간).
+const DEFAULT_WORKSPACE: &str = "/srv/work/remote/%i";
+
+/// 작업 자리로 내줄 수 없는 곳. 봇은 root 로 돌기 때문에(아래 «못 막는 것») 여기를 cwd 로
+/// 잡아 주면 실수 하나가 기계를 넘어뜨린다.
+const WORKSPACE_DENY: &[&str] = &["/", "/root", "/etc", "/usr", "/bin", "/sbin", "/boot", "/dev", "/proc", "/sys", "/var"];
 
 /// 하네스가 «정말 떴다» 로 인정받기까지 연속으로 `active(running)` 이어야 하는 시간.
 /// 이보다 짧으면 「떴다가 곧 죽는」 것을 «떴다» 로 읽는다.
@@ -182,6 +189,32 @@ struct Config {
     ssh_identity_file: String,
     /// I5. `0` 은 오설정이 아니라 «무기한» 이라는 명시적 선택이라 거부하지 않는다.
     inactivity_seconds: u64,
+    /// 봇이 서는 자리. `%i` 를 남겨 두면 에이전트마다 따로, 빼면 여럿이 같이 쓴다.
+    workspace: String,
+}
+
+/// 작업 자리 검사. **닫히는 쪽으로** 판정한다 — 애매하면 거부다.
+fn validate_workspace(path: &str) -> Result<(), String> {
+    if !path.starts_with('/') {
+        return Err(format!("workspace must be an absolute path (got '{path}')"));
+    }
+    if path.contains('\0') || path.contains('\n') || path.contains('\'') {
+        return Err("workspace contains a character that cannot appear in a unit file".into());
+    }
+    if path.split('/').any(|seg| seg == "..") {
+        return Err("workspace must not contain '..'".into());
+    }
+    let trimmed = path.trim_end_matches('/');
+    // 뿌리 자체도, 그 **아래**도 막는다. `/etc/buzz-remote` 를 작업 자리로 잡으면
+    // 봇이 자기 신원 파일 위에 앉는다.
+    let denied = trimmed.is_empty()
+        || WORKSPACE_DENY
+            .iter()
+            .any(|root| trimmed == *root || trimmed.starts_with(&format!("{root}/")));
+    if denied {
+        return Err(format!("workspace '{path}' is a system directory; pick a folder of your own"));
+    }
+    Ok(())
 }
 
 fn parse_config(pc: &serde_json::Value) -> Result<Config, String> {
@@ -196,7 +229,15 @@ fn parse_config(pc: &serde_json::Value) -> Result<Config, String> {
             .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
             .ok_or("inactivity_seconds must be a non-negative number")?,
     };
-    Ok(Config { ssh_host: host, ssh_user: user, ssh_identity_file: identity, inactivity_seconds: inactivity })
+    let workspace = as_nonempty(pc, "workspace").unwrap_or_else(|| DEFAULT_WORKSPACE.into());
+    validate_workspace(&workspace)?;
+    Ok(Config {
+        ssh_host: host,
+        ssh_user: user,
+        ssh_identity_file: identity,
+        inactivity_seconds: inactivity,
+        workspace,
+    })
 }
 
 // ---------------------------------------------------------------- 환경 조립
@@ -337,10 +378,12 @@ struct Plan {
     meta_file: String,
     unit_text: String,
     agent_command: String,
+    /// `%i` 를 실제 인스턴스로 푼 것. 유닛은 `%i` 를 그대로 들고(systemd 가 푼다),
+    /// `mkdir` 하는 셸은 풀린 것을 받아야 한다 — 둘이 갈리면 봇이 없는 폴더에서 뜬다.
+    workspace_resolved: String,
 }
 
-fn unit_text(instance: &str) -> String {
-    let _ = instance;
+fn unit_text(workspace: &str) -> String {
     format!(
         "[Unit]\n\
          Description=buzz remote agent (%i)\n\
@@ -350,7 +393,7 @@ fn unit_text(instance: &str) -> String {
          [Service]\n\
          Type=simple\n\
          Environment=HOME=/root\n\
-         WorkingDirectory={WORK_ROOT}/%i\n\
+         WorkingDirectory={workspace}\n\
          ExecStart=/bin/sh -c \"set -a; . {STATE_ROOT}/%i/env; set +a; exec {HARNESS_PATH}\"\n\
          Restart=no\n\
          TimeoutStopSec=60\n\
@@ -396,12 +439,13 @@ fn plan(payload: &serde_json::Value, cfg: &Config, generation: &str) -> Result<P
     let pubkey = derive_pubkey_hex(&nsec)?;
     let instance = pubkey[..12].to_string();
     let env = build_env(payload, cfg, &pubkey, generation)?;
-    let unit = unit_text(&instance);
+    let unit = unit_text(&cfg.workspace);
     let intent = intent_fingerprint(&env, &unit);
     let agent_command = env.get("BUZZ_ACP_AGENT_COMMAND").cloned().unwrap_or_default();
     Ok(Plan {
         agent_id: format!("buzz-agent-{instance}"),
         meta_file: meta_json(&pubkey, &intent, generation),
+        workspace_resolved: cfg.workspace.replace("%i", &instance),
         pubkey,
         instance,
         intent,
@@ -544,7 +588,7 @@ const CREATE_SH: &str = r#"set -eu
 ID='@ID@'
 D=/etc/buzz-remote/$ID
 umask 077
-mkdir -p "$D" "/srv/work/remote/$ID"
+mkdir -p "$D" '@WORKDIR@'
 printf '%s' '@ENV_B64@' | base64 -d > "$D/env.new"
 printf '%s' '@META_B64@' | base64 -d > "$D/meta.json.new"
 printf '%s' '@UNIT_B64@' | base64 -d > /etc/systemd/system/buzz-remote@.service
@@ -680,6 +724,7 @@ fn deploy(payload: &serde_json::Value, pc: &serde_json::Value) -> Result<String,
         .replace("@CMD@", &plan.agent_command);
     let create_script = CREATE_SH
         .replace("@ID@", &plan.instance)
+        .replace("@WORKDIR@", &plan.workspace_resolved)
         .replace("@ENV_B64@", &b64_encode(plan.env_file.as_bytes()))
         .replace("@META_B64@", &b64_encode(plan.meta_file.as_bytes()))
         .replace("@UNIT_B64@", &b64_encode(plan.unit_text.as_bytes()));
@@ -750,6 +795,11 @@ fn info() -> serde_json::Value {
                     "type": "number",
                     "title": "무활동 종료 (초 · 0 = 무기한)",
                     "default": 7200
+                },
+                "workspace": {
+                    "type": "string",
+                    "title": "작업 폴더 (%i 를 남기면 에이전트마다 따로, 빼면 다 같이 쓴다)",
+                    "default": DEFAULT_WORKSPACE
                 }
             },
             "required": ["ssh_host", "ssh_user"]
@@ -795,6 +845,7 @@ fn test_cfg(inactivity: u64) -> Config {
         ssh_user: "u".into(),
         ssh_identity_file: "k".into(),
         inactivity_seconds: inactivity,
+        workspace: DEFAULT_WORKSPACE.into(),
     }
 }
 
@@ -1042,7 +1093,7 @@ fn self_test() -> i32 {
     check("거부: allowlist 인데 목록이 비면 거부한다", env_for(&p, &test_cfg(7200)).is_err());
 
     // ---- 지문
-    let unit = unit_text("abc");
+    let unit = unit_text(DEFAULT_WORKSPACE);
     let f1 = intent_fingerprint(&env, &unit);
     check("지문: 같은 입력이면 같다", intent_fingerprint(&env, &unit) == f1);
     let mut env_changed = env.clone();
@@ -1072,6 +1123,44 @@ fn self_test() -> i32 {
     check(
         "유닛: exec 라 종료 신호가 하네스에 직접 닿는다 (L1 3항)",
         unit.contains(&format!("exec {HARNESS_PATH}")) && unit.contains("TimeoutStopSec=60"),
+    );
+
+    // ---- 작업 자리. 「에이전트마다 따로」와 「여럿이 같이」 둘 다 실제로 되는지 본다.
+    let per_agent = plan(&test_payload(), &test_cfg(7200), "gen-1").expect("기본값은 서야 한다");
+    check(
+        "작업 자리: 기본값은 에이전트마다 따로 (유닛은 %i 를 그대로 들고 간다)",
+        per_agent.unit_text.contains("WorkingDirectory=/srv/work/remote/%i")
+            && per_agent.workspace_resolved == format!("/srv/work/remote/{}", &PUBKEY_VECTOR[..12]),
+    );
+    let shared_cfg =
+        parse_config(&serde_json::json!({ "workspace": "/srv/creator" })).expect("공유 자리는 합법이다");
+    let shared = plan(&test_payload(), &shared_cfg, "gen-1").expect("서야 한다");
+    check(
+        "작업 자리: %i 가 없으면 여럿이 같은 자리에 선다",
+        shared.unit_text.contains("WorkingDirectory=/srv/creator")
+            && shared.workspace_resolved == "/srv/creator",
+    );
+    check(
+        "작업 자리: 자리를 옮기면 의도가 갈린다 (안 그러면 옮김이 영원히 안 닿는다)",
+        shared.intent != per_agent.intent,
+    );
+    for bad in ["srv/creator", "/etc/buzz-remote", "/root", "/", "/srv/../etc"] {
+        check(&format!("작업 자리: '{bad}' 는 거부한다"), validate_workspace(bad).is_err());
+    }
+    check(
+        "작업 자리: 홑따옴표가 든 경로는 거부한다 (create 스크립트가 홑따옴표로 감싼다)",
+        validate_workspace("/srv/it's").is_err(),
+    );
+    check(
+        "작업 자리: 멀쩡한 경로는 통과한다 (전부 거부하는 검사가 아니다)",
+        validate_workspace("/srv/creator/plan").is_ok()
+            && validate_workspace(DEFAULT_WORKSPACE).is_ok(),
+    );
+    // 🔴 위 축들은 검사 **함수**를 부른다 — 설정을 읽는 쪽이 그 함수를 실제로 부르는지는
+    // 따로 재야 한다. 안 그러면 호출을 빼도 아무 축이 안 걸린다.
+    check(
+        "작업 자리: 설정을 읽는 쪽이 그 검사를 실제로 부른다",
+        parse_config(&serde_json::json!({ "workspace": "/root" })).is_err(),
     );
 
     // ---- 관측 파서를 **실물 바이트**에 고정한다.

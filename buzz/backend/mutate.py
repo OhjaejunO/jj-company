@@ -66,6 +66,21 @@ MUTATIONS = [
         '"ActiveEnterTimestampMonotonic" => enter_us',
         '"ActiveEnterTimestamp" => enter_us',
     ),
+    (
+        "mkdir 쪽에서 %i 를 안 푼다 (없는 폴더에서 봇이 뜬다)",
+        'workspace_resolved: cfg.workspace.replace("%i", &instance),',
+        "workspace_resolved: cfg.workspace.clone(),",
+    ),
+    (
+        "작업 자리 거부 목록이 «그 아래» 를 안 본다",
+        'trimmed == *root || trimmed.starts_with(&format!("{root}/"))',
+        "trimmed == *root",
+    ),
+    (
+        "설정을 읽는 쪽이 작업 자리 검사를 안 부른다",
+        "    validate_workspace(&workspace)?;\n",
+        "",
+    ),
 ]
 
 

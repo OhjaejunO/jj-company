@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PG=buzz-lku2-postgres-1
+DIR=/srv/backups/buzz
+KEEP=14
+STAMP=$(date -u +%Y%m%d_%H%M)
+DUMP="$DIR/buzz_${STAMP}.dump"
+
+docker exec "$PG" pg_dump -U buzz -d buzz -Fc > "$DUMP"
+
+# --- 값을 담았는지 확인 ---
+SIZE=$(stat -c %s "$DUMP")
+if [ "$SIZE" -lt 10240 ]; then
+  rm -f "$DUMP"
+  echo "STATUS: FAIL dump-too-small ${SIZE}B"
+  exit 1
+fi
+OBJECTS=$(docker exec -i "$PG" pg_restore -l < "$DUMP" 2>/dev/null | grep -c '^[0-9]' || true)
+if [ "${OBJECTS:-0}" -lt 10 ]; then
+  rm -f "$DUMP"
+  echo "STATUS: FAIL dump-unreadable objects=${OBJECTS}"
+  exit 1
+fi
+
+# --- 설정 (비밀 아님) ---
+# 🔴 /etc/buzz-remote/<id>/env 는 BUZZ_PRIVATE_KEY 를 들고 있어 넣지 않는다.
+#    meta.json 만 넣는다 — 무엇이 서 있었는지는 그것으로 알고,
+#    신원은 Buzz 앱이 정본이라 다시 deploy 하면 같은 키로 되돌아온다.
+CONF="$DIR/conf_${STAMP}.tgz"
+tar czf "$CONF" -C / \
+    --exclude='etc/buzz-remote/*/env' \
+    etc/buzz-acp \
+    etc/systemd/system/buzz-acp@claude.service \
+    etc/systemd/system/buzz-acp@codex.service \
+    etc/systemd/system/buzz-acp@grok.service \
+    etc/systemd/system/buzz-acp@hermes.service \
+    docker/buzz-lku2/docker-compose.yml \
+    etc/buzz-remote 2>/dev/null || true
+
+# --- 비밀이 새지 않았는지 확인 ---
+# 🔴 --exclude 가 맞았는지를 «주장»이 아니라 내용으로 잰다.
+#    앞으로 비밀을 든 경로가 목록에 붙어도 여기서 선다.
+if tar xzOf "$CONF" 2>/dev/null | grep -qE 'nsec1[0-9a-z]{20}|_PRIVATE_KEY='; then
+  rm -f "$CONF"
+  echo "STATUS: FAIL conf-has-secret"
+  exit 1
+fi
+
+# --- 크리에이터 작업 폴더 ---
+WORK="$DIR/creator_${STAMP}.tgz"
+if [ -d /srv/creator ]; then
+  tar czf "$WORK" -C / srv/creator 2>/dev/null || true
+  WSIZE=$(stat -c %s "$WORK" 2>/dev/null || echo 0)
+  WFILES=$(tar tzf "$WORK" 2>/dev/null | grep -vc '/$' || true)
+  # 🔴 폴더는 있는데 파일이 0개면 «백업했다»가 아니라 «지워졌다» 다.
+  if [ "${WFILES:-0}" -lt 1 ]; then
+    rm -f "$WORK"
+    echo "STATUS: FAIL creator-empty"
+    exit 1
+  fi
+else
+  WSIZE=0; WFILES=0
+fi
+
+# --- 보관 상한 ---
+ls -1t "$DIR"/buzz_*.dump    2>/dev/null | tail -n +$((KEEP+1)) | xargs -r rm -f
+ls -1t "$DIR"/conf_*.tgz     2>/dev/null | tail -n +$((KEEP+1)) | xargs -r rm -f
+ls -1t "$DIR"/creator_*.tgz  2>/dev/null | tail -n +$((KEEP+1)) | xargs -r rm -f
+
+echo "backup ok ${STAMP} · $((SIZE/1024))KB · 객체 ${OBJECTS}개 · 크리에이터 ${WFILES}개 파일 $((WSIZE/1024))KB · 보관 $(ls -1 "$DIR"/buzz_*.dump | wc -l)개"
+echo "STATUS: OK"
