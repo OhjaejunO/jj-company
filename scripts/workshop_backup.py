@@ -127,9 +127,13 @@ def collect(root):
 
 
 def tree_state(root):
-    """워크숍이 안 바뀌었음을 볼 지문 — 파일 수 + (경로, 크기, mtime) 해시."""
+    """워크숍이 안 바뀌었음을 볼 지문 — (파일 수, (경로, 크기, mtime) 해시, 파일별 표).
+
+    파일별 표는 **바뀌었을 때 «무엇이» 바뀌었는지** 말하려고 둔다. 해시만 있으면
+    2026-09-16·17 처럼 FAIL 이 나도 원인을 알 길이 없다(intent «진단 없음»).
+    """
     h = hashlib.sha256()
-    n = 0
+    snap = {}
     for cur, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
         for f in sorted(files):
@@ -138,10 +142,61 @@ def tree_state(root):
                 st = os.stat(p)
             except OSError:
                 continue
-            n += 1
-            h.update(("%s|%d|%d" % (os.path.relpath(p, root), st.st_size,
+            rel = os.path.relpath(p, root)
+            snap[rel] = (st.st_size, int(st.st_mtime))
+            h.update(("%s|%d|%d" % (rel, st.st_size,
                                     int(st.st_mtime))).encode("utf-8", "replace"))
-    return n, h.hexdigest()
+    return len(snap), h.hexdigest(), snap
+
+
+def tree_diff(before, after, limit=10):
+    """두 지문의 차이 — 사람이 읽을 줄 목록(앞 limit 개 + 나머지 수)."""
+    a, b = before[2], after[2]
+    rows = (["추가 %s" % k for k in sorted(set(b) - set(a))]
+            + ["삭제 %s" % k for k in sorted(set(a) - set(b))]
+            + ["변경 %s" % k for k in sorted(set(a) & set(b)) if a[k] != b[k]])
+    return rows[:limit] + (["… 외 %d건" % (len(rows) - limit)] if len(rows) > limit else [])
+
+
+def snapshot_zip(ws, out_dir, attempts=3, wait=60, build=None):
+    """지문 → 담기 → zip → 재대조 → 지문. 워크숍이 **도중에** 바뀌면 다시 찍는다.
+
+    🔴 바뀐 것은 이 워커가 아니다 — 워크숍에 쓰는 코드가 없다(zip·원장은 전부 밖).
+    2026-09-16·17 실측: 같은 시각 제작 세션이 `02_제작중\\ep64~66` 을 다시 빌드하고
+    있었다(정관 §2 예외 4 — 허용된 쓰기). 그 사이 찍은 zip 은 «한 시점» 의 사본이
+    아니므로 **버리고** 다시 찍는다. 조건은 그대로다 — 전후 지문이 같아야만 통과한다.
+    매 시도의 변경 경로를 남기므로 재시도는 조용하지 않다. 워커 자신이 쓰는 결함이면
+    매 시도가 바뀌어 끝내 FAIL 이다.
+
+    돌려주는 것: (상태, items, local, before, 시도 수). 상태는 None(통과) 또는 FAIL 사유.
+    """
+    build = build or build_zip
+    for i in range(1, attempts + 1):
+        name = "workshop-source_%s.zip" % datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        local = os.path.join(out_dir, name)
+        before = tree_state(ws)
+        items = collect(ws)
+        print("담을 것 %d개" % len(items))
+        build(items, local)
+        print("zip %s · %.2f MB" % (name, os.path.getsize(local) / 1e6))
+        bad, n = verify_zip(items, local)
+        if bad:
+            for b in bad[:8]:
+                print("🔴 %s" % b)
+            return "zip-verify (%d건)" % len(bad), items, local, before, i
+        print("검증 통과 — 멤버 %d개 전부 원본과 해시 일치 (zip 을 다시 열어 대조)" % n)
+        after = tree_state(ws)
+        if after[:2] == before[:2]:
+            return None, items, local, before, i
+        print("🔴 워크숍 트리가 도중에 바뀌었다 (시도 %d/%d) — 이 zip 은 한 시점의 사본이 아니라 버린다"
+              % (i, attempts))
+        for row in tree_diff(before, after):
+            print("   %s" % row)
+        os.remove(local)
+        if i < attempts:
+            import time
+            time.sleep(wait)
+    return "workshop-mutated", items, local, before, attempts
 
 
 def build_zip(items, dest):
@@ -260,6 +315,38 @@ def _self_test():
     build_zip(items, os.path.join(d, "again.zip"))
     assert tree_state(root) == before, "워크숍이 바뀌었다 — 읽기 전용을 어겼다"
 
+    # ⓖ 도중에 **한 번** 누가 쓰면(제작 세션) 버리고 다시 찍어 통과한다 — 2026-09-16·17 실측 꼴
+    out = os.path.join(d, "out")
+    os.makedirs(out)
+    hits = []
+
+    def once(its, dest):
+        build_zip(its, dest)
+        if not hits:
+            hits.append(1)
+            io.open(os.path.join(root, "ep9", "render.png"), "w", encoding="utf-8").write("r")
+    import contextlib
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        fail, _, loc, _, tries = snapshot_zip(root, out, attempts=2, wait=0, build=once)
+    assert fail is None and tries == 2 and os.path.exists(loc), (fail, tries)
+    assert "ep9" in buf.getvalue() and "render.png" in buf.getvalue(), "바뀐 경로를 안 말했다"
+    assert len(os.listdir(out)) == 1, "버린 zip 이 남았다: %s" % os.listdir(out)
+    # ⓗ **매 시도** 바뀌면(워커 자신이 쓰는 결함 꼴) 재시도가 가리지 못하고 FAIL 이다
+    ticks = []
+
+    def every(its, dest):
+        build_zip(its, dest)
+        ticks.append(1)
+        io.open(os.path.join(root, "ep9", "tick_%d.txt" % len(ticks)), "w",
+                encoding="utf-8").write("t")
+    out = os.path.join(d, "out2")
+    os.makedirs(out)
+    with contextlib.redirect_stdout(io.StringIO()):
+        fail2, _, _, _, tries2 = snapshot_zip(root, out, attempts=2, wait=0, build=every)
+    assert fail2 == "workshop-mutated" and tries2 == 2, (fail2, tries2)
+    assert os.listdir(out) == [], "무효 zip 이 남았다"
+
     import shutil
     shutil.rmtree(d, ignore_errors=True)
     return True
@@ -276,7 +363,7 @@ def main(argv=None):
 
     if a.self_test:
         _self_test()
-        print("자체 검사 통과 — 담김·제외·불일치·누락·워크숍 불변 5축")
+        print("자체 검사 통과 — 담김·제외·불일치·누락·워크숍 불변·동시 쓰기 재시도·반복 변경 FAIL 7축")
         return 0
 
     # 확인기가 헛돌면 그 뒤 STATUS 는 근거가 못 된다. 매 실행 앞에 세운다.
@@ -287,34 +374,19 @@ def main(argv=None):
         print("STATUS: FAIL workshop-missing")
         return 1
 
-    stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     today = datetime.date.today().isoformat()
     out_dir = a.out_dir or os.path.join(HQ, "logs", "backup")
     os.makedirs(out_dir, exist_ok=True)
-    name = "workshop-source_%s.zip" % stamp
-    local = os.path.join(out_dir, name)
 
-    before = tree_state(WS)
-    items = collect(WS)
-    print("담을 것 %d개" % len(items))
-    build_zip(items, local)
+    fail, items, local, before, tries = snapshot_zip(WS, out_dir)
+    if fail:
+        print("STATUS: FAIL %s" % fail)
+        return 1
+    name = os.path.basename(local)
     size = os.path.getsize(local)
-    print("zip %s · %.2f MB" % (name, size / 1e6))
-
-    bad, n = verify_zip(items, local)
-    if bad:
-        for b in bad[:8]:
-            print("🔴 %s" % b)
-        print("STATUS: FAIL zip-verify (%d건)" % len(bad))
-        return 1
-    print("검증 통과 — 멤버 %d개 전부 원본과 해시 일치 (zip 을 다시 열어 대조)" % n)
-
-    after = tree_state(WS)
-    if after != before:
-        print("🔴 워크숍 트리가 바뀌었다 — 이 작업은 읽기 전용이어야 한다 (정관 §2)")
-        print("STATUS: FAIL workshop-mutated")
-        return 1
-    print("워크숍 불변 확인 — 파일 %d개 · 지문 %s…" % (before[0], before[1][:12]))
+    n = len(items)
+    print("워크숍 불변 확인 — 파일 %d개 · 지문 %s…%s" % (
+        before[0], before[1][:12], "" if tries == 1 else " (시도 %d회째 · 앞 시도는 위에 변경 경로)" % tries))
 
     digest = sha256_file(local)
     drive_note = "생략(--no-drive)"
