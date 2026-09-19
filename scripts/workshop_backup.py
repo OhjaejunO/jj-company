@@ -183,6 +183,7 @@ def snapshot_zip(ws, out_dir, attempts=3, wait=60, build=None):
         if bad:
             for b in bad[:8]:
                 print("🔴 %s" % b)
+            os.remove(local)  # 무효 zip 이 남으면 정리 칸을 차지해 멀쩡한 zip 을 밀어낸다
             return "zip-verify (%d건)" % len(bad), items, local, before, i
         print("검증 통과 — 멤버 %d개 전부 원본과 해시 일치 (zip 을 다시 열어 대조)" % n)
         after = tree_state(ws)
@@ -197,6 +198,20 @@ def snapshot_zip(ws, out_dir, attempts=3, wait=60, build=None):
             import time
             time.sleep(wait)
     return "workshop-mutated", items, local, before, attempts
+
+
+def rotate(out_dir, keep=4):
+    """옛 로컬 zip 정리 — **열리는 zip 만** 세어 최근 keep 개를 남긴다.
+
+    이름만 세면 깨진 잔여물(중단된 회차·무효 zip)이 칸을 차지해 멀쩡한 zip 을 밀어낸다
+    (2026-09-17 실측). 잔여물은 세지도 지우지도 않는다 — 우리가 만든 것인지 모른다.
+    """
+    zips = sorted(f for f in os.listdir(out_dir)
+                  if f.startswith("workshop-source_") and f.endswith(".zip")
+                  and zipfile.is_zipfile(os.path.join(out_dir, f)))
+    for old in zips[:-keep]:
+        os.remove(os.path.join(out_dir, old))
+        print("옛 로컬 zip 정리: %s" % old)
 
 
 def build_zip(items, dest):
@@ -347,6 +362,27 @@ def _self_test():
     assert fail2 == "workshop-mutated" and tries2 == 2, (fail2, tries2)
     assert os.listdir(out) == [], "무효 zip 이 남았다"
 
+    # ⓘ **zip 재대조가 실패하면 그 zip 도 지운다** — 워크숍은 안 건드린다(ⓖⓗ 와 섞지 않는다)
+    out = os.path.join(d, "out3")
+    os.makedirs(out)
+    with contextlib.redirect_stdout(io.StringIO()):
+        fail3, _, _, _, _ = snapshot_zip(root, out, attempts=2, wait=0,
+                                         build=lambda its, dest: build_zip(its[:-1], dest))
+    assert fail3 and fail3.startswith("zip-verify"), fail3
+    assert os.listdir(out) == [], "재대조 실패 zip 이 남았다: %s" % os.listdir(out)
+    # ⓙ 정리는 **열리는 zip 만** 센다 — 더 새 이름의 잔여물이 멀쩡한 zip 을 밀어내지 못한다
+    out = os.path.join(d, "out4")
+    os.makedirs(out)
+    good = ["workshop-source_2026010%d_000000.zip" % k for k in range(1, 5)]
+    for g in good:
+        build_zip(items[:1], os.path.join(out, g))
+    io.open(os.path.join(out, "workshop-source_20260109_000000.zip"), "w",
+            encoding="utf-8").write("broken")
+    with contextlib.redirect_stdout(io.StringIO()):
+        rotate(out)
+    assert all(os.path.exists(os.path.join(out, g)) for g in good), \
+        "잔여물이 멀쩡한 zip 을 밀어냈다: %s" % sorted(os.listdir(out))
+
     import shutil
     shutil.rmtree(d, ignore_errors=True)
     return True
@@ -363,7 +399,7 @@ def main(argv=None):
 
     if a.self_test:
         _self_test()
-        print("자체 검사 통과 — 담김·제외·불일치·누락·워크숍 불변·동시 쓰기 재시도·반복 변경 FAIL 7축")
+        print("자체 검사 통과 — 담김·제외·불일치·누락·워크숍 불변·동시 쓰기 재시도·반복 변경 FAIL·재대조 실패 정리·정리는 열리는 zip 만 9축")
         return 0
 
     # 확인기가 헛돌면 그 뒤 STATUS 는 근거가 못 된다. 매 실행 앞에 세운다.
@@ -454,11 +490,7 @@ def main(argv=None):
     # 오래된 zip 정리 — **12개만 남긴다.** 지우는 것은 우리가 만든 zip 뿐이다.
     # 🔴 범위를 넓히며 한 벌이 ~1GB 가 됐다. 12개를 두면 12GB 다 —
     #    이력은 이제 레포(`tomangchi-workshop`)가 지므로 zip 은 **최근 것만** 둔다.
-    zips = sorted(f for f in os.listdir(out_dir)
-                  if f.startswith("workshop-source_") and f.endswith(".zip"))
-    for old in zips[:-4]:
-        os.remove(os.path.join(out_dir, old))
-        print("옛 로컬 zip 정리: %s" % old)
+    rotate(out_dir)
 
     print("STATUS: OK")
     return 0
