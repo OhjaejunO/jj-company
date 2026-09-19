@@ -752,6 +752,23 @@ def run_chain(api, uid, ep, ms_path, appr, log, publish,
     return done, None
 
 
+def chain_status(err, done, prior, total):
+    """체인이 끝난 뒤 찍을 STATUS 줄. 🔴 세는 것은 **이 편 전체**다 (2026-09-19).
+
+    `prior` 는 이번 회차 전에 이미 나간 수(영수증 기준), `done` 은 이번 회차 것이다.
+    종전에는 ① 체인 중간 실패가 `FAIL publish P2 (…)` 로만 찍혀 명세의
+    `partial-chain n/N` 이 한 번도 안 나왔고(9/17 ep63 · 반쪽이 바깥에 있었다)
+    ② 이어간 회차가 제 몫만 세어 체인이 다 채워졌는데도 `OK — 1/2` 로 읽혔다(9/18).
+    """
+    out = prior + sum(1 for d in done if d.get("published"))
+    if not err:
+        return "STATUS: OK — %d/%d 포스트 게시 (이번 회차 %d)" % (out, total, out - prior)
+    body = err[5:] if err.startswith("FAIL ") else err
+    if out:
+        return "STATUS: FAIL partial-chain %d/%d · %s" % (out, total, body)
+    return "STATUS: FAIL %s" % body
+
+
 # ---------------------------------------------------------------- 자체 검사
 def _selftest_resume():
     r"""재기동 조정·중복 검사의 자체 시험.
@@ -1031,6 +1048,18 @@ def _selftest():
         pass
     assert Api("dummy", allow_publish=True) is not None
 
+    # ④-1 STATUS 줄 — 반쪽은 partial-chain 이어야 하고, 하나도 안 나갔으면 아니어야 한다
+    _p = {"published": True}
+    _e = "FAIL publish P2 (HTTP 500 · x)"
+    assert chain_status(_e, [_p], 0, 2) == "STATUS: FAIL partial-chain 1/2 · publish P2 (HTTP 500 · x)", \
+        "9/17 ep63 꼴 — 반쪽이 바깥에 있는데 partial-chain 이 안 찍힌다"
+    assert chain_status(_e, [], 1, 2).startswith("STATUS: FAIL partial-chain 1/2"), \
+        "이어간 회차의 첫 포스트 실패 — 앞 회차 것이 바깥에 있는데 안 센다"
+    assert chain_status("FAIL publish P1 (HTTP 500 · x)", [], 0, 2) == "STATUS: FAIL publish P1 (HTTP 500 · x)", \
+        "하나도 안 나갔는데 partial-chain 으로 적는다 — 반쪽이 없는 실패를 반쪽으로 읽힌다"
+    assert chain_status(None, [_p], 1, 2) == "STATUS: OK — 2/2 포스트 게시 (이번 회차 1)", \
+        "9/18 ep63 꼴 — 체인이 다 채워졌는데 1/2 로 읽힌다"
+
     # ⑤ 재기동 조정·중복 검사 — 영수증이 있는 상태에서 이어가는지, 변조하면 멈추는지
     _selftest_resume()
     return True
@@ -1238,11 +1267,12 @@ def _run(argv=None):
     elif err:
         log("")
         log("🔴 %s" % err)
-        log("**보고하고 멈춘다** — 자동 이어붙임·자동 삭제 금지(명세). 재실행은 새 승인 파일을 요구한다.")
-        log("STATUS: %s" % err if err.startswith("FAIL") else "STATUS: FAIL %s" % err)
+        log("**보고하고 멈춘다** — 자동 이어붙임·자동 삭제 금지(명세). "
+            "재실행은 영수증을 읽고 이어가되, 나갔는지 모르는 포스트가 있으면 멈춘다.")
+        log(chain_status(err, done, len(appr["chain"]) - len(todo), len(appr["chain"])))
         rc = 1
     else:
-        log("STATUS: OK — %d/%d 포스트 게시" % (len(done), len(appr["chain"])))
+        log(chain_status(None, done, len(appr["chain"]) - len(todo), len(appr["chain"])))
         rc = 0
 
     _finish(a.ep, rcpt_dir, "ok" if rc == 0 else "fail")
