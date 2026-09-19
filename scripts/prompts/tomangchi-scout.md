@@ -1,4 +1,4 @@
-content-scout 서브에이전트로 토망치랩 아침 스캔을 1회 실행하라.
+너(content-scout)가 직접 토망치랩 아침 스캔을 1회 실행하라. 이 세션이 곧 content-scout 이다 — 다른 에이전트에 위임하지 않는다.
 
 오늘은 {{DATE}} ({{WEEKDAY}}) 이다.
 
