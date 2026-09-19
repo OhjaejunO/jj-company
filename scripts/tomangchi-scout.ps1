@@ -322,7 +322,13 @@ try {
     # loses its agent that way still exits 0. Bounded, never '0'.
     $env:CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS = '1800000'
     Write-Log 'bg wait ceiling: 1800000 ms'
-    $out = & $Claude -p (ConvertTo-NativeArg $prompt) --permission-mode default `
+    # --agent (2026-09-20): run content-scout AS the session, not as a subagent.
+    # Delegating via the Agent tool let the top level background the scan and end
+    # its turn; the ceiling then killed it mid-run (9/10 at 600s, 9/19 at 1800s,
+    # scan log written 09:21, report never). Agent runs take 15-40 min, so no
+    # ceiling value is safe. content-scout's own tool list has no Agent tool, so
+    # there is nothing left to background. Bounded by the task's PT1H limit.
+    $out = & $Claude -p (ConvertTo-NativeArg $prompt) --agent content-scout --permission-mode default `
         --allowed-tools @AllowedTools `
         --add-dir $SkillDir --add-dir $ContentOps --add-dir $ScanLogDir 2>&1
     $claudeCode = $LASTEXITCODE
@@ -332,6 +338,12 @@ try {
 
     if ($claudeCode -ne 0) {
         Write-Log ('STATUS: FAIL claude-exit-' + $claudeCode)
+        exit 1
+    }
+    # Tripwire: if a background task was still killed, name it - exit code is 0
+    # and 'report-missing' would hide the cause.
+    if (@($out | Where-Object { "$_" -match 'Background tasks still running after' }).Count -gt 0) {
+        Write-Log 'STATUS: FAIL bg-ceiling-killed'
         exit 1
     }
 
