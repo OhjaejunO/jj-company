@@ -139,6 +139,12 @@ case "$git_dir" in
             *scripts/blogcheck.py*)
                 run_check "blogcheck selftest" py scripts/blogcheck.py --self-test ;;
         esac
+        # blog_brief's item count decides whether a missing draft is FAIL (2026-09-19:
+        # five days of false draft-missing because written episodes were counted).
+        case "$staged" in
+            *scripts/blog_brief.py*)
+                run_check "blog_brief selftest" py scripts/blog_brief.py --self-test ;;
+        esac
         case "$staged" in
             *scripts/naver_blog.py*)
                 run_check "naver_blog selftest" py scripts/naver_blog.py --self-test ;;
