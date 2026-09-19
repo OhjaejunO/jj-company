@@ -487,9 +487,11 @@ def main(argv=None):
                n, before[0]))
         print("리포트: %s" % rp)
 
-    # 오래된 zip 정리 — **12개만 남긴다.** 지우는 것은 우리가 만든 zip 뿐이다.
-    # 🔴 범위를 넓히며 한 벌이 ~1GB 가 됐다. 12개를 두면 12GB 다 —
-    #    이력은 이제 레포(`tomangchi-workshop`)가 지므로 zip 은 **최근 것만** 둔다.
+    # 오래된 zip 정리 — **4개만 남긴다**(`rotate` 의 keep). 지우는 것은 우리가 만든 zip 뿐이다.
+    # 🔴 범위를 넓히며 한 벌이 ~1GB 가 됐다. 12개를 두면 12GB 다 — 그래서 최근 것만 둔다.
+    # 🔴 **백업 정본은 이 zip(G: 사본)이다.** 이력을 지기로 했던 레포(`tomangchi-workshop`)는
+    #    2026-08-30 이후 커밋 0 — `workshop_repo_sync.py` 를 부르는 자리가 없다(휴면).
+    #    그래서 오래된 판을 되짚을 이력은 **지금 어디에도 없다**. 재개 판단: 인프라 백로그 28번.
     rotate(out_dir)
 
     print("STATUS: OK")

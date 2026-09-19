@@ -8,8 +8,11 @@
 # produced by scripts\workshop_backup.py and read back as explicit UTF-8.
 #
 # WHAT THIS IS
-#   Infra backlog item 21, option 3 - the stop-gap while option 1 (a private
-#   repo for workshop sources) is still awaiting a decision. It zips only what
+#   Infra backlog item 21, option 3. This zip (copied to G:) is the BACKUP OF
+#   RECORD. Option 1 (private repo OhjaejunO/tomangchi-workshop) was created
+#   2026-08-30 but is DORMANT: nothing calls workshop_repo_sync.py and the repo
+#   has no commits after 2026-08-30. Resume decision: infra backlog item 28.
+#   It zips only what
 #   cannot be rebuilt (text sources + _official originals + the scan log and the
 #   publication ledger) and copies that to Google Drive.
 #
