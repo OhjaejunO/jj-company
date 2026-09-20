@@ -26,6 +26,7 @@ model: sonnet
 | OpenAI | `openai.com/index` + `openai.com/blog` + 도움말 릴리스노트 |
 | Google | `blog.google` + `deepmind.google/blog` |
 | xAI | `x.ai/news` + `docs.x.ai` 릴리스노트 |
+| Apple | **`apple.com/newsroom/rss-feed.rss` 를 1차로** (Atom 피드 — 항목마다 `updated`·`title`·`link`) + `apple.com/newsroom` 인덱스 (2026-09-20 실측 · 둘 다 HTTP 200 · 피드 20건 파싱 성공, 그 안에 **9/14 「Siri AI, a profoundly more capable and personal assistant, is here」** 가 있다 — 아침 스캔로그 7일치(9/13~9/19)가 통째로 놓친 그 발표다. 애플은 이 표에도 `config.md` 감시표에도 **한 줄도 없었다**: 명단에 없으면 조항이 있어도 못 잡는다는 8/13 울트라패스트와 같은 꼴) |
 
 ## 임무 5축
 

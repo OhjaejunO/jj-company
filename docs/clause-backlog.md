@@ -2645,3 +2645,45 @@ requestedOnPublicDomain:true}` 를 POST 하면 `isPublicShareLink` 가 온다.
 적으면 그대로 믿는다. **원본과 실린 것을 프레임으로 대조하는 자리는 없다**(C-8-1 «공식 에셋
 화소 대조» 와 같은 계열이고, 그쪽이 서면 이쪽도 같은 도구로 닫힌다). ② **녹화한 화면에 남의
 개인 정보가 없는지**는 기계가 모른다 — 로그인하지 않은 페이지를 고르는 것이 사람 판단이다.
+
+## C-65 — 아침 스캔의 «공식 채널 명단» 이 빅랩 넷에 멈춰 있다 (2026-09-20)
+
+- **대상**: 자회사 정본 `tomangchi-skill` SKILL.md **§5.5-1** (검색 순서의 빅랩 목록).
+  본사 쪽 `.claude/agents/content-scout.md` 「공식 채널 확인 목록」은 **이번 PR 에서 애플만 더했다.**
+- **근거 실측 (2026-09-20)**: 주간 3호 소재 조사에서 **애플 Siri AI 출시(2026-09-14)** 가
+  아침 스캔로그 7일치(9/13~9/19)에 **0건**이었다. 원인은 조항이 아니라 **명단**이다 —
+  `departments/marketing/config.md` 와 `content-scout.md` 를 합쳐 `apple` 은 **0회**,
+  `Microsoft`·`NVIDIA`·`Amazon`/AWS·`Mistral`·`Perplexity` 도 **각 0회**다.
+  `Meta` 는 **1회뿐이고 그것은 §5.5-1 을 옮겨 적은 산문 한 줄**이라 채널 URL 이 없다.
+  그런데 `apple.com/newsroom/rss-feed.rss` 는 열려 있었다(HTTP 200 · 항목 20건 ·
+  9/14 「Siri AI, a profoundly more capable and personal assistant, is here」 포함).
+  **열려 있는 경로를 명단에 없어서 두드리지 않은 것** — 8/13 울트라패스트와 같은 꼴이고,
+  그때 `config.md` 가 남긴 결론이 그대로 적용된다: 「조항만 있고 명단이 비면 또 놓친다」.
+- **문안 후보 (자회사 트랙)**: §5.5-1 의 「빅랩 공식 발표(OpenAI/Anthropic/Google/xAI/Meta,
+  지난 24h)」 를 **고정 5사 열거에서 «본사 `content-scout.md` 공식 채널 확인 목록 전수»로**
+  바꾼다. 열거를 정본에 박아 두면 회사가 늘 때마다 자회사 정본을 고쳐야 하고,
+  §1.5 상 본사 세션은 그것을 못 고친다 — **명단이 자라는 자리와 조문이 갈려 있는 것**이
+  이 안건의 뿌리다. 정본은 «어디를 보는가»의 규칙만 두고 명단은 본사에 둔다.
+- 🔴 **본사에서 못 고친 것**: §5.5-1 자체. §1.5 「정본 수정 금지」라 **읽고 보고만** 했다.
+- **아직 명단에 없는 주요 공식 채널 (2026-09-20 전수 · JJ 판정 자리)** — 이번 PR 은 애플만
+  넣었다. 아래는 **넣자는 제안이 아니라 «지금 비어 있다»는 조회 결과**다.
+
+  | 주체 | 후보 채널 | 지금 상태 |
+  |---|---|---|
+  | Meta | `ai.meta.com/blog` · `about.fb.com/news` | §5.5-1 산문에만 이름이 있고 **채널 0** |
+  | Microsoft | `blogs.microsoft.com` · `azure.microsoft.com/blog` | 언급 0 |
+  | NVIDIA | `blogs.nvidia.com` · `nvidianews.nvidia.com` | 언급 0 |
+  | Amazon / AWS | `aboutamazon.com/news` · `aws.amazon.com/blogs/machine-learning` | 언급 0 |
+  | Mistral | `mistral.ai/news` | 언급 0 |
+  | Perplexity | `perplexity.ai/hub/blog` | 언급 0 |
+  | Instacart | `company.instacart.com` | 언급 0 (같은 조사에서 함께 누락 확인) |
+  | DeepSeek | 뉴스·릴리스 경로 | **가격 페이지만** 등재, 발표 채널 없음 |
+  | 영상·음성 도구 (Midjourney·Runway·Luma·ElevenLabs·Suno) | 각 공식 changelog | 언급 0 — 릴스 축 소재원인데 감시 없음 |
+
+  🔴 **등재는 «열려서 값이 나온 것»만 한다** — `config.md` 의 「못 읽은 것은 등재하지 않는다」
+  그대로다. 위 표는 **후보이고 검증 전**이라, 그대로 옮겨 적으면 「있는 것처럼 보이는 빈칸」이 된다.
+- 🔴 **못 잡는 것 (§0 4층 ④)**: 명단에 없는 주체의 발표는 **어떤 검사도 못 잡는다.**
+  「무엇이 빠졌는가」는 빠진 뒤에야 보이고, 그것을 세는 장치는 지금 없다 — 이번에도 사람이
+  주간 소재 조사에서 발견했다. 명단을 늘리는 것이 대응이지 검사를 다는 것이 대응이 아니다.
+- **닫는 조건**: ① 자회사 §5.5-1 문안 개정 머지·배포 ② 위 표의 주체별로 JJ 가 «넣는다/안 넣는다»를
+  판정하고, 넣는 것은 실제 조회로 검증한 뒤 `content-scout.md` 표에 줄을 더한 것.
