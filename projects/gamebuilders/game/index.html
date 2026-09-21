@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>검수 라인 공장</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="app">
+    <section class="topbar">
+      <div>
+        <h1>검수 라인 공장</h1>
+        <p>벨트를 깔아 정상품은 싱크로, 불량품은 폐기 라인으로 보내세요.</p>
+      </div>
+      <div class="stats" aria-live="polite">
+        <div><span>목표</span><strong id="targetCount">0</strong></div>
+        <div><span>정상 처리</span><strong id="goodCount">0</strong></div>
+        <div><span>불량률</span><strong id="defectRate">0%</strong></div>
+        <div><span>상태</span><strong id="statusText">준비</strong></div>
+      </div>
+    </section>
+
+    <section class="level-select" aria-label="레벨 선택">
+      <div id="levelBar" class="level-bar"></div>
+      <div class="level-meta">
+        <strong id="levelName">레벨 1</strong>
+        <span id="levelSubtitle"></span>
+      </div>
+    </section>
+
+    <section class="toolbar" aria-label="도구">
+      <button id="buildMode" class="active" type="button">벨트 설치</button>
+      <button id="eraseMode" type="button">벨트 제거</button>
+      <button id="resetButton" type="button">리셋</button>
+      <button id="pauseButton" type="button">일시정지</button>
+      <button id="nextLevelButton" class="primary hidden" type="button">다음 레벨 →</button>
+    </section>
+
+    <section class="play-area">
+      <div id="board" class="board" aria-label="공장 격자"></div>
+
+      <aside class="panel">
+        <h2>조작법</h2>
+        <ul>
+          <li><b>벨트 설치</b>: 빈 칸을 누른 채 경로를 따라 드래그합니다.</li>
+          <li><b>코너 벨트</b>: 드래그 중 방향을 꺾으면 자동으로 만들어집니다.</li>
+          <li><b>벨트 제거</b>: 제거 모드에서 벨트를 누르거나, 우클릭합니다.</li>
+          <li><b>검수기</b>: 칸에 표시된 <b>정상</b>·<b>불량</b> 포트로 각각 나갑니다.</li>
+          <li><b>리셋</b>: 벨트, 아이템, 카운트를 모두 초기화합니다.</li>
+        </ul>
+
+        <h2>이번 레벨</h2>
+        <p id="levelHint"></p>
+
+        <h2>피드백</h2>
+        <div id="messageLog" class="message-log">라인을 설계하세요.</div>
+      </aside>
+    </section>
+
+    <section id="clearBanner" class="clear-banner hidden" role="status">
+      레벨 클리어! 목표 정상품을 모두 처리했습니다.
+    </section>
+  </main>
+
+  <script src="sim.js"></script>
+  <script src="levels.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
