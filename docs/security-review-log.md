@@ -12,3 +12,4 @@
 | 2026-08-22~25 | 스케줄 판정 (reports/2026-08-25_schedule-verdict) | deny 18 규칙이 나흘간 한 번도 걸리지 않았다 | **미발생 — 정탐/오탐 판정 불가** | 트랜스크립트 18파일 전수에 `denied by the permission system` 0건, deny 대상 경로·명령 접근 시도 0건. «규칙이 안 걸린 것» 이 아니라 «걸릴 입력이 없었던 것». 규칙 작동 증거는 2026-08-14 `DENYTEST` 실증뿐 | 없음 — 🟢 로 적지 않는다(§0 역검증) |
 | 2026-08-23 | 스케줄 회차 (content-scout) | `rm -rf` 실행이 거부됐다 | **정탐** | deny 규칙(`rm -rf`)이 설계대로 거부. 에이전트 작업엔 영향 없음 | 없음 |
 | 2026-08-26 | 세션 (JJ 보고) | `rm -rf` 실행이 거부됐다 — deny 실전 작동 1건 | **정탐** | 정당한 차단. 8/22~25 스케줄 판정(«deny 미발생 — 걸릴 입력 없음») 이후 첫 실전 작동 기록 — 회차 판정 기록에 병기 | 없음 (규칙 유지) |
+| 2026-09-16 | Codex 자동 승인 검토 · Manyfast 화면 확인 | PowerShell `Start-Process chrome.exe --new-window <Manyfast 프로젝트 URL> -WindowStyle Hidden` 실행 차단 | **확인 불가** | 응답은 `blocked by policy`이며 상세 사유는 제공되지 않음. 해당 실행 경로로 브라우저를 여는 데 성공했다는 증거 없음 | 같은 실행 재시도 중단. Orca DOM 재조회와 네트워크 차단된 독립 headless 렌더로 화면 내용 검사. 검증 범위는 `reports/2026-09-16_manyfast-final-review.md`에 기록 |
