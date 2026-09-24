@@ -81,7 +81,7 @@
 
 | 자회사 | 정본 | 본사 관할 | 상태 |
 |---|---|---|---|
-| 토망치랩 | `~\.claude\skills\tomangchi\SKILL.md` | §5.5 아침 스캔 **1~3-1단계**(수집·검증·판정·스캔로그·제안) | 가동 |
+| 토망치랩 | `~\.claude\skills\tomangchi\SKILL.md` | §5.5 아침 스캔 **1~3-1단계**(수집·검증·판정·스캔로그·제안) | 휴면 (2026-09-24 JJ · 게시 중단·계정 유지 · 아침 스캔 스케줄 중지) |
 
 - **정본 수정 금지.** 충돌·모순을 발견하면 고치지 말고 리포트에 "확인 필요"로 보고한다.
 - 컨펌·제작·발행은 본사 관할 밖 — 자회사 트랙에서 JJ가 진행한다.
@@ -230,12 +230,12 @@
 | 작업 | 에이전트 | 주기 | 상태 |
 |---|---|---|---|
 | morning-vault-health | ops-auditor | 평일 12:30 | 가동 |
-| tomangchi-scout | content-scout | 매일 08:00 | 가동 |
+| tomangchi-scout | content-scout | 매일 08:00 | 중지 (2026-09-24 JJ · 토망치랩 휴면 · 실값 Disabled 확인) |
 | job-scout | job-scout | 매일 08:30 | 가동 |
-| skill-drift-audit | (에이전트 없음 — 결정적 비교) | 매일 12:30 | 가동 |
+| skill-drift-audit | (에이전트 없음 — 결정적 비교) | 매일 12:30 | 중지 (2026-09-24 JJ · 토망치랩 휴면 · 실값 Disabled 확인) |
 | hermes-event-watch | **(에이전트 없음 — 결정적 감지)** `event_watch.py` | 매일 07:40 | 가동 · **헤르메스 판정 층 종결** (2026-09-13 JJ 판정 · 8/26~9/12 시범 14회차 · 폴링 120/120 · 본 지표 미측정 — `reports\2026-09-13_hermes-trial.md`). 🔴 **작업 이름의 «hermes» 는 이력이다** — 이름 변경은 사람 자리라 그대로 둔다 |
 | workshop-backup | (에이전트 없음 — 결정적 압축·대조) | 주 1회 일요일 13:00 + **편 발행 직후** | 가동 (2026-08-30 등록 · 실값 확인) |
-| blog-writer | blog-writer | 매일 09:00 | 가동 (2026-09-05 JJ 등록 · 실값 확인: WakeToRun True · StartWhenAvailable True · IgnoreNew · PT1H · S4U · 첫 회차 9/6 09:00) |
+| blog-writer | blog-writer | 매일 09:00 | 중지 (2026-09-24 JJ · 토망치랩 휴면 · 실값 Disabled 확인) |
 | study-scout | study-scout | 주 1회 일요일 15:00 | 가동 (2026-09-05 JJ 등록 · 실값 확인: S4U · WakeToRun True · StartWhenAvailable True · IgnoreNew · PT1H · 첫 회차 9/6 15:00 · 기준선 `--mark` 11건) |
 
 - **정본은 실값이고 이 표는 조회 결과다** (2026-08-25). **2026-08-30 실측으로 한 줄을 고쳤다** — `workshop-backup` 이 이미 등록돼 있는데 이 표는 «등록 대기» 였다. 표가 틀렸다. `Get-ScheduledTask -TaskPath '\JJ\'` 의 트리거가 정본이며, 이 표가 실값과 다르면 표가 틀린 것이다 — 8/22 재등록으로 vault·drift 가 12:30 으로 옮겨진 뒤 이 표는 사흘간 07:30/07:00 을 가리키고 있었고, 8/23 ops-auditor 가 그것을 읽고 «미실행»으로 오독했다. 재등록·트리거 변경 뒤에는 `docs\schedule-task-registration.md` 절차대로 실값을 재조회해 이 표를 맞춘다.
