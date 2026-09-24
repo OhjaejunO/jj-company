@@ -1114,3 +1114,15 @@ move 02_제작중\ep39_챗지피티로그인 90_자료함\기각편\기각_챗�
 - **원인: 확인 불가** — 추측하지 않는다. 조사 후보로만 둔다: ⓐ `--permission-mode default` 에서 읽기 전용으로 분류되는 명령이 자동 허용되는가 ⓑ 설정 파일의 allow 규칙이 상속되는가.
 - **다음 할 일**: ① 원인 실측 — 목록 밖 **쓰기성** Bash 명령(예: 스크래치패드에 파일을 만드는 명령)이 막히는지, **읽기성**만 통과하는지 가른다 ② 막아야 할 축이 확인되면 `permission_probe.py` 에 Bash 방향 프로브를 **양방향**(막혀야 하는 쪽·통과해야 하는 쪽)으로 더한다.
 - **감시처**: 이 항목 + 다음 스케줄 래퍼 수정 회차(job-scout·blog-writer·study-scout 에 #305 의 `--agent` 전환을 확대할 때).
+
+### 30. «안 돈 회차» 는 경보가 없다 — 9/23 절전으로 건너뛴 아침 작업 4개가 따라잡기도 경보도 없이 빠졌다 (2026-09-24 등재 · 기록만)
+
+- **무엇이 있었나 (2026-09-23 · 9/24 재조회)**: PC 절전(02:18~09:09) 동안 아침 작업 4개 — 07:40 hermes-event-watch · 08:00 tomangchi-scout · 08:30 job-scout · 09:00 blog-writer — 가 **돌지 않았다.** 깨어난 뒤에도 따라잡기 실행이 없었고(네 작업 모두 `logs\scheduled\<작업>_20260923.log` 가 없다), **경보도 0이었다.**
+- **왜 경보가 없었나**: `scripts\run_audit.py` 는 로그가 없는 작업을 건너뛴다(`if not os.path.exists(p): continue`) — 9/24 결과 `RUNS_FAILED=NONE` · `RUNS_VERDICT=OK`. 세션 브리핑(`session_brief.py`)은 같은 `run_audit.py` 를 부르고 intent 는 그 결과 파일에서 나오므로 브리핑·intent 어디에도 안 떴다(9/23 intent 는 9/22 tomangchi-scout `report-missing` 건이다).
+- **실측 원문 (2026-09-24 조회)**: System 로그 Kernel-Power 42 `2026-09-23 02:18:29`(전환 이유 «Application API») · Power-Troubleshooter 1 `09:09:51`(절전 시간 02:18:27 · 해제 시간 09:09:49 · 해제 원본 «Unknown»). `Microsoft-Windows-TaskScheduler/Operational` 의 9/23 `\JJ\` 이벤트는 12:30 morning-vault-health · skill-drift-audit 의 12건뿐이고, id=114(놓친 시작 → 가능할 때 시작)는 `\JJ\` 0건이다 — 같은 날 09:11:38 에 Office 작업 2개(ClickToRun Service Monitor · Background Push Maintenance)는 id=114 가 찍혔다.
+- **대비 (2026-09-22)**: 절전(01:55~09:05 · 해제 원본 «Unknown») 뒤 09:11:37 에 `\JJ\` 4개(hermes-event-watch · blog-writer · job-scout · tomangchi-scout)가 id=114 로 따라잡기 실행됐다. 두 날 사이에 설정이 바뀐 흔적은 없다 — `\JJ\` 8개 전부 `StartWhenAvailable=True` · `WakeToRun=True`(9/24 조회)이고, 9/20 이후 `\JJ\` 작업의 등록·수정·삭제·사용 안 함 이벤트(id=106·140·141·142)는 9/24 17:23 이후의 142 3건뿐이다.
+- **원인: 확인 불가** — 추측하지 않는다. Operational 로그는 한 달 남짓만 남으므로(9/24 기준 가장 오래된 이벤트 8/21) 위 원문을 여기 적어 둔다.
+- **다음 할 일** (착수는 창업 일 뒤): ① 따라잡기 설정(StartWhenAvailable · WakeToRun)이 켜져 있는데도 왜 안 돌았는지 진단한다 — 전원 설정, 깨우기 타이머(WakeToRun 적용 이력은 1-1) ② 감사가 스케줄러 기록과 로그를 대조해 «안 돈 회차» 를 🔴 로 올리게 한다. Disabled 작업은 제외한다.
+- **영향 범위**: 지금 켜져 있는 작업 전부 — hermes-event-watch · job-scout · morning-vault-health · study-scout · workshop-backup. tomangchi-scout · blog-writer · skill-drift-audit 는 2026-09-24 부터 Disabled 라 빠진다.
+- **우선순위 · 시기**: 창업 일 뒤 — 지금은 기록만 (2026-09-24 JJ).
+- **감시처**: 이 항목. 🔴 **못 잡는 것 (§0 4층 ④)**: ② 전까지는 다음 «안 돈 회차» 도 같은 이유로 안 보인다 — 그날 `logs\scheduled\` 에 로그가 있는지 사람이 봐야 안다.
