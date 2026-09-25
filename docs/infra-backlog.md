@@ -1126,3 +1126,19 @@ move 02_제작중\ep39_챗지피티로그인 90_자료함\기각편\기각_챗�
 - **영향 범위**: 지금 켜져 있는 작업 전부 — hermes-event-watch · job-scout · morning-vault-health · study-scout · workshop-backup. tomangchi-scout · blog-writer · skill-drift-audit 는 2026-09-24 부터 Disabled 라 빠진다.
 - **우선순위 · 시기**: 창업 일 뒤 — 지금은 기록만 (2026-09-24 JJ).
 - **감시처**: 이 항목. 🔴 **못 잡는 것 (§0 4층 ④)**: ② 전까지는 다음 «안 돈 회차» 도 같은 이유로 안 보인다 — 그날 `logs\scheduled\` 에 로그가 있는지 사람이 봐야 안다.
+
+### 31. 🔴 예정 교차검증이 9/14 부터 매 회차 실패하는데 경보가 없다 — 실제로 읽고 판정한 마지막 회차는 9/7 (2026-09-25 등재 · JJ 판정 대기)
+
+- **무엇이 있었나 (2026-09-25 조회 · 운영 서버 `logs\scheduled\cross-verify_*.log`)**: 9/14~9/17 의 8회차가 전부 `STATUS: FAIL audit-no-verdict`, 9/18~9/25 의 10회차가 전부 `STATUS: FAIL codex-exit-1` 이다. 🔴 **그 앞 9/10~9/13 의 codex 감리 8회차도 아무것도 읽지 못했다** — 무판정 검사(`bb99620` · 9/13 18:49)가 들어가기 전이라 «검토 불가» 답이 `STATUS: OK` 로 찍혔다. 규칙·리포트를 실제로 읽고 판정한 마지막 회차는 **9/7** 이다.
+- **왜 경보가 없었나**: `scripts\run_audit.py` 의 `TASKS` 에 cross-verify 가 없다 — 아침 리포트·세션 브리핑·intent 어디에도 안 뜬다. 흔적은 각 리포트 끝의 «교차검증 미수행» 절뿐이다.
+- **9/18~ 원인 — API 키 조직 크레딧 0**: 9/18 08:20 회차의 codex 세션 기록(`~\.codex-jjcompany\sessions\2026\09\18\`)이 `stream disconnected before completion: You have no credits remaining` 으로 끝난다. 로그에는 stderr 첫 줄(버전 배너 `codex.cmd : OpenAI Codex v0.154.0`)만 남아 원인이 안 보였다.
+- **9/14~17 원인 — 감리 홈에서 codex 가 프로세스 생성을 전부 거부했다**: 9/10~9/17 감리 세션 16개의 도구 응답이 전부 `CreateProcess ... rejected: blocked by policy` 이고 성공은 0이다 — `Get-Content` 도 `cmd.exe /c type` 도 막혔다. codex 는 첫 줄에 `PASS`·`FINDINGS: n` 없이 «검토 불가» 로 답했고, 무판정 검사가 그것을 정확히 걸렀다. 첫 발생은 codex 가 0.134.0 → 0.153.4 로 바뀐 **9/10 09:32 회차**이고, 같은 분에 감리 홈에 `.sandbox_migration`(v1)이 생겼다. 9/3~9/7(0.134.0)은 같은 read-only · approval never 조합에서 읽기가 됐다(9/7 두 회차: 성공 18 · 거부 5).
+  - **대비**: 구독 홈(`~\.codex`)은 `config.toml` 에 `[windows] sandbox = "elevated"` 가 있고 설치 흔적(`.sandbox\setup_marker.json` · `.sandbox-bin\codex-command-runner-0.154.0.exe`)이 있다 — 9/13 같은 조합(0.154.0 · read-only · approval never) 세션 8개가 명령을 실제로 돌렸다(세션당 성공 15~39). 감리 홈에는 `config.toml` 자체가 없다.
+  - **확인 불가**: «blocked by policy» 가 어느 정책인지(윈도 샌드박스 미설정인지 다른 규칙인지)는 코드 수준에서 확인하지 못했다. 위는 상관이지 인과 증명이 아니다.
+- **함께 드러난 것 (이 PR 범위 밖)**: 🔴 **codex 에 가는 감리 프롬프트의 한글이 전부 `?` 다** — 세션 기록의 사용자 메시지가 한글 0자 · `?` 421자다(9/3·9/7·9/10·9/14 같음). codex 작업(job)이 `$OutputEncoding` 을 정하지 않은 채 표준입력으로 파이프해 PS 5.1 기본 인코딩으로 나간다 — 같은 작업 꼴로 재현하니 한글 두 글자가 `??` 로 갔고, BOM 없는 UTF-8 로 정하면 온전히 갔다(2026-09-25). 9/3~9/7 의 판정도 한글 지시문 없이 경로와 `PASS`·`FINDINGS` 같은 ASCII 조각만 보고 낸 것이다. **①·② 어느 쪽을 골라도 이것은 그대로 남는다** — 고치면 기본 동작(보내는 바이트)이 바뀌므로 이 PR 에 넣지 않았다.
+- **갈림길 (JJ 판정)**:
+  - ① **크레딧 충전** (결제 · JJ). 🔴 **①만으로는 감리가 돌아오지 않는다** — 크레딧이 있던 9/10~9/17 에도 이 홈은 «blocked by policy» 였다. 감리 홈의 윈도 샌드박스 설정이 같이 필요할 수 있다(미실측).
+  - ② **스케줄 래퍼가 `-CodexHome C:\Users\ojaej\.codex -Model gpt-6-astra` 로 부르기** (구독 홈 사용). 스크립트 머리의 «`~\.codex` 의 대화용 인증은 건드리지 않는다» 전제를 **다시 판정**해야 한다. 구독 홈은 `model_provider = "headroom"`(127.0.0.1:8787)이라 그 회차에 프록시가 떠 있어야 한다 — 래퍼는 에이전트 앞에서 프록시를 띄우는데 감리 시점까지 살아 있는지는 미확인이다. 감리 경로 그대로 규칙·리포트를 읽는지도 미실측이다(근거는 위 9/13 대비뿐). ② 로 옮기면 실패 절의 재실행 명령(`scripts\prompts\cross-verify.section.md`)에도 두 인자를 같이 실어야 한다 — 지금 그 명령은 기본 홈으로 다시 돈다.
+  - ③ **감리 실패를 아침 리포트 `RUNS_VERDICT` 에 싣기** (별도 안건) — «경보 없음» 을 닫는 자리다.
+- **이 PR 이 한 것**: ①·② 를 고를 수 있게 `scripts\cross-verify.ps1` 에 `-CodexHome`·`-Model` 매개변수만 열었다. 기본값이 종전 그대로라 래퍼가 부르는 명령줄은 한 바이트도 안 바뀐다(자체 검사가 원소 단위로 잰다). 실패 힌트는 stderr 의 **마지막** `ERROR:` 줄을 고른다 — 가짜 키로 실제 실패를 일으켜 보니 첫 `ERROR:` 줄은 재시도 알림(`ERROR: Reconnecting... n/5`)이었고 원인 줄은 재시도가 다 끝난 뒤에 나왔다(2026-09-25). 힌트에 든 `sk-` 꼴 키는 가리고(§6), 로그와 append 절에 홈·모델 한 줄을 남긴다.
+- **감시처**: 이 항목 + ③ 이 들어가기 전까지는 각 리포트 끝의 «교차검증 미수행» 절. 🔴 **못 잡는 것 (§0 4층 ④)**: ③ 전까지는 감리가 다시 죽어도 사람이 리포트 끝을 읽어야 안다.
