@@ -60,7 +60,7 @@
 
 | 부서 | 에이전트 | 등급 | 담당 |
 |---|---|---|---|
-| 운영팀 | ops-auditor | A | JJ-Brain vault 건강 감사, 백업 검증 |
+| 운영팀 | ops-auditor | A | JJ-Brain vault 건강 감사, 백업 검증 — 2026-09-27 휴면(대상 vault 폐기 · 스케줄 중지) |
 | 대표실 | study-scout | A | `C:\공부` 새 노트 → «요지 · 실물 대조 · 제안» 리포트 (주 1회 · 읽기 전용 · `scripts\study_watch.py` 가 새 노트를 잡는다) |
 | 마케팅팀 | content-scout | B | 토망치랩 소재 조사 → 카드 제안 |
 | 영업팀 | job-scout | B | AX/AI 엔지니어 채용 공고 발굴 → 요약 |
@@ -229,7 +229,7 @@
 
 | 작업 | 에이전트 | 주기 | 상태 |
 |---|---|---|---|
-| morning-vault-health | ops-auditor | 평일 12:30 | 가동 |
+| morning-vault-health | ops-auditor | 평일 12:30 | 중지 (2026-09-27 JJ · JJ-Brain 볼트를 더 쓰지 않음 · 새 회사 볼트 `company-vault` 로 대체 · 실값은 JJ 가 `schtasks /change /disable` 뒤 `Get-ScheduledTask` 로 확인 — 이 PR 시점엔 미확인) |
 | tomangchi-scout | content-scout | 매일 08:00 | 중지 (2026-09-24 JJ · 토망치랩 휴면 · 실값 Disabled 확인) |
 | job-scout | job-scout | 매일 08:30 | 가동 |
 | skill-drift-audit | (에이전트 없음 — 결정적 비교) | 매일 12:30 | 중지 (2026-09-24 JJ · 토망치랩 휴면 · 실값 Disabled 확인) |
