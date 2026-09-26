@@ -229,7 +229,7 @@
 
 | 작업 | 에이전트 | 주기 | 상태 |
 |---|---|---|---|
-| morning-vault-health | ops-auditor | 평일 12:30 | 중지 (2026-09-27 JJ · JJ-Brain 볼트를 더 쓰지 않음 · 새 회사 볼트 `company-vault` 로 대체 · 실값은 JJ 가 `schtasks /change /disable` 뒤 `Get-ScheduledTask` 로 확인 — 이 PR 시점엔 미확인) |
+| morning-vault-health | ops-auditor | 평일 12:30 | 중지 (2026-09-27 JJ · JJ-Brain 볼트를 더 쓰지 않음 · 새 회사 볼트 `company-vault` 로 대체 · 실값 Disabled 확인(2026-09-27 JJ · `Get-ScheduledTask`)) |
 | tomangchi-scout | content-scout | 매일 08:00 | 중지 (2026-09-24 JJ · 토망치랩 휴면 · 실값 Disabled 확인) |
 | job-scout | job-scout | 매일 08:30 | 가동 |
 | skill-drift-audit | (에이전트 없음 — 결정적 비교) | 매일 12:30 | 중지 (2026-09-24 JJ · 토망치랩 휴면 · 실값 Disabled 확인) |
