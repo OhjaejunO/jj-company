@@ -104,6 +104,10 @@ def runs_verdict(argv=None):
         k, _, v = ln.partition("=")
         if _:
             kv[k.strip()] = v.strip()
+    if kv.get("RUNS_VERDICT") not in ("OK", "RED"):
+        # 판정 줄 없이 끝난 조회는 «조용함» 이 아니라 «판정 불가» 다 (Codex 감리 2026-10-06 지적 1).
+        tail = [x for x in (p.stderr or "").splitlines() if x.strip()]
+        return None, ["run_audit 판정 줄 없음 (exit %s)%s" % (p.returncode, (": " + tail[-1][:160]) if tail else "")]
     why = []
     for key, label in (("RUNS_FAILED", "실패"), ("RUNS_INCOMPLETE", "무기록 종료"),
                        ("STARTED_RESIDUAL", "잔존 스탬프")):
@@ -119,6 +123,8 @@ def brief(dirpath=None, days=INTENT_DAYS, today=None, run_argv=None, want_runs=T
     verdict, why = (None, []) if not want_runs else runs_verdict(run_argv)
     if verdict == "RED":
         lines.append("- 🔴 **스케줄 회차 RED** (오늘·어제) — " + " / ".join(why))
+    elif want_runs and verdict is None:
+        lines.append("- 🔴 **스케줄 회차 판정 불가** — " + " / ".join(why))
     items = open_intents(dirpath, days, today)
     if items:
         lines.append("- 🔴 **미처리 intent %d건** (`reports\\intents\\`) — "
@@ -184,6 +190,15 @@ def self_test():
             "[2026-09-12 09:30:00] STATUS: FAIL report-missing\n")
         v, w = runs_verdict(argv)
         res.append(("실패 회차는 RED + 사유", v == "RED" and any("report-missing" in x for x in w)))
+        # ⑩ 판정 줄 없이 죽은 조회는 조용하지 않다 (Codex 감리 2026-10-06). intent 는 빈 폴더라
+        #    스케줄 축만 걸린다. 짝: 같은 빈 폴더에 정상 회차 로그만 있으면 조용해야 한다 — 이 줄이
+        #    «늘 뜨는» 줄이 아니라는 증명이다.
+        with tempfile.TemporaryDirectory(prefix="brief_empty_") as e:
+            ok_argv = ["--log-dir", ld, "--stamp-dir", ld, "--tasks", "no-such-task"]
+            res.append(("정상 조회는 조용 (판정 불가 줄이 늘 뜨지 않는다)",
+                        brief(e, today=today, run_argv=ok_argv) == ""))
+            bad = brief(e, today=today, run_argv=["--date", "not-a-date"])
+            res.append(("판정 줄 없이 죽은 조회는 «판정 불가» 로 뜬다", "판정 불가" in bad and "exit 1" in bad))
 
     # ⑧⑨ `--hook` 축 — 양방향이다. 「있으면 찍는다」만 보면 «항상 찍는» 깃발도 정상으로 보인다.
     real = globals()["brief"]

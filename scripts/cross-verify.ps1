@@ -96,6 +96,10 @@ param(
     [string]$CodexHome = 'C:\Users\ojaej\.codex-xverify',
     # codex --model. Pass -Model '' to send no --model at all and let codex pick.
     [string]$Model = 'gpt-6-astra',
+    # Where Orca keeps its per-account codex homes (JJ's interactive logins). A
+    # parameter for the same reason as -Hq: the self-test runs this program
+    # against a folder whose listing is denied.
+    [string]$OrcaAccounts = 'C:\Users\ojaej\AppData\Roaming\orca\codex-accounts',
     [switch]$SelfTest
 )
 
@@ -139,9 +143,14 @@ $LogFile = Join-Path $LogDir ($Task + '_' + $Stamp + '.log')
 
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
+# Every line carries this run's pid inside the time bracket. One day's log holds
+# several runs, and two can overlap (A start, B start, A STATUS, B STATUS): by
+# position alone scripts\run_audit.py would hang both STATUS lines on B and read
+# A as a run that died without one (Codex audit 2026-10-06). The bracket keeps
+# run_audit's '^\[[^\]]+\] STATUS:' shape; it pairs by ' pid N]'.
 function Write-Log {
     param([string]$Message)
-    $line = '[' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '] ' + $Message
+    $line = '[' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' pid ' + $PID + '] ' + $Message
     Add-Content -LiteralPath $LogFile -Value $line -Encoding UTF8
 }
 
@@ -294,7 +303,8 @@ function Get-CodexRunLine {
 #                           for a dead audit login - copy a live auth.json over -
 #                           is this case, and it would log JJ out on the next
 #                           token refresh.
-#   codex-home-isolation-unknown - an auth.json could not be hashed; not
+#   codex-home-isolation-unknown - an auth.json could not be hashed, or the
+#                           Orca accounts folder could not be listed; not
 #                           compared is not a pass.
 # Paths and SHA-256 only; no auth file is ever read for its content.
 # NOT CAUGHT (charter section 0, layer 4): a copy that has since diverged (one
@@ -304,15 +314,29 @@ $INTERACTIVE_CODEX_HOMES = @(
     'C:\Users\ojaej\.codex',
     'C:\Users\ojaej\AppData\Roaming\orca\codex-runtime-home\home'
 )
-$ORCA_CODEX_ACCOUNTS = 'C:\Users\ojaej\AppData\Roaming\orca\codex-accounts'
 
+# Orca's account homes, listed from $OrcaAccounts. A listing that FAILS throws:
+# it used to be swallowed (-ErrorAction SilentlyContinue), and a folder whose
+# listing is denied while its files stay readable by path (measured: an RD deny
+# ACE does exactly that) then shrank the list to nothing - an account home
+# passed as "isolated" (Codex audit 2026-10-06). A folder that does not exist is
+# not an error: no Orca accounts on this machine.
 function Get-InteractiveCodexHomes {
+    param([string]$AccountsDir)
     $h = @($INTERACTIVE_CODEX_HOMES)
-    if (Test-Path -LiteralPath $ORCA_CODEX_ACCOUNTS) {
-        $h += @(Get-ChildItem -LiteralPath $ORCA_CODEX_ACCOUNTS -Directory -ErrorAction SilentlyContinue |
+    if (Test-Path -LiteralPath $AccountsDir) {
+        $h += @(Get-ChildItem -LiteralPath $AccountsDir -Directory -ErrorAction Stop |
             ForEach-Object { Join-Path $_.FullName 'home' })
     }
     return $h
+}
+
+# The one call both the run and self-test 6a make: the list, then the check. A
+# list that could not be built is UNKNOWN - not compared is not a pass.
+function Get-CodexHomeIsolation {
+    param([string]$HomeDir, [string]$AccountsDir)
+    try { $ix = @(Get-InteractiveCodexHomes -AccountsDir $AccountsDir) } catch { return 'codex-home-isolation-unknown' }
+    return (Test-CodexHomeIsolation -HomeDir $HomeDir -Interactive $ix)
 }
 
 # $null when isolated, else a STATUS token. The interactive list is a parameter
@@ -545,6 +569,29 @@ function Invoke-SelfTest {
         else { Write-Host ('  FAIL ' + $Name + '  got: ' + $Got); $script:stFails++ }
     }
     $script:stFails = 0
+
+    # An Orca-accounts stand-in with one account home that holds a login. With
+    # -DenyList the folder gets a deny ACE for "list folder" (RD) for the current
+    # user: listing it fails while files inside stay readable by full path -
+    # exactly the hole the 2026-10-06 audit named. Unlock-AccountsFixture removes
+    # the ACE (in a finally) so the temp folder can be deleted.
+    function New-AccountsFixture {
+        param([string]$Root, [switch]$DenyList)
+        $acct = Join-Path $Root 'codex-accounts'
+        $homeDir = Join-Path $acct 'acct-1\home'
+        New-Item -ItemType Directory -Force -Path $homeDir | Out-Null
+        Write-Utf8 -Path (Join-Path $homeDir 'auth.json') -Text '{"fake":"orca account login"}'
+        if ($DenyList) {
+            $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+            & icacls.exe $acct /deny ($me + ':(RD)') | Out-Null
+        }
+        return @{ Dir = $acct; Home = $homeDir }
+    }
+    function Unlock-AccountsFixture {
+        param([string]$Dir)
+        $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+        & icacls.exe $Dir /remove:d $me | Out-Null
+    }
 
     Write-Host 'cross-verify self-test'
 
@@ -942,25 +989,43 @@ function Invoke-SelfTest {
         $iRul  = Join-Path $lagRoot 'iso-rules.md'
         Write-Utf8 -Path $iRul -Text "iso rules`r`n"
         $iLog  = Join-Path $repoI ('logs\scheduled\' + $Task + '_' + $Stamp + '.log')
+        #      f1d (third run): -CodexHome is an Orca account home whose parent
+        #      folder cannot be listed - the run must stop on
+        #      isolation-unknown before codex, not read the short list as "none".
+        $fxD = New-AccountsFixture -Root (Join-Path $lagRoot 'deny') -DenyList
         $iRuns = @(
-            @{ N = 'interactive'; H = 'C:\Users\ojaej\.codex' },
-            @{ N = 'empty';       H = (Join-Path $lagRoot 'empty-home') }
+            @{ N = 'interactive'; H = 'C:\Users\ojaej\.codex';           A = $OrcaAccounts },
+            @{ N = 'empty';       H = (Join-Path $lagRoot 'empty-home'); A = $OrcaAccounts },
+            @{ N = 'denied-list'; H = $fxD.Home;                         A = $fxD.Dir }
         )
         New-Item -ItemType Directory -Force -Path $iRuns[1].H | Out-Null
         $iOut = @{}
-        foreach ($r in $iRuns) {
-            $iRep = Join-Path $lagRoot ('iso-' + $r.N + '.md')
-            Write-Utf8 -Path $iRep -Text "# iso artifact`r`nSTATUS: OK`r`n"
-            if (Test-Path -LiteralPath $iLog) { Remove-Item -LiteralPath $iLog -Force }
-            & powershell -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath `
-                -Report $iRep -Rules $iRul -Auditor codex -Author claude -Hq $repoI -CodexHome $r.H *>&1 | Out-Null
-            $iOut[$r.N] = @{
-                Code = $LASTEXITCODE
-                Log  = $(if (Test-Path -LiteralPath $iLog) { [string](Get-Content -LiteralPath $iLog -Raw) } else { '<no log>' })
-                Rep  = [string](Get-Content -LiteralPath $iRep -Raw -Encoding UTF8)
+        try {
+            foreach ($r in $iRuns) {
+                $iRep = Join-Path $lagRoot ('iso-' + $r.N + '.md')
+                Write-Utf8 -Path $iRep -Text "# iso artifact`r`nSTATUS: OK`r`n"
+                if (Test-Path -LiteralPath $iLog) { Remove-Item -LiteralPath $iLog -Force }
+                & powershell -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath `
+                    -Report $iRep -Rules $iRul -Auditor codex -Author claude -Hq $repoI `
+                    -CodexHome $r.H -OrcaAccounts $r.A *>&1 | Out-Null
+                $iOut[$r.N] = @{
+                    Code = $LASTEXITCODE
+                    Log  = $(if (Test-Path -LiteralPath $iLog) { [string](Get-Content -LiteralPath $iLog -Raw) } else { '<no log>' })
+                    Rep  = [string](Get-Content -LiteralPath $iRep -Raw -Encoding UTF8)
+                }
             }
+        } finally {
+            Unlock-AccountsFixture -Dir $fxD.Dir
         }
+        $id = $iOut['denied-list']
+        t 'program: an unlistable Orca accounts folder stops the run as isolation-unknown' `
+            (($id.Code -eq 1) -and ($id.Log -match 'STATUS: FAIL codex-home-isolation-unknown')) ([string]$id.Log)
+        t 'program: ...and codex never started' (-not ($id.Log -match 'exec start')) ([string]$id.Log)
         $ia = $iOut['interactive']; $ie = $iOut['empty']
+        # f1e. the run tag scripts\run_audit.py pairs STATUS lines by: the STATUS
+        #      line carries the SAME pid as this run's start line.
+        $tagOk = ($ia.Log -match 'start \(pid (\d+)\)') -and ($ia.Log -match ('\[[^\]]* pid ' + $Matches[1] + '\] STATUS: FAIL'))
+        t 'log: the STATUS line carries this run''s pid (run_audit pairs overlapping runs by it)' $tagOk ([string]$ia.Log)
         t 'program: -CodexHome ~/.codex is refused as JJ''s interactive home' `
             (($ia.Code -eq 1) -and ($ia.Log -match 'STATUS: FAIL codex-home-interactive')) ([string]$ia.Log)
         t 'program: ...and codex never started' (-not ($ia.Log -match 'exec start')) ([string]$ia.Log)
@@ -1038,7 +1103,7 @@ function Invoke-SelfTest {
     #     pass nothing - measured against the REAL interactive homes on this
     #     machine, by path and by auth.json hash. Read before 6b reassigns
     #     $CodexHome. Run with -SelfTest alone so $CodexHome is the default.
-    $defIso = Test-CodexHomeIsolation -HomeDir $CodexHome -Interactive (Get-InteractiveCodexHomes)
+    $defIso = Get-CodexHomeIsolation -HomeDir $CodexHome -AccountsDir $OrcaAccounts
     t 'defaults: the default codex home shares no login with JJ''s interactive homes' `
         ($null -eq $defIso) ([string]$defIso + ' ' + $CodexHome)
 
@@ -1193,7 +1258,22 @@ function Invoke-SelfTest {
     #     Own path, own login - only the unreadable file can make this fail.
     $lock = [System.IO.File]::Open((Join-Path $ixB 'auth.json'), 'Open', 'Read', 'None')
     try { $r9e = Test-CodexHomeIsolation -HomeDir $own -Interactive $ix } finally { $lock.Dispose() }
+    # 9f. the account LISTING, through Get-CodexHomeIsolation (the call the run
+    #     makes). Same account home both times; only the folder's list right
+    #     differs. Control: listable -> the home is found and refused on its path.
+    #     Denied -> unknown. Without the control a broken fixture that never lists
+    #     anything would pass 9f for free.
+    $fxOpen = New-AccountsFixture -Root (Join-Path $isoRoot 'open')
+    $fxDeny = New-AccountsFixture -Root (Join-Path $isoRoot 'deny') -DenyList
+    try {
+        $r9fc = Get-CodexHomeIsolation -HomeDir $fxOpen.Home -AccountsDir $fxOpen.Dir
+        $r9f  = Get-CodexHomeIsolation -HomeDir $fxDeny.Home -AccountsDir $fxDeny.Dir
+    } finally {
+        Unlock-AccountsFixture -Dir $fxDeny.Dir
+    }
     Remove-Item -LiteralPath $isoRoot -Recurse -Force -ErrorAction SilentlyContinue
+    t 'isolation: control - a listable accounts folder finds the account home' ($r9fc -eq 'codex-home-interactive') ([string]$r9fc)
+    t 'isolation: an unlistable accounts folder is unknown, not a pass'        ($r9f -eq 'codex-home-isolation-unknown') ([string]$r9f)
     t 'isolation: an interactive home itself is refused (path)'              ($r9a -eq 'codex-home-interactive') ([string]$r9a)
     t 'isolation: a copied interactive auth.json is refused (hash)'          ($r9b -eq 'codex-home-shared-login') ([string]$r9b)
     t 'isolation: a home with its own login passes (does not refuse all)'    ($null -eq $r9c) ([string]$r9c)
@@ -1300,7 +1380,7 @@ if (-not (Test-Path -LiteralPath $Bin)) {
     exit 1
 }
 if ($Auditor -eq 'codex') {
-    $iso = Test-CodexHomeIsolation -HomeDir $CodexHome -Interactive (Get-InteractiveCodexHomes)
+    $iso = Get-CodexHomeIsolation -HomeDir $CodexHome -AccountsDir $OrcaAccounts
     if ($iso) {
         Write-Log ('audit codex home is not isolated: ' + $iso + ' (' + $CodexHome + ')')
         Append-Section -Body ($iso + ': ' + $CodexHome + ' shares a login with JJ''s interactive codex. A refresh here ' +
