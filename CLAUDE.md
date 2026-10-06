@@ -63,7 +63,7 @@
 | 운영팀 | ops-auditor | A | JJ-Brain vault 건강 감사, 백업 검증 — 2026-09-27 휴면(대상 vault 폐기 · 스케줄 중지) |
 | 대표실 | study-scout | A | `C:\공부` 새 노트 → «요지 · 실물 대조 · 제안» 리포트 (주 1회 · 읽기 전용 · `scripts\study_watch.py` 가 새 노트를 잡는다) |
 | 마케팅팀 | content-scout | B | 토망치랩 소재 조사 → 카드 제안 |
-| 영업팀 | job-scout | B | AX/AI 엔지니어 채용 공고 발굴 → 요약 |
+| 영업팀 | job-scout | B | AX/AI 엔지니어 채용 공고 발굴 → 요약 — 2026-10-06 휴면(새 회사 구축 · 스케줄 중지) |
 | 마케팅팀 | blog-writer | B | 네이버 블로그 «AI 뉴스» 초안 (전날 스캔로그 + 발행편 검증로그 → `reports\blog\`) · 발행은 워커(`scripts\publish_naver.py --publish` · `blogcheck` OK 일 때만 · §0 «발행은 매체별로 가른다») · 규격 `docs\blog-format.md` · 게이트 `scripts\blogcheck.py` |
 | 개발팀 | implementer / verifier (글로벌 상속) | B | 구현/검증 분리, adversarial cross-validation |
 | 개발팀 | **코덱스 (작업자)** | B | worktree 안 코드 작업·검사기·PR. 진입점은 `AGENTS.md` → 정본은 `CLAUDE.md` 하나. **감리는 클로드** |
@@ -231,10 +231,10 @@
 |---|---|---|---|
 | morning-vault-health | ops-auditor | 평일 12:30 | 중지 (2026-09-27 JJ · JJ-Brain 볼트를 더 쓰지 않음 · 새 회사 볼트 `company-vault` 로 대체 · 실값 Disabled 확인(2026-09-27 JJ · `Get-ScheduledTask`)) |
 | tomangchi-scout | content-scout | 매일 08:00 | 중지 (2026-09-24 JJ · 토망치랩 휴면 · 실값 Disabled 확인) |
-| job-scout | job-scout | 매일 08:30 | 가동 |
+| job-scout | job-scout | 매일 08:30 | 중지 (2026-10-06 JJ · 새 회사 구축 — 옛 구성용 · 실값 Disabled 확인(2026-10-06 · `Get-ScheduledTask`)) |
 | skill-drift-audit | (에이전트 없음 — 결정적 비교) | 매일 12:30 | 중지 (2026-09-24 JJ · 토망치랩 휴면 · 실값 Disabled 확인) |
-| hermes-event-watch | **(에이전트 없음 — 결정적 감지)** `event_watch.py` | 매일 07:40 | 가동 · **헤르메스 판정 층 종결** (2026-09-13 JJ 판정 · 8/26~9/12 시범 14회차 · 폴링 120/120 · 본 지표 미측정 — `reports\2026-09-13_hermes-trial.md`). 🔴 **작업 이름의 «hermes» 는 이력이다** — 이름 변경은 사람 자리라 그대로 둔다 |
-| workshop-backup | (에이전트 없음 — 결정적 압축·대조) | 주 1회 일요일 13:00 + **편 발행 직후** | 가동 (2026-08-30 등록 · 실값 확인) |
+| hermes-event-watch | **(에이전트 없음 — 결정적 감지)** `event_watch.py` | 매일 07:40 | 중지 (2026-10-06 JJ · 새 회사 구축 — 옛 구성용 · 실값 Disabled 확인(2026-10-06 · `Get-ScheduledTask`)) · **헤르메스 판정 층 종결** (2026-09-13 JJ 판정 · 8/26~9/12 시범 14회차 · 폴링 120/120 · 본 지표 미측정 — `reports\2026-09-13_hermes-trial.md`). 🔴 **작업 이름의 «hermes» 는 이력이다** — 이름 변경은 사람 자리라 그대로 둔다 |
+| workshop-backup | (에이전트 없음 — 결정적 압축·대조) | 주 1회 일요일 13:00 + **편 발행 직후** | 중지 (2026-10-06 JJ · 새 회사 구축 — 옛 구성용 · 실값 Disabled 확인(2026-10-06 · `Get-ScheduledTask`)) · (2026-08-30 등록 · 실값 확인) |
 | blog-writer | blog-writer | 매일 09:00 | 중지 (2026-09-24 JJ · 토망치랩 휴면 · 실값 Disabled 확인) |
 | study-scout | study-scout | 주 1회 일요일 15:00 | 가동 (2026-09-05 JJ 등록 · 실값 확인: S4U · WakeToRun True · StartWhenAvailable True · IgnoreNew · PT1H · 첫 회차 9/6 15:00 · 기준선 `--mark` 11건) |
 
