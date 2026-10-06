@@ -96,10 +96,13 @@ param(
     [string]$CodexHome = 'C:\Users\ojaej\.codex-xverify',
     # codex --model. Pass -Model '' to send no --model at all and let codex pick.
     [string]$Model = 'gpt-6-astra',
-    # Where Orca keeps its per-account codex homes (JJ's interactive logins). A
-    # parameter for the same reason as -Hq: the self-test runs this program
-    # against a folder whose listing is denied.
-    [string]$OrcaAccounts = 'C:\Users\ojaej\AppData\Roaming\orca\codex-accounts',
+    # MORE folders of Orca-style account homes to guard against. It ADDS to the
+    # real Orca accounts folder ($ORCA_CODEX_ACCOUNTS), which is always listed -
+    # it cannot remove or replace it. Exists so the self-test can run this
+    # program against a folder whose listing is denied. (The first version took
+    # the real folder's place, so a path that does not exist dropped every real
+    # account from the guard - Codex recheck 2026-10-06.)
+    [string[]]$ExtraOrcaAccounts = @(),
     [switch]$SelfTest
 )
 
@@ -315,18 +318,24 @@ $INTERACTIVE_CODEX_HOMES = @(
     'C:\Users\ojaej\AppData\Roaming\orca\codex-runtime-home\home'
 )
 
-# Orca's account homes, listed from $OrcaAccounts. A listing that FAILS throws:
-# it used to be swallowed (-ErrorAction SilentlyContinue), and a folder whose
-# listing is denied while its files stay readable by path (measured: an RD deny
-# ACE does exactly that) then shrank the list to nothing - an account home
-# passed as "isolated" (Codex audit 2026-10-06). A folder that does not exist is
-# not an error: no Orca accounts on this machine.
+$ORCA_CODEX_ACCOUNTS = 'C:\Users\ojaej\AppData\Roaming\orca\codex-accounts'
+
+# Orca's account homes: the real folder ALWAYS, plus any extra folders. A listing
+# that FAILS throws: it used to be swallowed (-ErrorAction SilentlyContinue), and
+# a folder whose listing is denied while its files stay readable by path
+# (measured: an RD deny ACE does exactly that) then shrank the list to nothing -
+# an account home passed as "isolated" (Codex audit 2026-10-06). A folder that
+# does not exist is not an error: no accounts there.
+# NOT CAUGHT (layer 4): Test-Path also answers "no" when the real folder's
+# existence itself cannot be checked; that reads as "no Orca accounts".
 function Get-InteractiveCodexHomes {
-    param([string]$AccountsDir)
+    param([string[]]$ExtraAccountsDirs)
     $h = @($INTERACTIVE_CODEX_HOMES)
-    if (Test-Path -LiteralPath $AccountsDir) {
-        $h += @(Get-ChildItem -LiteralPath $AccountsDir -Directory -ErrorAction Stop |
-            ForEach-Object { Join-Path $_.FullName 'home' })
+    foreach ($dir in @($ORCA_CODEX_ACCOUNTS) + @($ExtraAccountsDirs | Where-Object { $_ })) {
+        if (Test-Path -LiteralPath $dir) {
+            $h += @(Get-ChildItem -LiteralPath $dir -Directory -ErrorAction Stop |
+                ForEach-Object { Join-Path $_.FullName 'home' })
+        }
     }
     return $h
 }
@@ -334,8 +343,8 @@ function Get-InteractiveCodexHomes {
 # The one call both the run and self-test 6a make: the list, then the check. A
 # list that could not be built is UNKNOWN - not compared is not a pass.
 function Get-CodexHomeIsolation {
-    param([string]$HomeDir, [string]$AccountsDir)
-    try { $ix = @(Get-InteractiveCodexHomes -AccountsDir $AccountsDir) } catch { return 'codex-home-isolation-unknown' }
+    param([string]$HomeDir, [string[]]$ExtraAccountsDirs)
+    try { $ix = @(Get-InteractiveCodexHomes -ExtraAccountsDirs $ExtraAccountsDirs) } catch { return 'codex-home-isolation-unknown' }
     return (Test-CodexHomeIsolation -HomeDir $HomeDir -Interactive $ix)
 }
 
@@ -994,9 +1003,9 @@ function Invoke-SelfTest {
         #      isolation-unknown before codex, not read the short list as "none".
         $fxD = New-AccountsFixture -Root (Join-Path $lagRoot 'deny') -DenyList
         $iRuns = @(
-            @{ N = 'interactive'; H = 'C:\Users\ojaej\.codex';           A = $OrcaAccounts },
-            @{ N = 'empty';       H = (Join-Path $lagRoot 'empty-home'); A = $OrcaAccounts },
-            @{ N = 'denied-list'; H = $fxD.Home;                         A = $fxD.Dir }
+            @{ N = 'interactive'; H = 'C:\Users\ojaej\.codex' },
+            @{ N = 'empty';       H = (Join-Path $lagRoot 'empty-home') },
+            @{ N = 'denied-list'; H = $fxD.Home; A = $fxD.Dir }
         )
         New-Item -ItemType Directory -Force -Path $iRuns[1].H | Out-Null
         $iOut = @{}
@@ -1005,9 +1014,10 @@ function Invoke-SelfTest {
                 $iRep = Join-Path $lagRoot ('iso-' + $r.N + '.md')
                 Write-Utf8 -Path $iRep -Text "# iso artifact`r`nSTATUS: OK`r`n"
                 if (Test-Path -LiteralPath $iLog) { Remove-Item -LiteralPath $iLog -Force }
+                $more = @(); if ($r.A) { $more = @('-ExtraOrcaAccounts', $r.A) }
                 & powershell -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath `
                     -Report $iRep -Rules $iRul -Auditor codex -Author claude -Hq $repoI `
-                    -CodexHome $r.H -OrcaAccounts $r.A *>&1 | Out-Null
+                    -CodexHome $r.H @more *>&1 | Out-Null
                 $iOut[$r.N] = @{
                     Code = $LASTEXITCODE
                     Log  = $(if (Test-Path -LiteralPath $iLog) { [string](Get-Content -LiteralPath $iLog -Raw) } else { '<no log>' })
@@ -1103,7 +1113,7 @@ function Invoke-SelfTest {
     #     pass nothing - measured against the REAL interactive homes on this
     #     machine, by path and by auth.json hash. Read before 6b reassigns
     #     $CodexHome. Run with -SelfTest alone so $CodexHome is the default.
-    $defIso = Get-CodexHomeIsolation -HomeDir $CodexHome -AccountsDir $OrcaAccounts
+    $defIso = Get-CodexHomeIsolation -HomeDir $CodexHome -ExtraAccountsDirs $ExtraOrcaAccounts
     t 'defaults: the default codex home shares no login with JJ''s interactive homes' `
         ($null -eq $defIso) ([string]$defIso + ' ' + $CodexHome)
 
@@ -1266,12 +1276,26 @@ function Invoke-SelfTest {
     $fxOpen = New-AccountsFixture -Root (Join-Path $isoRoot 'open')
     $fxDeny = New-AccountsFixture -Root (Join-Path $isoRoot 'deny') -DenyList
     try {
-        $r9fc = Get-CodexHomeIsolation -HomeDir $fxOpen.Home -AccountsDir $fxOpen.Dir
-        $r9f  = Get-CodexHomeIsolation -HomeDir $fxDeny.Home -AccountsDir $fxDeny.Dir
+        $r9fc = Get-CodexHomeIsolation -HomeDir $fxOpen.Home -ExtraAccountsDirs $fxOpen.Dir
+        $r9f  = Get-CodexHomeIsolation -HomeDir $fxDeny.Home -ExtraAccountsDirs $fxDeny.Dir
     } finally {
         Unlock-AccountsFixture -Dir $fxDeny.Dir
     }
+    # 9g. an extra folder ADDS, it never replaces the real one (Codex recheck
+    #     2026-10-06): a REAL Orca account home with an extra folder that does
+    #     not exist must still be refused. Real path, refused on the path
+    #     alone, so its auth.json is never opened. Done on the function the run
+    #     calls, NOT by running the program: if this guard ever regressed, a
+    #     program run would start codex on JJ's live account login. The run's
+    #     wiring to that function is f1d. No real account on this machine is
+    #     "not measured", which fails - never a quiet pass.
+    $realAcct = @(Get-ChildItem -LiteralPath $ORCA_CODEX_ACCOUNTS -Directory -ErrorAction SilentlyContinue |
+        ForEach-Object { Join-Path $_.FullName 'home' } | Where-Object { Test-Path -LiteralPath $_ }) | Select-Object -First 1
+    $r9g = if ($realAcct) {
+        Get-CodexHomeIsolation -HomeDir $realAcct -ExtraAccountsDirs (Join-Path $isoRoot 'no-such-accounts')
+    } else { 'not measured: no real Orca account home under ' + $ORCA_CODEX_ACCOUNTS }
     Remove-Item -LiteralPath $isoRoot -Recurse -Force -ErrorAction SilentlyContinue
+    t 'isolation: a missing extra accounts folder does not hide the real Orca accounts' ($r9g -eq 'codex-home-interactive') ([string]$r9g + ' ' + [string]$realAcct)
     t 'isolation: control - a listable accounts folder finds the account home' ($r9fc -eq 'codex-home-interactive') ([string]$r9fc)
     t 'isolation: an unlistable accounts folder is unknown, not a pass'        ($r9f -eq 'codex-home-isolation-unknown') ([string]$r9f)
     t 'isolation: an interactive home itself is refused (path)'              ($r9a -eq 'codex-home-interactive') ([string]$r9a)
@@ -1380,7 +1404,7 @@ if (-not (Test-Path -LiteralPath $Bin)) {
     exit 1
 }
 if ($Auditor -eq 'codex') {
-    $iso = Get-CodexHomeIsolation -HomeDir $CodexHome -AccountsDir $OrcaAccounts
+    $iso = Get-CodexHomeIsolation -HomeDir $CodexHome -ExtraAccountsDirs $ExtraOrcaAccounts
     if ($iso) {
         Write-Log ('audit codex home is not isolated: ' + $iso + ' (' + $CodexHome + ')')
         Append-Section -Body ($iso + ': ' + $CodexHome + ' shares a login with JJ''s interactive codex. A refresh here ' +
