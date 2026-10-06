@@ -169,6 +169,16 @@ case "$git_dir" in
                 run_check "session_brief selftest" py scripts/session_brief.py --self-test
                 run_check "context_watch selftest" py .claude/hooks/context_watch.py --self-test ;;
         esac
+        # run_audit is what the brief reads. Its per-query self-test runs on
+        # every call; --self-test adds the case that needs files on disk: with
+        # all writes blocked, a normal query must still print its verdict
+        # (Codex audit 2026-10-06 - a query that died before reading the logs
+        # used to reach the brief as silence).
+        case "$staged" in
+            *scripts/run_audit.py*)
+                run_check "run_audit selftest" py scripts/run_audit.py --self-test
+                run_check "session_brief selftest" py scripts/session_brief.py --self-test ;;
+        esac
         # The drift audit grades by DIRECTION since 2026-09-12 (workshop ahead =
         # red, skill repo ahead = yellow) and checks the deployed skill against
         # the revision its own stamp claims. Both halves are in --self-test,

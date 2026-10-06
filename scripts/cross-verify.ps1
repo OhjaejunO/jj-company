@@ -25,20 +25,34 @@
 #   session JJ started"). A sentence is a rule; this is the device. If the author
 #   and the auditor are the same model, this script refuses to run.
 #
-# Auth: split by design. codex ignores OPENAI_API_KEY when ~/.codex holds ChatGPT
-# tokens (verified: an intentionally invalid key still succeeded), so the audit
-# gets its OWN config dir via CODEX_HOME. ~/.codex-jjcompany is logged in with the
-# API key; ~/.codex keeps JJ's interactive ChatGPT auth untouched.
+# Auth: split by design - the audit gets its OWN config dir via CODEX_HOME and
+# never shares a login with JJ's interactive sessions.
+#
+# 2026-10-05 (infra backlog 31, JJ chose "subscription, not paid credits"): the
+# default home is ~/.codex-xverify, a home that holds ONE ChatGPT login of its
+# own, and the default model is gpt-6-astra. Why not the home that was there:
+#   ~/.codex-jjcompany (API key) - "Quota exceeded" since 2026-09-18, re-measured
+#     2026-10-05. Kept as it was; -CodexHome reaches it if credits come back.
+#   ~/.codex (JJ's own) - its refresh token was revoked (refresh_token_invalidated,
+#     2026-10-05), AND Orca keeps a byte-identical copy of its auth.json in
+#     %APPDATA%\orca\codex-runtime-home\home (same sha256, measured). A ChatGPT
+#     refresh rotates the token, so two homes holding one token cannot both stay
+#     valid: an audit that refreshed in ~/.codex would log Orca out, or the other
+#     way round. The old line "~/.codex keeps JJ's auth untouched" held only
+#     while the audit stayed OUT of that home - and that is still the rule.
+#   Orca's per-account homes are JJ's interactive logins themselves. Same answer.
+# A separate `codex login` in ~/.codex-xverify is its own session with its own
+# refresh token, so nothing it refreshes is held anywhere else.
 #
 # CODEX_HOME is set on THIS PROCESS ONLY - it never leaks to the parent shell or
 # to JJ's interactive sessions. Do not move it to a user-scope variable.
 #
-# -CodexHome / -Model (2026-09-25, infra backlog 31). The defaults are the
-# API-key home above and codex's own default model, so a caller that passes
-# neither gets exactly the old command line. They exist so that picking a home
-# is a caller decision, not a code change: the API-key org ran out of credits
-# on 2026-09-18, and the other candidate is JJ's subscription home. Which one
-# the scheduled wrappers use is JJ's call - nothing in this file switches it.
+# -CodexHome / -Model (2026-09-25). The choice lives in the param defaults below
+# and NOWHERE ELSE: the scheduled wrappers pass neither, and the re-run command
+# in a failure section echoes the values this run actually used. One place to
+# change means no wrapper can drift back to a dead home (charter section 0,
+# layer 1). Until the login exists the run stops on codex-home-not-authenticated
+# - a named failure, and scripts\run_audit.py carries it to the session brief.
 #
 # ASCII-only on purpose: Windows PowerShell 5.1 decodes BOM-less .ps1 files as
 # the system ANSI codepage. All Korean text lives in scripts\prompts\*.md and is
@@ -58,7 +72,11 @@
 #   powershell -File scripts\cross-verify.ps1 -SelfTest
 #   Deterministic only (no model calls): rules/author resolution, the
 #   author!=auditor refusal in BOTH directions, template substitution, the
-#   codex command line with and without -Model, and the stderr failure hint.
+#   codex command line with and without -Model (and the Windows sandbox pair in
+#   both), the stderr failure hint, the
+#   bytes the live codex job puts on stdin (UTF-8, against a control that shows
+#   the old '?'), and the home isolation guard - as a function and in the
+#   program. Axis 6a hashes the REAL interactive auth.json files (hash only).
 
 param(
     [string]$Report,
@@ -74,11 +92,17 @@ param(
     # site goes unmeasured (round-4 audit, measured).
     [string]$Hq = 'C:\Users\ojaej\jj-company',
     # The codex config dir the audit runs under (process-scoped CODEX_HOME, see
-    # the header). The default is the API-key home this script always used.
-    [string]$CodexHome = 'C:\Users\ojaej\.codex-jjcompany',
-    # codex --model. Empty - the default - passes no --model at all, so codex
-    # picks its own default and the command line is the old one, unchanged.
-    [string]$Model,
+    # the header for why it is this one and not ~/.codex).
+    [string]$CodexHome = 'C:\Users\ojaej\.codex-xverify',
+    # codex --model. Pass -Model '' to send no --model at all and let codex pick.
+    [string]$Model = 'gpt-6-astra',
+    # MORE folders of Orca-style account homes to guard against. It ADDS to the
+    # real Orca accounts folder ($ORCA_CODEX_ACCOUNTS), which is always listed -
+    # it cannot remove or replace it. Exists so the self-test can run this
+    # program against a folder whose listing is denied. (The first version took
+    # the real folder's place, so a path that does not exist dropped every real
+    # account from the guard - Codex recheck 2026-10-06.)
+    [string[]]$ExtraOrcaAccounts = @(),
     [switch]$SelfTest
 )
 
@@ -122,9 +146,14 @@ $LogFile = Join-Path $LogDir ($Task + '_' + $Stamp + '.log')
 
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
+# Every line carries this run's pid inside the time bracket. One day's log holds
+# several runs, and two can overlap (A start, B start, A STATUS, B STATUS): by
+# position alone scripts\run_audit.py would hang both STATUS lines on B and read
+# A as a run that died without one (Codex audit 2026-10-06). The bracket keeps
+# run_audit's '^\[[^\]]+\] STATUS:' shape; it pairs by ' pid N]'.
 function Write-Log {
     param([string]$Message)
-    $line = '[' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '] ' + $Message
+    $line = '[' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' pid ' + $PID + '] ' + $Message
     Add-Content -LiteralPath $LogFile -Value $line -Encoding UTF8
 }
 
@@ -189,6 +218,7 @@ function Append-Section {
         Replace('{{MODEL}}',    $modelLabel).
         Replace('{{RULES}}',    $Rules).
         Replace('{{REPORT}}',   $Report).
+        Replace('{{RERUN_ARGS}}', (Get-RerunArgs -AuditorName $AuditorName -HomeDir $CodexHome -ModelName $Model)).
         Replace('{{BODY}}',     $Body)
 
     # Which codex home and model this run was configured with: one line, in the
@@ -205,20 +235,54 @@ function Append-Section {
 #
 # The codex command line, built in ONE place so the self-test measures the array
 # the live call hands to codex. Without -Model it is exactly the list this script
-# always passed (self-test axis 6 compares it element by element). --model goes
-# before '-': that is the positional "read the prompt from stdin" and stays last.
+# always passed plus the Windows sandbox pair (self-test axis 6 compares it
+# element by element). --model goes before '-': that is the positional "read
+# the prompt from stdin" and stays last.
+#
+# windows.sandbox=unelevated (2026-10-05). Without a Windows sandbox configured,
+# codex on Windows cannot enforce read-only, so with exec's approval "never"
+# EVERY shell command is "Rejected ... blocked by policy" - the auditor cannot
+# read the rules or the report and answers "cannot confirm". That is the
+# 2026-09-10..17 no-verdict streak. Measured 2026-10-05 in ~/.codex-xverify, same
+# prompt, one flag apart: without it the read was blocked by policy; with it the
+# read returned CLAUDE.md's first line, and a write in the same sandbox failed
+# with PermissionDenied (no file created). unelevated = restricted token, no
+# admin setup; 'elevated' would need a one-time UAC setup per machine. Passed
+# here and not in the home's config.toml so the choice stays in this repo.
+# Unquoted on purpose: codex reads a value that is not valid TOML as a literal
+# string, and an embedded '"' would not survive PS 5.1 -> codex.cmd.
 function Get-CodexArgs {
     param([string]$Repo, [string]$AnswerPath, [string]$ModelName)
     $a = @(
         'exec',
         '-C', $Repo,
         '--sandbox', 'read-only',
+        '-c', 'windows.sandbox=unelevated',
         '--skip-git-repo-check',
         '-o', $AnswerPath
     )
     if ($ModelName) { $a += @('--model', $ModelName) }
     $a += '-'
     return $a
+}
+
+# The job that runs codex. ONE scriptblock, used by the live call AND by self-test
+# axis 8, so the test measures the block that runs rather than a copy of it.
+#
+# The prompt goes to codex on stdin, and PS 5.1 encodes a string piped to a
+# native program with $OutputEncoding - which defaults to ASCII. Measured
+# 2026-09-25 (infra backlog 31): every Hangul character of every audit prompt
+# reached codex as '?' (codex's own session record: 0 Hangul, 421 '?'), so the
+# audits that did return a verdict judged a prompt with its instructions erased.
+# UTF-8 WITHOUT a BOM: a BOM would land in front of the first word of the prompt.
+$CodexJobBlock = {
+    param($bin, $binArgs, $promptPath, $stdoutPath, $stderrPath, $codexHome)
+    # Set explicitly rather than relying on the job process inheriting it.
+    $env:CODEX_HOME = $codexHome
+    $OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+    $text = Get-Content -LiteralPath $promptPath -Raw -Encoding UTF8
+    $text | & $bin @binArgs 1> $stdoutPath 2> $stderrPath
+    $LASTEXITCODE
 }
 
 # One line naming the codex home and model. Path and model name only - never
@@ -228,6 +292,100 @@ function Get-CodexRunLine {
     param([string]$HomeDir, [string]$ModelName)
     $m = if ($ModelName) { $ModelName } else { '(codex default)' }
     return ('CODEX_HOME=' + $HomeDir + ' | model=' + $m)
+}
+
+# --- codex home isolation -------------------------------------------------------
+#
+# The header's "the audit never shares a login with JJ's interactive sessions",
+# made a check instead of a sentence. Two ways to share, two answers:
+#   codex-home-interactive  -CodexHome IS one of JJ's interactive homes.
+#   codex-home-shared-login -CodexHome is elsewhere but its auth.json is a
+#                           byte-for-byte copy of one of theirs. Measured
+#                           2026-10-05: Orca's runtime home held exactly such a
+#                           copy of ~/.codex/auth.json. The tempting quick fix
+#                           for a dead audit login - copy a live auth.json over -
+#                           is this case, and it would log JJ out on the next
+#                           token refresh.
+#   codex-home-isolation-unknown - an auth.json could not be hashed, or the
+#                           Orca accounts folder could not be listed; not
+#                           compared is not a pass.
+# Paths and SHA-256 only; no auth file is ever read for its content.
+# NOT CAUGHT (charter section 0, layer 4): a copy that has since diverged (one
+# side refreshed - by then one of the two is already dead), and interactive homes
+# that are not on this list.
+$INTERACTIVE_CODEX_HOMES = @(
+    'C:\Users\ojaej\.codex',
+    'C:\Users\ojaej\AppData\Roaming\orca\codex-runtime-home\home'
+)
+
+$ORCA_CODEX_ACCOUNTS = 'C:\Users\ojaej\AppData\Roaming\orca\codex-accounts'
+
+# Orca's account homes: the real folder ALWAYS, plus any extra folders. A listing
+# that FAILS throws: it used to be swallowed (-ErrorAction SilentlyContinue), and
+# a folder whose listing is denied while its files stay readable by path
+# (measured: an RD deny ACE does exactly that) then shrank the list to nothing -
+# an account home passed as "isolated" (Codex audit 2026-10-06). A folder that
+# does not exist is not an error: no accounts there.
+# NOT CAUGHT (layer 4): Test-Path also answers "no" when the real folder's
+# existence itself cannot be checked; that reads as "no Orca accounts".
+function Get-InteractiveCodexHomes {
+    param([string[]]$ExtraAccountsDirs)
+    $h = @($INTERACTIVE_CODEX_HOMES)
+    foreach ($dir in @($ORCA_CODEX_ACCOUNTS) + @($ExtraAccountsDirs | Where-Object { $_ })) {
+        if (Test-Path -LiteralPath $dir) {
+            $h += @(Get-ChildItem -LiteralPath $dir -Directory -ErrorAction Stop |
+                ForEach-Object { Join-Path $_.FullName 'home' })
+        }
+    }
+    return $h
+}
+
+# The one call both the run and self-test 6a make: the list, then the check. A
+# list that could not be built is UNKNOWN - not compared is not a pass.
+function Get-CodexHomeIsolation {
+    param([string]$HomeDir, [string[]]$ExtraAccountsDirs)
+    try { $ix = @(Get-InteractiveCodexHomes -ExtraAccountsDirs $ExtraAccountsDirs) } catch { return 'codex-home-isolation-unknown' }
+    return (Test-CodexHomeIsolation -HomeDir $HomeDir -Interactive $ix)
+}
+
+# $null when isolated, else a STATUS token. The interactive list is a parameter
+# so the self-test can hand it temp directories.
+function Test-CodexHomeIsolation {
+    param([string]$HomeDir, [string[]]$Interactive)
+    $norm = { param($p) [System.IO.Path]::GetFullPath($p).TrimEnd('\') }
+    $mine = & $norm $HomeDir
+    foreach ($i in @($Interactive)) {
+        if ($i -and ((& $norm $i) -ieq $mine)) { return 'codex-home-interactive' }
+    }
+    $myAuth = Join-Path $HomeDir 'auth.json'
+    if (-not (Test-Path -LiteralPath $myAuth)) { return $null }
+    # A file that cannot be hashed is UNKNOWN, not "different" - the same rule
+    # as lag-unknown above: not compared is not a pass.
+    try {
+        $myHash = (Get-FileHash -LiteralPath $myAuth -Algorithm SHA256 -ErrorAction Stop).Hash
+        foreach ($i in @($Interactive)) {
+            if (-not $i) { continue }
+            $a = Join-Path $i 'auth.json'
+            if ((Test-Path -LiteralPath $a) -and
+                ((Get-FileHash -LiteralPath $a -Algorithm SHA256 -ErrorAction Stop).Hash -eq $myHash)) {
+                return 'codex-home-shared-login'
+            }
+        }
+    } catch {
+        return 'codex-home-isolation-unknown'
+    }
+    return $null
+}
+
+# The tail of the re-run command in a failure section: the home and model THIS
+# run used, so a manual retry reproduces it instead of quietly going back to
+# whatever the defaults say on the day it is pasted (infra backlog 31: before
+# this, the command carried neither and re-ran on the dead API-key home).
+# Nothing for -Auditor claude - those two parameters do not steer it.
+function Get-RerunArgs {
+    param([string]$AuditorName, [string]$HomeDir, [string]$ModelName)
+    if ($AuditorName -ne 'codex') { return '' }
+    return (' -CodexHome "' + $HomeDir + '" -Model "' + $ModelName + '"')
 }
 
 # The failure hint that goes into the log.
@@ -421,6 +579,29 @@ function Invoke-SelfTest {
     }
     $script:stFails = 0
 
+    # An Orca-accounts stand-in with one account home that holds a login. With
+    # -DenyList the folder gets a deny ACE for "list folder" (RD) for the current
+    # user: listing it fails while files inside stay readable by full path -
+    # exactly the hole the 2026-10-06 audit named. Unlock-AccountsFixture removes
+    # the ACE (in a finally) so the temp folder can be deleted.
+    function New-AccountsFixture {
+        param([string]$Root, [switch]$DenyList)
+        $acct = Join-Path $Root 'codex-accounts'
+        $homeDir = Join-Path $acct 'acct-1\home'
+        New-Item -ItemType Directory -Force -Path $homeDir | Out-Null
+        Write-Utf8 -Path (Join-Path $homeDir 'auth.json') -Text '{"fake":"orca account login"}'
+        if ($DenyList) {
+            $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+            & icacls.exe $acct /deny ($me + ':(RD)') | Out-Null
+        }
+        return @{ Dir = $acct; Home = $homeDir }
+    }
+    function Unlock-AccountsFixture {
+        param([string]$Dir)
+        $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+        & icacls.exe $Dir /remove:d $me | Out-Null
+    }
+
     Write-Host 'cross-verify self-test'
 
     # 1. rules + author resolution, and the miss case
@@ -456,7 +637,7 @@ function Invoke-SelfTest {
             $filled = $tpl[$i].
                 Replace('{{TIME}}', 'T').Replace('{{AUDITOR}}', 'claude').Replace('{{AUTHOR}}', 'codex').
                 Replace('{{MODEL}}', 'M').Replace('{{RULES}}', 'R').Replace('{{REPORT}}', 'P').
-                Replace('{{BODY}}', 'B')
+                Replace('{{RERUN_ARGS}}', '').Replace('{{BODY}}', 'B')
             t ('template ' + $i + ': no placeholder left') (-not ($filled -match '\{\{')) $filled
             t ('template ' + $i + ': names the auditor') ($filled -match 'claude') 'auditor missing'
         }
@@ -808,6 +989,61 @@ function Invoke-SelfTest {
         t 'program: and the artifact carries the recovery command' `
             ($eRepText -match 'pull --ff-only') ([string]$eRepText)
 
+        # f1c. the home guard, IN THE PROGRAM, against a CURRENT repo so the lag
+        #      guard lets the run through to it. Two runs, opposite inputs:
+        #      ~/.codex (JJ's own, a real path - refused on the path alone, so
+        #      nothing in it is opened) must stop BEFORE codex starts; an empty
+        #      temp home must get PAST the guard and stop at the next check.
+        $repoI = New-LagRepo -Root $lagRoot -Name 'iso' -Commits 2
+        $iRul  = Join-Path $lagRoot 'iso-rules.md'
+        Write-Utf8 -Path $iRul -Text "iso rules`r`n"
+        $iLog  = Join-Path $repoI ('logs\scheduled\' + $Task + '_' + $Stamp + '.log')
+        #      f1d (third run): -CodexHome is an Orca account home whose parent
+        #      folder cannot be listed - the run must stop on
+        #      isolation-unknown before codex, not read the short list as "none".
+        $fxD = New-AccountsFixture -Root (Join-Path $lagRoot 'deny') -DenyList
+        $iRuns = @(
+            @{ N = 'interactive'; H = 'C:\Users\ojaej\.codex' },
+            @{ N = 'empty';       H = (Join-Path $lagRoot 'empty-home') },
+            @{ N = 'denied-list'; H = $fxD.Home; A = $fxD.Dir }
+        )
+        New-Item -ItemType Directory -Force -Path $iRuns[1].H | Out-Null
+        $iOut = @{}
+        try {
+            foreach ($r in $iRuns) {
+                $iRep = Join-Path $lagRoot ('iso-' + $r.N + '.md')
+                Write-Utf8 -Path $iRep -Text "# iso artifact`r`nSTATUS: OK`r`n"
+                if (Test-Path -LiteralPath $iLog) { Remove-Item -LiteralPath $iLog -Force }
+                $more = @(); if ($r.A) { $more = @('-ExtraOrcaAccounts', $r.A) }
+                & powershell -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath `
+                    -Report $iRep -Rules $iRul -Auditor codex -Author claude -Hq $repoI `
+                    -CodexHome $r.H @more *>&1 | Out-Null
+                $iOut[$r.N] = @{
+                    Code = $LASTEXITCODE
+                    Log  = $(if (Test-Path -LiteralPath $iLog) { [string](Get-Content -LiteralPath $iLog -Raw) } else { '<no log>' })
+                    Rep  = [string](Get-Content -LiteralPath $iRep -Raw -Encoding UTF8)
+                }
+            }
+        } finally {
+            Unlock-AccountsFixture -Dir $fxD.Dir
+        }
+        $id = $iOut['denied-list']
+        t 'program: an unlistable Orca accounts folder stops the run as isolation-unknown' `
+            (($id.Code -eq 1) -and ($id.Log -match 'STATUS: FAIL codex-home-isolation-unknown')) ([string]$id.Log)
+        t 'program: ...and codex never started' (-not ($id.Log -match 'exec start')) ([string]$id.Log)
+        $ia = $iOut['interactive']; $ie = $iOut['empty']
+        # f1e. the run tag scripts\run_audit.py pairs STATUS lines by: the STATUS
+        #      line carries the SAME pid as this run's start line.
+        $tagOk = ($ia.Log -match 'start \(pid (\d+)\)') -and ($ia.Log -match ('\[[^\]]* pid ' + $Matches[1] + '\] STATUS: FAIL'))
+        t 'log: the STATUS line carries this run''s pid (run_audit pairs overlapping runs by it)' $tagOk ([string]$ia.Log)
+        t 'program: -CodexHome ~/.codex is refused as JJ''s interactive home' `
+            (($ia.Code -eq 1) -and ($ia.Log -match 'STATUS: FAIL codex-home-interactive')) ([string]$ia.Log)
+        t 'program: ...and codex never started' (-not ($ia.Log -match 'exec start')) ([string]$ia.Log)
+        t 'program: an isolated home passes the guard and stops at the login check' `
+            ($ie.Log -match 'STATUS: FAIL codex-home-not-authenticated') ([string]$ie.Log)
+        t 'program: ...and that failure names the one-time login command' `
+            ($ie.Rep.Contains('codex login')) ([string]$ie.Rep)
+
         # g. the auditor's ANSWER, not the auditor's exit code. Measured
         #    2026-09-13: codex exited 0 having read nothing (it said "cannot review,
         #    was blocked") and the run logged STATUS: OK. Both directions are
@@ -848,24 +1084,38 @@ function Invoke-SelfTest {
     }
 
     # 6. -Model / -CodexHome (infra backlog 31). Both directions, and the
-    #    default direction is held to the EXACT old list: "no --model" alone
+    #    no-model direction is held to the EXACT old list: "no --model" alone
     #    would also pass a builder that dropped or reordered something else,
-    #    and what this change promises is that a caller passing neither gets
-    #    the old command line unchanged.
+    #    and -Model '' (the opt-out from the gpt-6-astra default) promises the
+    #    old command line plus only the Windows sandbox pair.
     #    NOT MEASURED (charter section 0, layer 4): that the live call site
     #    hands this array to codex. Reaching that line takes a real codex run,
     #    and faking one needs an overridable binary path - the bigger hole the
     #    verdict note in the main flow declines for the same reason.
-    $legacy    = @('exec', '-C', 'C:\hq', '--sandbox', 'read-only', '--skip-git-repo-check', '-o', 'C:\ans.txt', '-')
+    $legacy    = @('exec', '-C', 'C:\hq', '--sandbox', 'read-only', '-c', 'windows.sandbox=unelevated', '--skip-git-repo-check', '-o', 'C:\ans.txt', '-')
     $argsNone  = @(Get-CodexArgs -Repo 'C:\hq' -AnswerPath 'C:\ans.txt' -ModelName '')
     $argsModel = @(Get-CodexArgs -Repo 'C:\hq' -AnswerPath 'C:\ans.txt' -ModelName 'gpt-6-astra')
     t 'model: without -Model the codex arguments are exactly the old list' `
         (($argsNone -join '|') -ceq ($legacy -join '|')) ($argsNone -join ' ')
+    # Both lists, not one: the sandbox pair must not ride on -Model.
+    foreach ($pair in @(@('none', $argsNone), @('model', $argsModel))) {
+        $ci = [Array]::IndexOf($pair[1], 'windows.sandbox=unelevated')
+        t ('sandbox: the ' + $pair[0] + ' arguments carry -c windows.sandbox=unelevated') `
+            (($ci -ge 1) -and ($pair[1][$ci - 1] -ceq '-c')) ($pair[1] -join ' ')
+    }
     t 'model: without -Model there is no --model' ($argsNone -notcontains '--model') ($argsNone -join ' ')
     $mi = [Array]::IndexOf($argsModel, '--model')
     t 'model: with -Model the arguments carry --model <name>' `
         (($mi -ge 0) -and ($argsModel[$mi + 1] -ceq 'gpt-6-astra')) ($argsModel -join ' ')
     t 'model: the stdin marker stays the last argument' ($argsModel[-1] -ceq '-') ($argsModel -join ' ')
+
+    # 6a. the DEFAULT home - the one every scheduled run uses, since the wrappers
+    #     pass nothing - measured against the REAL interactive homes on this
+    #     machine, by path and by auth.json hash. Read before 6b reassigns
+    #     $CodexHome. Run with -SelfTest alone so $CodexHome is the default.
+    $defIso = Get-CodexHomeIsolation -HomeDir $CodexHome -ExtraAccountsDirs $ExtraOrcaAccounts
+    t 'defaults: the default codex home shares no login with JJ''s interactive homes' `
+        ($null -eq $defIso) ([string]$defIso + ' ' + $CodexHome)
 
     # 6b. the run record carries VALUES, not just a shape (the 2026-08-15
     #     lesson: a provenance stamp printed empty as "skill live:  (deployed )").
@@ -886,7 +1136,24 @@ function Invoke-SelfTest {
         if (-not $half) { $secPass = $sec }
         t ('run line: the ' + $(if ($half) { 'failure' } else { 'pass' }) + ' section names the home and the model') `
             ($sec.Contains('codex run: `CODEX_HOME=C:\home-b | model=gpt-6-astra`')) $sec
+        t ('run line: the ' + $(if ($half) { 'failure' } else { 'pass' }) + ' section has no placeholder left') `
+            (-not ($sec -match '\{\{')) $sec
+        # The re-run command must replay THIS run's home and model. Without them
+        # a retry pasted from the report goes back to whatever the defaults are
+        # that day - before 2026-10-05 that was the dead API-key home.
+        if ($half) {
+            t 'rerun: the failure section re-runs with the same -CodexHome and -Model' `
+                ($sec.Contains('-Author claude -CodexHome "C:\home-b" -Model "gpt-6-astra"')) $sec
+        }
     }
+    # ...and not for -Auditor claude, where those two would only be ignored.
+    $Report = Join-Path ([System.IO.Path]::GetTempPath()) ('jj-crossverify-sec-' + $PID + '-claude.md')
+    Write-Utf8 -Path $Report -Text "# scratch`r`n"
+    Append-Section -Body 'B' -Failed $true -AuditorName 'claude' -AuthorName 'codex'
+    $secClaude = [string](Get-Content -LiteralPath $Report -Raw -Encoding UTF8)
+    Remove-Item -LiteralPath $Report -Force -ErrorAction SilentlyContinue
+    t 'rerun: a claude-audit failure section carries no codex arguments' `
+        ($secClaude.Contains('-Author codex') -and -not $secClaude.Contains('-CodexHome') -and -not ($secClaude -match '\{\{')) $secClaude
     t 'run line: the pass header names the -Model it ran with, not codex default' `
         ($secPass.Contains('codex --model gpt-6-astra') -and -not $secPass.Contains('codex default')) $secPass
     $runDefault = Get-CodexRunLine -HomeDir 'C:\home-a' -ModelName ''
@@ -938,6 +1205,104 @@ function Invoke-SelfTest {
     $hKey = [string](Get-StderrHint -Lines @('ERROR: 401 Incorrect API key provided: sk-proj-FAKEFAKEFAKEFAKE0000'))
     t 'hint: an sk- key shaped token is masked before it can reach the log' `
         ($hKey.Contains('sk-<redacted>') -and -not $hKey.Contains('FAKEFAKE')) $hKey
+
+    # 8. the bytes codex receives on stdin (infra backlog 31). $CodexJobBlock is
+    #    the LIVE job, run here with a stand-in program that writes back the hex
+    #    of whatever arrived on its stdin. The prompt is a real template line
+    #    with Hangul in it, rebuilt from code points (this file is ASCII-only).
+    #    CONTROL FIRST: the same job WITHOUT the encoding line must turn the
+    #    Hangul into '?', or the live case passing proves nothing - it could
+    #    pass because the pipe was never lossy here at all.
+    $encDir = Join-Path ([System.IO.Path]::GetTempPath()) ('jj-crossverify-enc-' + $PID)
+    New-Item -ItemType Directory -Force -Path $encDir | Out-Null
+    $encPrompt = (-join ([char]0xAC10, [char]0xB9AC, [char]0xC790)) + ' PASS ' + (-join ([char]0xADDC, [char]0xCE59)) + "`r`n"
+    $encPromptPath = Join-Path $encDir 'prompt.txt'
+    Write-Utf8 -Path $encPromptPath -Text $encPrompt
+    $want = -join ((New-Object System.Text.UTF8Encoding($false)).GetBytes($encPrompt) | ForEach-Object { $_.ToString('x2') })
+    $dump = @('-c', 'import sys;sys.stdout.write(sys.stdin.buffer.read().hex())')
+    $oldBlock = {
+        # the job exactly as it was before 2026-10-05: no $OutputEncoding
+        param($bin, $binArgs, $promptPath, $stdoutPath, $stderrPath, $codexHome)
+        $env:CODEX_HOME = $codexHome
+        $text = Get-Content -LiteralPath $promptPath -Raw -Encoding UTF8
+        $text | & $bin @binArgs 1> $stdoutPath 2> $stderrPath
+        $LASTEXITCODE
+    }
+    $got = @{}
+    foreach ($case in @(@{ N = 'old'; B = $oldBlock }, @{ N = 'live'; B = $CodexJobBlock })) {
+        $outP = Join-Path $encDir ($case.N + '.out')
+        $errP = Join-Path $encDir ($case.N + '.err')
+        $j = Start-Job -ScriptBlock $case.B -ArgumentList 'py', $dump, $encPromptPath, $outP, $errP, $encDir
+        if (Wait-Job $j -Timeout 60) { Receive-Job $j | Out-Null }
+        Remove-Job $j -Force -ErrorAction SilentlyContinue
+        # 1> in PS 5.1 writes UTF-16; the hex is ASCII, so any reader will do.
+        # PS appends a newline to the piped string, so compare the prefix.
+        $got[$case.N] = if (Test-Path -LiteralPath $outP) { ([string](Get-Content -LiteralPath $outP -Raw)).Trim() } else { '<no output>' }
+    }
+    Remove-Item -LiteralPath $encDir -Recurse -Force -ErrorAction SilentlyContinue
+    t 'stdin: control - the old job shape DOES turn Hangul into ? (3f)' `
+        ($got['old'].StartsWith('3f3f3f20') -and -not $got['old'].StartsWith($want)) $got['old']
+    t 'stdin: the live job hands codex the prompt as UTF-8, byte for byte, no BOM' `
+        ($got['live'].StartsWith($want) -and -not $got['live'].StartsWith('efbbbf')) ($got['live'] + ' want ' + $want)
+
+    # 9. codex home isolation - the function, on temp directories. Each case
+    #    moves ONE axis, so a pass is owed to the check it names:
+    #    9a path only (the interactive dir has no auth.json, so the hash axis
+    #    cannot fire), 9b hash only (different path, copied file), 9c the
+    #    opposite of both (own path, own login), 9d path spelling.
+    $isoRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('jj-crossverify-iso-' + $PID)
+    $ixA = Join-Path $isoRoot 'interactive-a'      # no auth.json
+    $ixB = Join-Path $isoRoot 'interactive-b'      # has a login
+    $own = Join-Path $isoRoot 'audit-own'
+    $cpy = Join-Path $isoRoot 'audit-copied'
+    foreach ($d in @($ixA, $ixB, $own, $cpy)) { New-Item -ItemType Directory -Force -Path $d | Out-Null }
+    Write-Utf8 -Path (Join-Path $ixB 'auth.json') -Text '{"fake":"interactive login"}'
+    Write-Utf8 -Path (Join-Path $cpy 'auth.json') -Text '{"fake":"interactive login"}'
+    Write-Utf8 -Path (Join-Path $own 'auth.json') -Text '{"fake":"audit login of its own"}'
+    $ix = @($ixA, $ixB)
+    $r9a = Test-CodexHomeIsolation -HomeDir $ixA -Interactive $ix
+    $r9b = Test-CodexHomeIsolation -HomeDir $cpy -Interactive $ix
+    $r9c = Test-CodexHomeIsolation -HomeDir $own -Interactive $ix
+    $r9d = Test-CodexHomeIsolation -HomeDir ($ixA.ToUpperInvariant() + '\') -Interactive $ix
+    # 9e. an interactive auth.json that cannot be read (held open exclusively).
+    #     Own path, own login - only the unreadable file can make this fail.
+    $lock = [System.IO.File]::Open((Join-Path $ixB 'auth.json'), 'Open', 'Read', 'None')
+    try { $r9e = Test-CodexHomeIsolation -HomeDir $own -Interactive $ix } finally { $lock.Dispose() }
+    # 9f. the account LISTING, through Get-CodexHomeIsolation (the call the run
+    #     makes). Same account home both times; only the folder's list right
+    #     differs. Control: listable -> the home is found and refused on its path.
+    #     Denied -> unknown. Without the control a broken fixture that never lists
+    #     anything would pass 9f for free.
+    $fxOpen = New-AccountsFixture -Root (Join-Path $isoRoot 'open')
+    $fxDeny = New-AccountsFixture -Root (Join-Path $isoRoot 'deny') -DenyList
+    try {
+        $r9fc = Get-CodexHomeIsolation -HomeDir $fxOpen.Home -ExtraAccountsDirs $fxOpen.Dir
+        $r9f  = Get-CodexHomeIsolation -HomeDir $fxDeny.Home -ExtraAccountsDirs $fxDeny.Dir
+    } finally {
+        Unlock-AccountsFixture -Dir $fxDeny.Dir
+    }
+    # 9g. an extra folder ADDS, it never replaces the real one (Codex recheck
+    #     2026-10-06): a REAL Orca account home with an extra folder that does
+    #     not exist must still be refused. Real path, refused on the path
+    #     alone, so its auth.json is never opened. Done on the function the run
+    #     calls, NOT by running the program: if this guard ever regressed, a
+    #     program run would start codex on JJ's live account login. The run's
+    #     wiring to that function is f1d. No real account on this machine is
+    #     "not measured", which fails - never a quiet pass.
+    $realAcct = @(Get-ChildItem -LiteralPath $ORCA_CODEX_ACCOUNTS -Directory -ErrorAction SilentlyContinue |
+        ForEach-Object { Join-Path $_.FullName 'home' } | Where-Object { Test-Path -LiteralPath $_ }) | Select-Object -First 1
+    $r9g = if ($realAcct) {
+        Get-CodexHomeIsolation -HomeDir $realAcct -ExtraAccountsDirs (Join-Path $isoRoot 'no-such-accounts')
+    } else { 'not measured: no real Orca account home under ' + $ORCA_CODEX_ACCOUNTS }
+    Remove-Item -LiteralPath $isoRoot -Recurse -Force -ErrorAction SilentlyContinue
+    t 'isolation: a missing extra accounts folder does not hide the real Orca accounts' ($r9g -eq 'codex-home-interactive') ([string]$r9g + ' ' + [string]$realAcct)
+    t 'isolation: control - a listable accounts folder finds the account home' ($r9fc -eq 'codex-home-interactive') ([string]$r9fc)
+    t 'isolation: an unlistable accounts folder is unknown, not a pass'        ($r9f -eq 'codex-home-isolation-unknown') ([string]$r9f)
+    t 'isolation: an interactive home itself is refused (path)'              ($r9a -eq 'codex-home-interactive') ([string]$r9a)
+    t 'isolation: a copied interactive auth.json is refused (hash)'          ($r9b -eq 'codex-home-shared-login') ([string]$r9b)
+    t 'isolation: a home with its own login passes (does not refuse all)'    ($null -eq $r9c) ([string]$r9c)
+    t 'isolation: path case and a trailing backslash do not hide the match'  ($r9d -eq 'codex-home-interactive') ([string]$r9d)
+    t 'isolation: an unreadable interactive login is unknown, not a pass'    ($r9e -eq 'codex-home-isolation-unknown') ([string]$r9e)
 
     if ($script:stFails -gt 0) { Write-Host ('STATUS: FAIL selftest ' + $script:stFails); return 1 }
     Write-Host 'STATUS: OK'
@@ -1038,15 +1403,29 @@ if (-not (Test-Path -LiteralPath $Bin)) {
     Write-Log ('STATUS: FAIL ' + $Auditor + '-not-found')
     exit 1
 }
+if ($Auditor -eq 'codex') {
+    $iso = Get-CodexHomeIsolation -HomeDir $CodexHome -ExtraAccountsDirs $ExtraOrcaAccounts
+    if ($iso) {
+        Write-Log ('audit codex home is not isolated: ' + $iso + ' (' + $CodexHome + ')')
+        Append-Section -Body ($iso + ': ' + $CodexHome + ' shares a login with JJ''s interactive codex. A refresh here ' +
+            'would invalidate the other copy. Give the audit its own login instead (see scripts\cross-verify.ps1 header).') `
+            -Failed $true -AuditorName $Auditor -AuthorName $Author
+        Write-Log ('STATUS: FAIL ' + $iso)
+        exit 1
+    }
+}
 if ($Auditor -eq 'codex' -and -not (Test-Path -LiteralPath (Join-Path $CodexHome 'auth.json'))) {
     Write-Log ('audit codex home not logged in: ' + $CodexHome)
-    Append-Section -Body ('codex-home-not-authenticated: ' + $CodexHome) -Failed $true -AuditorName $Auditor -AuthorName $Author
+    # Name the way out (charter section 3): the login is a one-time human step.
+    Append-Section -Body ('codex-home-not-authenticated: ' + $CodexHome + ' has no login yet. One time, by hand, in ' +
+        'PowerShell: $env:CODEX_HOME=''' + $CodexHome + '''; codex login; Remove-Item Env:CODEX_HOME') `
+        -Failed $true -AuditorName $Auditor -AuthorName $Author
     Write-Log 'STATUS: FAIL codex-home-not-authenticated'
     exit 1
 }
 
-# Process-scoped only. By default the audit runs on the API-key home; -CodexHome
-# can point it at another one, still for this process alone.
+# Process-scoped only. The audit runs on its own home (header); -CodexHome can
+# point it at another one, still for this process alone.
 if ($Auditor -eq 'codex') {
     $env:CODEX_HOME = $CodexHome
     Write-Log (Get-CodexRunLine -HomeDir $CodexHome -ModelName $Model)
@@ -1069,22 +1448,14 @@ $code = $null
 
 if ($Auditor -eq 'codex') {
     # read-only sandbox: codex may read the workspace but cannot write anything.
-    # The prompt is piped on stdin so the Korean text never crosses the command line.
-    # NOT TRUE OF THE PIPE ITSELF (infra backlog 31, measured 2026-09-25): the job
-    # sets no $OutputEncoding, so PS 5.1 sends every Hangul character as '?'. Left
-    # as is here - fixing it changes the bytes a default run sends.
+    # The prompt is piped on stdin so the Korean text never crosses the command
+    # line, and $CodexJobBlock sets the pipe to UTF-8 (infra backlog 31).
     $codexArgs = Get-CodexArgs -Repo $Hq -AnswerPath $answerPath -ModelName $Model
     # codex is a .cmd shim; Start-Process -PassThru returns $null for it, so the
     # process never launches. Invoke it directly and pipe the prompt on stdin, with
     # a background job supplying the timeout.
-    $job = Start-Job -ScriptBlock {
-        param($bin, $binArgs, $promptPath, $stdoutPath, $stderrPath, $codexHome)
-        # Set explicitly rather than relying on the job process inheriting it.
-        $env:CODEX_HOME = $codexHome
-        $text = Get-Content -LiteralPath $promptPath -Raw -Encoding UTF8
-        $text | & $bin @binArgs 1> $stdoutPath 2> $stderrPath
-        $LASTEXITCODE
-    } -ArgumentList $Bin, $codexArgs, $promptPath, $stdoutPath, $stderrPath, $CodexHome
+    $job = Start-Job -ScriptBlock $CodexJobBlock `
+        -ArgumentList $Bin, $codexArgs, $promptPath, $stdoutPath, $stderrPath, $CodexHome
 } else {
     # claude -p, read-only by tool allowlist. --permission-mode default is the
     # real gate here: under acceptEdits the allowlist does NOT stop Edit/Write
