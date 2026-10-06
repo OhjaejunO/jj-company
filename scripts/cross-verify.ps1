@@ -33,6 +33,13 @@
 # CODEX_HOME is set on THIS PROCESS ONLY - it never leaks to the parent shell or
 # to JJ's interactive sessions. Do not move it to a user-scope variable.
 #
+# -CodexHome / -Model (2026-09-25, infra backlog 31). The defaults are the
+# API-key home above and codex's own default model, so a caller that passes
+# neither gets exactly the old command line. They exist so that picking a home
+# is a caller decision, not a code change: the API-key org ran out of credits
+# on 2026-09-18, and the other candidate is JJ's subscription home. Which one
+# the scheduled wrappers use is JJ's call - nothing in this file switches it.
+#
 # ASCII-only on purpose: Windows PowerShell 5.1 decodes BOM-less .ps1 files as
 # the system ANSI codepage. All Korean text lives in scripts\prompts\*.md and is
 # read as explicit UTF-8.
@@ -50,7 +57,8 @@
 # SELF-TEST
 #   powershell -File scripts\cross-verify.ps1 -SelfTest
 #   Deterministic only (no model calls): rules/author resolution, the
-#   author!=auditor refusal in BOTH directions, and template substitution.
+#   author!=auditor refusal in BOTH directions, template substitution, the
+#   codex command line with and without -Model, and the stderr failure hint.
 
 param(
     [string]$Report,
@@ -65,6 +73,12 @@ param(
     # behind; without that the axes below measure a FUNCTION while the live call
     # site goes unmeasured (round-4 audit, measured).
     [string]$Hq = 'C:\Users\ojaej\jj-company',
+    # The codex config dir the audit runs under (process-scoped CODEX_HOME, see
+    # the header). The default is the API-key home this script always used.
+    [string]$CodexHome = 'C:\Users\ojaej\.codex-jjcompany',
+    # codex --model. Empty - the default - passes no --model at all, so codex
+    # picks its own default and the command line is the old one, unchanged.
+    [string]$Model,
     [switch]$SelfTest
 )
 
@@ -73,7 +87,6 @@ $ErrorActionPreference = 'Continue'
 $Task      = 'cross-verify'
 $Codex     = 'C:\Users\ojaej\AppData\Roaming\npm\codex.cmd'
 $Claude    = 'C:\Users\ojaej\.local\bin\claude.exe'
-$CodexHome = 'C:\Users\ojaej\.codex-jjcompany'
 
 $MODEL_LABEL = @{ 'codex' = 'codex default'; 'claude' = 'claude -p default' }
 
@@ -164,16 +177,103 @@ function Append-Section {
     $templates = (Get-Content -LiteralPath $SectionFile -Raw -Encoding UTF8) -split '<!--SPLIT-->'
     $template = if ($Failed) { $templates[1] } else { $templates[0] }
 
+    # The header's model label follows -Model, so an override run does not say
+    # "codex default" above a run line that names another model. Without
+    # -Model it is the same label as before.
+    $modelLabel = if ($AuditorName -eq 'codex' -and $Model) { 'codex --model ' + $Model } else { $MODEL_LABEL[$AuditorName] }
+
     $text = $template.
         Replace('{{TIME}}',     (Get-Date -Format 'yyyy-MM-dd HH:mm')).
         Replace('{{AUDITOR}}',  $AuditorName).
         Replace('{{AUTHOR}}',   $(if ($AuthorName) { $AuthorName } else { 'unknown' })).
-        Replace('{{MODEL}}',    $MODEL_LABEL[$AuditorName]).
+        Replace('{{MODEL}}',    $modelLabel).
         Replace('{{RULES}}',    $Rules).
         Replace('{{REPORT}}',   $Report).
         Replace('{{BODY}}',     $Body)
 
+    # Which codex home and model this run was configured with: one line, in the
+    # pass half and the failure half alike, and the same string the log gets.
+    # A code span, so markdown does not eat the backslashes in the path.
+    if ($AuditorName -eq 'codex') {
+        $text = $text.TrimEnd() + "`r`n`r`n" + 'codex run: `' + (Get-CodexRunLine -HomeDir $CodexHome -ModelName $Model) + '`'
+    }
+
     Append-Utf8 -Path $Report -Text ($text.TrimEnd() + "`r`n")
+}
+
+# --- codex invocation -----------------------------------------------------------
+#
+# The codex command line, built in ONE place so the self-test measures the array
+# the live call hands to codex. Without -Model it is exactly the list this script
+# always passed (self-test axis 6 compares it element by element). --model goes
+# before '-': that is the positional "read the prompt from stdin" and stays last.
+function Get-CodexArgs {
+    param([string]$Repo, [string]$AnswerPath, [string]$ModelName)
+    $a = @(
+        'exec',
+        '-C', $Repo,
+        '--sandbox', 'read-only',
+        '--skip-git-repo-check',
+        '-o', $AnswerPath
+    )
+    if ($ModelName) { $a += @('--model', $ModelName) }
+    $a += '-'
+    return $a
+}
+
+# One line naming the codex home and model. Path and model name only - never
+# anything read out of the home itself. The log and the appended section both
+# take this string, so the two cannot disagree about what ran.
+function Get-CodexRunLine {
+    param([string]$HomeDir, [string]$ModelName)
+    $m = if ($ModelName) { $ModelName } else { '(codex default)' }
+    return ('CODEX_HOME=' + $HomeDir + ' | model=' + $m)
+}
+
+# The failure hint that goes into the log.
+#
+# Measured 2026-09-25: from 2026-09-18 every scheduled run logged only
+# "codex.cmd : OpenAI Codex v0.154.0". That is the version banner, which is
+# always the FIRST stderr line, while the cause ("ERROR: stream disconnected
+# before completion: You have no credits remaining...") sat further down - so
+# eight days of failures carried no reason.
+#
+# Rule: the LAST line that is an "ERROR:" line, else the last non-empty line.
+# Last, not first - measured the same day on a real failing run (a fake key in
+# a scratch CODEX_HOME, same job shape): codex prints retry notices first,
+# "ERROR: Reconnecting... 1/5" to "5/5", and the terminal cause ("ERROR:
+# unexpected status 401 Unauthorized: ...") after them, so the first ERROR:
+# line is a retry notice. The last non-empty line is no better: PS wraps long
+# stderr lines in the file, so it is the tail of a wrapped message.
+# PS 5.1 also prefixes the first stderr line of a native command with
+# "<command> : " and follows it with its own error-record lines, so that prefix
+# is allowed in front of ERROR:. The match is case-insensitive on purpose: a
+# usage error from codex's argument parser reads "error:".
+#
+# Charter section 6: the old "first line only" was there so a secret-bearing
+# payload could not reach the log. A deeper line gives that up - the 401 line
+# above quotes the key, masked by OpenAI to its first and last characters - so
+# sk- key shaped tokens are masked here before anything is returned, and the
+# 200 character cap stays. NOT HANDLED (charter section 0, layer 4): other
+# secret shapes.
+function Get-StderrHint {
+    param([string[]]$Lines)
+    $pick = $null
+    foreach ($l in @($Lines)) {
+        $s = ([string]$l).Trim()
+        if ($s -match '^(?:\S+ : )?(ERROR:.*)$') { $pick = $Matches[1] }
+    }
+    if ($null -eq $pick) {
+        foreach ($l in @($Lines)) {
+            $s = ([string]$l).Trim()
+            if ($s) { $pick = $s }
+        }
+    }
+    if (-not $pick) { return '' }
+    $pick = $pick -replace '\bsk-[A-Za-z0-9_\-\*]{8,}', 'sk-<redacted>'
+    $pick = $pick -replace '[\r\n]+', ' '
+    if ($pick.Length -gt 200) { $pick = $pick.Substring(0, 200) }
+    return $pick
 }
 
 # --- HQ lag ------------------------------------------------------------------
@@ -747,6 +847,98 @@ function Invoke-SelfTest {
         }
     }
 
+    # 6. -Model / -CodexHome (infra backlog 31). Both directions, and the
+    #    default direction is held to the EXACT old list: "no --model" alone
+    #    would also pass a builder that dropped or reordered something else,
+    #    and what this change promises is that a caller passing neither gets
+    #    the old command line unchanged.
+    #    NOT MEASURED (charter section 0, layer 4): that the live call site
+    #    hands this array to codex. Reaching that line takes a real codex run,
+    #    and faking one needs an overridable binary path - the bigger hole the
+    #    verdict note in the main flow declines for the same reason.
+    $legacy    = @('exec', '-C', 'C:\hq', '--sandbox', 'read-only', '--skip-git-repo-check', '-o', 'C:\ans.txt', '-')
+    $argsNone  = @(Get-CodexArgs -Repo 'C:\hq' -AnswerPath 'C:\ans.txt' -ModelName '')
+    $argsModel = @(Get-CodexArgs -Repo 'C:\hq' -AnswerPath 'C:\ans.txt' -ModelName 'gpt-6-astra')
+    t 'model: without -Model the codex arguments are exactly the old list' `
+        (($argsNone -join '|') -ceq ($legacy -join '|')) ($argsNone -join ' ')
+    t 'model: without -Model there is no --model' ($argsNone -notcontains '--model') ($argsNone -join ' ')
+    $mi = [Array]::IndexOf($argsModel, '--model')
+    t 'model: with -Model the arguments carry --model <name>' `
+        (($mi -ge 0) -and ($argsModel[$mi + 1] -ceq 'gpt-6-astra')) ($argsModel -join ' ')
+    t 'model: the stdin marker stays the last argument' ($argsModel[-1] -ceq '-') ($argsModel -join ' ')
+
+    # 6b. the run record carries VALUES, not just a shape (the 2026-08-15
+    #     lesson: a provenance stamp printed empty as "skill live:  (deployed )").
+    #     Through the real Append-Section into a scratch report, both halves.
+    #     Report, Model and CodexHome are set here and reach Append-Section by
+    #     PowerShell's dynamic scope; the script-level values are not touched.
+    $Model     = 'gpt-6-astra'
+    $CodexHome = 'C:\home-b'
+    $secPass   = ''
+    foreach ($half in @($true, $false)) {
+        $Report = Join-Path ([System.IO.Path]::GetTempPath()) ('jj-crossverify-sec-' + $PID + '-' + [int]$half + '.md')
+        Write-Utf8 -Path $Report -Text "# scratch`r`n"
+        Append-Section -Body 'B' -Failed $half -AuditorName 'codex' -AuthorName 'claude'
+        # [string] so a report that could not be read fails the check below
+        # instead of throwing past it - a method call on $null skips the t line.
+        $sec = [string](Get-Content -LiteralPath $Report -Raw -Encoding UTF8)
+        Remove-Item -LiteralPath $Report -Force -ErrorAction SilentlyContinue
+        if (-not $half) { $secPass = $sec }
+        t ('run line: the ' + $(if ($half) { 'failure' } else { 'pass' }) + ' section names the home and the model') `
+            ($sec.Contains('codex run: `CODEX_HOME=C:\home-b | model=gpt-6-astra`')) $sec
+    }
+    t 'run line: the pass header names the -Model it ran with, not codex default' `
+        ($secPass.Contains('codex --model gpt-6-astra') -and -not $secPass.Contains('codex default')) $secPass
+    $runDefault = Get-CodexRunLine -HomeDir 'C:\home-a' -ModelName ''
+    t 'run line: without -Model it says codex default, not an empty model' `
+        ($runDefault -ceq 'CODEX_HOME=C:\home-a | model=(codex default)') $runDefault
+
+    # 7. the stderr failure hint (infra backlog 31). The sample follows the
+    #    shapes measured 2026-09-25 in the codex job's own shape (stdin pipe,
+    #    2> to a file): PS 5.1 prefixes the FIRST stderr line with
+    #    "<command> : " and adds its own error-record lines; a real failing
+    #    codex run then prints timestamped tracing lines, retry notices
+    #    "ERROR: Reconnecting... n/5", the terminal ERROR: line, and the wrapped
+    #    tail of it. So the first line is the banner, the first ERROR: line is a
+    #    retry notice and the last line is a fragment - a picker that took any
+    #    of those instead of the terminal line fails this case.
+    $errHead = @(
+        'codex.cmd : OpenAI Codex v0.154.0 (research preview)',
+        'At line:5 char:9',
+        '+         $text | & $bin @binArgs 1> $stdoutPath 2> $stderrPath',
+        '+         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
+        '    + CategoryInfo          : NotSpecified: (OpenAI Codex v0.154.0 (research preview):String) [], RemoteException',
+        '    + FullyQualifiedErrorId : NativeCommandError',
+        ' ',
+        '--------',
+        'workdir: C:\Users\ojaej\jj-company',
+        'model: gpt-6-astra',
+        '--------'
+    )
+    $errText = 'ERROR: stream disconnected before completion: You have no credits remaining.'
+    $errRun = @(
+        '2026-09-25T08:34:22.629238Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error:',
+        '401 Unauthorized, url: wss://api.openai.com/v1/responses',
+        'ERROR: Reconnecting... 1/5',
+        'ERROR: Reconnecting... 2/5',
+        $errText,
+        'key at https://platform.openai.com/account/api-keys., url: https://api.openai.com/v1/responses',
+        ' '
+    )
+    $hErr = Get-StderrHint -Lines ($errHead + $errRun)
+    t 'hint: the terminal ERROR: line is the hint (not the banner, a retry notice or a wrapped tail)' `
+        ($hErr -ceq $errText) $hErr
+    # the other direction: with no ERROR: line the last non-empty line wins
+    $hNone = Get-StderrHint -Lines ($errHead + @('last words', '   ', ''))
+    t 'hint: without an ERROR: line it is the last non-empty line, not the banner' ($hNone -ceq 'last words') $hNone
+    $hPrefixed = Get-StderrHint -Lines @('codex.cmd : ERROR: boom', 'after')
+    t 'hint: an ERROR: line in the prefixed first slot is still found' ($hPrefixed -ceq 'ERROR: boom') $hPrefixed
+    $hLong = [string](Get-StderrHint -Lines @('ERROR: ' + ('x' * 500)))
+    t 'hint: capped at 200 characters' ($hLong.Length -eq 200) ([string]$hLong.Length)
+    $hKey = [string](Get-StderrHint -Lines @('ERROR: 401 Incorrect API key provided: sk-proj-FAKEFAKEFAKEFAKE0000'))
+    t 'hint: an sk- key shaped token is masked before it can reach the log' `
+        ($hKey.Contains('sk-<redacted>') -and -not $hKey.Contains('FAKEFAKE')) $hKey
+
     if ($script:stFails -gt 0) { Write-Host ('STATUS: FAIL selftest ' + $script:stFails); return 1 }
     Write-Host 'STATUS: OK'
     return 0
@@ -789,6 +981,14 @@ if (-not $Author) {
     exit 1
 }
 Write-Log ('author: ' + $Author + ' | auditor: ' + $Auditor)
+
+# -CodexHome and -Model only steer codex. Passed with -Auditor claude they do
+# nothing, and doing nothing without a word is what charter section 0 forbids.
+foreach ($k in @('CodexHome', 'Model')) {
+    if ($Auditor -ne 'codex' -and $PSBoundParameters.ContainsKey($k)) {
+        Write-Log ('-' + $k + ' applies to -Auditor codex only; ignored for ' + $Auditor)
+    }
+}
 
 if ($Author -eq $Auditor) {
     Write-Log ('author is auditor: ' + $Author)
@@ -845,10 +1045,11 @@ if ($Auditor -eq 'codex' -and -not (Test-Path -LiteralPath (Join-Path $CodexHome
     exit 1
 }
 
-# Process-scoped only. The audit runs on the API key; JJ's ~/.codex is untouched.
+# Process-scoped only. By default the audit runs on the API-key home; -CodexHome
+# can point it at another one, still for this process alone.
 if ($Auditor -eq 'codex') {
     $env:CODEX_HOME = $CodexHome
-    Write-Log ('CODEX_HOME=' + $CodexHome)
+    Write-Log (Get-CodexRunLine -HomeDir $CodexHome -ModelName $Model)
 }
 
 $prompt = (Get-Content -LiteralPath $PromptFile -Raw -Encoding UTF8).
@@ -869,14 +1070,10 @@ $code = $null
 if ($Auditor -eq 'codex') {
     # read-only sandbox: codex may read the workspace but cannot write anything.
     # The prompt is piped on stdin so the Korean text never crosses the command line.
-    $codexArgs = @(
-        'exec',
-        '-C', $Hq,
-        '--sandbox', 'read-only',
-        '--skip-git-repo-check',
-        '-o', $answerPath,
-        '-'
-    )
+    # NOT TRUE OF THE PIPE ITSELF (infra backlog 31, measured 2026-09-25): the job
+    # sets no $OutputEncoding, so PS 5.1 sends every Hangul character as '?'. Left
+    # as is here - fixing it changes the bytes a default run sends.
+    $codexArgs = Get-CodexArgs -Repo $Hq -AnswerPath $answerPath -ModelName $Model
     # codex is a .cmd shim; Start-Process -PassThru returns $null for it, so the
     # process never launches. Invoke it directly and pipe the prompt on stdin, with
     # a background job supplying the timeout.
@@ -948,12 +1145,14 @@ if (-not $failure) {
 }
 
 if ($failure) {
-    # stderr can carry an auth or quota message; keep the first line only so no
-    # secret-bearing payload is copied into the log (charter section 6).
+    # stderr carries the auth or quota message. Get-StderrHint picks codex's LAST
+    # ERROR: line (the first line is only the version banner, the first ERROR:
+    # line a retry notice), masks key-shaped tokens and caps the length - see
+    # there for the measurements behind it.
     $hint = ''
     if (Test-Path -LiteralPath $stderrPath) {
-        $errLine = (Get-Content -LiteralPath $stderrPath -TotalCount 1 -ErrorAction SilentlyContinue)
-        if ($errLine) { $hint = ' | stderr: ' + $errLine.Substring(0, [Math]::Min(200, $errLine.Length)) }
+        $errHint = Get-StderrHint -Lines @(Get-Content -LiteralPath $stderrPath -ErrorAction SilentlyContinue)
+        if ($errHint) { $hint = ' | stderr: ' + $errHint }
     }
     Write-Log ($Auditor + ' failed: ' + $failure + $hint)
     Append-Section -Body $failure -Failed $true -AuditorName $Auditor -AuthorName $Author
